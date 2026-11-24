@@ -1,0 +1,6 @@
+{
+  "name": "SiamVisual",
+  "description": "Discover high-converting Thailand TikTok Shop products built for silent AI visual video ads, with plain-language Myanmar & English product explanations and instant zero-speech video production kits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

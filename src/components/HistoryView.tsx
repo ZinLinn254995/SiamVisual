@@ -1,0 +1,262 @@
+import { useMemo, useRef, useState } from 'react';
+import { ArrowRight, Download, Search, Trash2, Upload } from 'lucide-react';
+import { motion } from 'motion/react';
+import type { Translations } from '../i18n';
+import { getStudioFallbackImage } from '../lib/media';
+import type { Language, SavedHistoryEntry } from '../types';
+
+interface HistoryViewProps {
+  entries: SavedHistoryEntry[];
+  language: Language;
+  t: Translations;
+  onOpenEntry: (entry: SavedHistoryEntry) => void;
+  onDeleteEntry: (entryId: string) => void;
+  onExportBackup: () => void;
+  onImportBackupFile: (file: File) => void;
+  onGoDiscover: () => void;
+}
+
+export function HistoryView({
+  entries,
+  language,
+  t,
+  onOpenEntry,
+  onDeleteEntry,
+  onExportBackup,
+  onImportBackupFile,
+  onGoDiscover,
+}: HistoryViewProps) {
+  const [filterQuery, setFilterQuery] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const filteredEntries = useMemo(() => {
+    const q = filterQuery.trim().toLowerCase();
+    if (!q) return entries;
+    return entries.filter((item) => {
+      const haystack = [
+        item.product.clearTitle.my,
+        item.product.clearTitle.en,
+        item.product.thaiTitle,
+        item.product.shopName,
+        item.product.categoryLabel.my,
+        item.product.categoryLabel.en,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [entries, filterQuery]);
+
+  function formatSavedDate(iso: string): string {
+    try {
+      return new Intl.DateTimeFormat(language === 'my' ? 'my-MM' : 'en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(iso));
+    } catch {
+      return iso.slice(0, 10);
+    }
+  }
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10"
+    >
+      {/* Header & Backup / Restore Controls */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
+        <div className="max-w-2xl">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            {t.history.title}
+          </h1>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            {t.history.subtitle}
+          </p>
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 font-mono-num">
+            {t.history.savedCount(entries.length)}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={onExportBackup}
+            disabled={entries.length === 0}
+            className="h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-800 dark:text-slate-100 text-sm font-medium inline-flex items-center gap-2 hover:border-slate-300 dark:hover:border-slate-600 disabled:opacity-45 disabled:cursor-not-allowed transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+          >
+            <Download className="w-4 h-4 shrink-0" />
+            <span>{t.history.backupBtn}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="h-10 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-sm font-semibold inline-flex items-center gap-2 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+          >
+            <Upload className="w-4 h-4 shrink-0" />
+            <span>{t.history.restoreBtn}</span>
+          </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                onImportBackupFile(file);
+              }
+              e.target.value = '';
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Empty State */}
+      {entries.length === 0 ? (
+        <div className="py-16 sm:py-20 text-center max-w-md mx-auto">
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
+            {t.history.emptyTitle}
+          </h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            {t.history.emptyDesc}
+          </p>
+          <button
+            type="button"
+            onClick={onGoDiscover}
+            className="mt-6 h-11 px-5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-sm font-semibold inline-flex items-center gap-2 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+          >
+            <span>{t.history.goDiscover}</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Filter Bar */}
+          <div className="mt-6 max-w-md">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                placeholder={t.history.searchPlaceholder}
+                className="w-full h-11 pl-10 pr-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B24] text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+          </div>
+
+          {/* Saved Entries Grid */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredEntries.map((entry) => {
+              const fallback = getStudioFallbackImage(entry.product.category);
+              const isConfirming = confirmDeleteId === entry.id;
+
+              return (
+                <article
+                  key={entry.id}
+                  className="flex flex-col bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden"
+                >
+                  <div className="flex items-start gap-4 p-4">
+                    <img
+                      src={entry.product.imageUrl || fallback}
+                      alt={entry.product.clearTitle[language]}
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        if (e.currentTarget.src !== fallback) {
+                          e.currentTarget.src = fallback;
+                        }
+                      }}
+                      className="w-20 h-20 rounded-lg object-cover bg-slate-100 dark:bg-slate-900 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        <span>{t.styles[entry.plan.style]}</span>
+                        <span className="mx-1.5" aria-hidden="true">·</span>
+                        <span className="font-mono-num">{formatSavedDate(entry.savedAt)}</span>
+                      </div>
+                      <h3 className="mt-1 font-display text-sm font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">
+                        {entry.product.clearTitle[language]}
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 truncate">
+                        {entry.product.thaiTitle}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="px-4 pb-4 mt-auto">
+                    <div className="pt-3 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between text-xs font-mono-num">
+                      <span className="text-slate-800 dark:text-slate-200 font-semibold">
+                        {entry.product.priceThb !== null
+                          ? `฿${entry.product.priceThb.toLocaleString()}`
+                          : '—'}
+                      </span>
+                      <span className="text-teal-700 dark:text-teal-400 font-medium">
+                        {entry.product.commissionRate !== null
+                          ? `${entry.product.commissionRate}%${
+                              entry.product.commissionThb !== null
+                                ? ` · ฿${entry.product.commissionThb.toLocaleString()}`
+                                : ''
+                            }`
+                          : '—'}
+                      </span>
+                    </div>
+
+                    <div className="mt-3.5 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onOpenEntry(entry)}
+                        className="flex-1 h-10 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer"
+                      >
+                        <span>{t.history.openPlan}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+
+                      {isConfirming ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onDeleteEntry(entry.id);
+                              setConfirmDeleteId(null);
+                            }}
+                            className="h-10 px-3 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold whitespace-nowrap cursor-pointer"
+                          >
+                            {t.history.confirmDelete}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="h-10 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap cursor-pointer"
+                          >
+                            {t.history.cancel}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(entry.id)}
+                          aria-label={t.history.deleteBtn}
+                          title={t.history.deleteBtn}
+                          className="h-10 w-10 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-red-600 hover:border-red-200 dark:hover:border-red-900/60 transition-colors duration-150 shrink-0 cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </motion.section>
+  );
+}
