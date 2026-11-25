@@ -117,6 +117,7 @@ interface ScoreRingProps {
   grade: ScoreGrade;
   size?: number;
   strokeWidth?: number;
+  className?: string;
 }
 
 export function ScoreRing({
@@ -124,24 +125,30 @@ export function ScoreRing({
   grade,
   size = 44,
   strokeWidth = 3.5,
+  className,
 }: ScoreRingProps) {
   const safeScore = Math.max(0, Math.min(100, Math.round(score)));
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - safeScore / 100);
   const tone = getScoreTone(grade);
-  const isLarge = size >= 60;
+  const textSizeClass =
+    size >= 60
+      ? 'text-xl'
+      : size >= 50
+        ? 'text-sm sm:text-base'
+        : size <= 32
+          ? 'text-[11px]'
+          : 'text-xs';
 
   return (
     <div
-      className="relative inline-flex items-center justify-center shrink-0 select-none"
-      style={{ width: size, height: size }}
+      className={`relative inline-flex items-center justify-center shrink-0 select-none ${className ?? ''}`}
+      style={className ? undefined : { width: size, height: size }}
     >
       <svg
-        width={size}
-        height={size}
         viewBox={`0 0 ${size} ${size}`}
-        className="-rotate-90"
+        className="w-full h-full -rotate-90"
         aria-hidden="true"
       >
         <circle
@@ -166,9 +173,7 @@ export function ScoreRing({
         />
       </svg>
       <span
-        className={`absolute font-mono-num font-bold leading-none ${tone.textClass} ${
-          isLarge ? 'text-xl' : 'text-xs'
-        }`}
+        className={`absolute font-mono-num font-bold leading-none ${tone.textClass} ${textSizeClass}`}
       >
         {safeScore}
       </span>

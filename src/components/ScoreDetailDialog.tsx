@@ -128,7 +128,7 @@ export function ScoreDetailDialog({
                       id="score-dialog-title"
                       className="mt-1 font-display text-base font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2"
                     >
-                      {product.clearTitle[language]}
+                      {product.thaiTitle}
                     </h2>
                   </div>
                 </div>

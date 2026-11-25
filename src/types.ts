@@ -3,6 +3,10 @@ export type Theme = 'light' | 'dark';
 export type VisualStyle = 'cinematic' | 'asmr' | 'before_after' | 'problem_fix';
 export type SearchDateRange = 'last7Day' | 'last30Day';
 export type SearchSortBy = 'revenue' | 'growth';
+export type ResultViewMode = 'grid' | 'list';
+export type ResultGridCols = 1 | 2 | 3 | 4 | 5;
+export type ResultListZoom = 0 | 1 | 2;
+export type CardDensity = 'spacious' | 'standard' | 'compact' | 'micro';
 
 export type CategoryKey =
   | 'all'
@@ -30,7 +34,55 @@ export interface ProductDeepInsights {
   highlights?: string[];
   painPoints?: string[];
   usageScenarios?: string[];
+  fetchedDetails?: boolean;
+  fetchedSpecs?: boolean;
+  fetchedComments?: boolean;
   fetchedAt: string;
+}
+
+export interface ProductKalodataMetrics {
+  salesVolume7d?: number | null;
+  revenueThb7d?: number | null;
+  videoRevenueThb7d?: number | null;
+  liveRevenueThb7d?: number | null;
+  revenueGrowthRate?: number | null;
+  creatorCount?: number | null;
+  rating?: number | null;
+  reviewCount?: number | null;
+  dateRange?: string;
+}
+
+export type ProductAnalysisDecision = 'strong_go' | 'test_carefully' | 'need_more_data';
+
+export interface ProductAiAnalysis {
+  analyzedAt: string;
+  dataSnapshot: {
+    hasSalesMetrics: boolean;
+    hasDetails: boolean;
+    hasSpecs: boolean;
+    hasComments: boolean;
+  };
+  cleanName: BilingualText;
+  productOverview: BilingualText;
+  salesAndPricingAudit: BilingualText;
+  profitCalculation: BilingualText;
+  silentVideoVerdict: BilingualText;
+  visualAngles: {
+    my: string[];
+    en: string[];
+  };
+  deepDataSpecsAudit: BilingualText;
+  deepDataBuyerAudit: BilingualText;
+  risks: {
+    my: string[];
+    en: string[];
+  };
+  missingDataNotes: {
+    my: string[];
+    en: string[];
+  };
+  decision: ProductAnalysisDecision;
+  bottomLine: BilingualText;
 }
 
 export type ScoreGrade = 'top' | 'strong' | 'fair' | 'low';
@@ -53,6 +105,7 @@ export interface ProductItem {
   whySilentWorks: BilingualText;
   category: Exclude<CategoryKey, 'all'>;
   categoryLabel: BilingualText;
+  kalodataCategoryId?: string;
   shopName: string;
   priceThb: number | null;
   commissionRate: number | null;
@@ -62,7 +115,9 @@ export interface ProductItem {
   visualTags: string[];
   aiEnriched?: boolean;
   scoreBreakdown?: ProductScoreBreakdown;
+  kalodataMetrics?: ProductKalodataMetrics;
   deepInsights?: ProductDeepInsights;
+  aiAnalysis?: ProductAiAnalysis;
 }
 
 export interface VisualHook {
@@ -107,6 +162,7 @@ export interface VideoAdPlan {
   aiVideoPrompts: AiPromptItem[];
   aiImagePrompts: AiPromptItem[];
   seo: TikTokSeoPack;
+  masterVideoPrompt?: BilingualText;
   usedDeepInsights?: boolean;
 }
 
@@ -114,7 +170,7 @@ export interface SavedHistoryEntry {
   id: string;
   savedAt: string;
   product: ProductItem;
-  plan: VideoAdPlan;
+  plan?: VideoAdPlan;
 }
 
 export interface KalodataCreditBalance {
@@ -158,6 +214,7 @@ export interface RecentSearchEntry {
 
 export interface SavedDeepInsightRecord {
   deepInsights: ProductDeepInsights;
+  kalodataMetrics?: ProductKalodataMetrics;
   shopName?: string;
   imageUrl?: string;
   savedAt: string;
@@ -165,10 +222,11 @@ export interface SavedDeepInsightRecord {
 
 export interface BackupPayload {
   app: 'SiamVisual';
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   exportedAt: string;
   entries: SavedHistoryEntry[];
   limits?: KalodataLimitSettings;
   recentSearches?: RecentSearchEntry[];
   deepInsightsCache?: Record<string, SavedDeepInsightRecord>;
+  productAnalysisCache?: Record<string, ProductAiAnalysis>;
 }

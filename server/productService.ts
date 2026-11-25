@@ -2,11 +2,20 @@ import { ThinkingLevel, Type } from '@google/genai';
 import type {
   CategoryKey,
   KalodataCreditBalance,
+  ProductAiAnalysis,
+  ProductAnalysisDecision,
   ProductItem,
   VideoAdPlan,
   VisualStyle,
 } from '../src/types.ts';
-import { GEMINI_MODEL, getGeminiClient, sanitizeExternalUrl, withRetry } from './gemini.ts';
+import {
+  inferSpecificProductCategory,
+  translateCategoryNameToMyanmar,
+} from '../src/lib/categoryTranslations.ts';
+import {
+  generateStructuredJsonStream,
+  sanitizeExternalUrl,
+} from './gemini.ts';
 import {
   type CreditGuardrails,
   fetchKalodataThailandProducts,
@@ -33,25 +42,72 @@ const CATEGORY_LABELS: Record<Exclude<CategoryKey, 'all'>, { my: string; en: str
   pet: { my: 'အိမ်မွေးတိရစ္ဆာန်သုံး', en: 'Pet Supplies' },
 };
 
-function normalizeCategory(raw: string, fallback: Exclude<CategoryKey, 'all'>): Exclude<CategoryKey, 'all'> {
-  const lower = raw.toLowerCase();
-  if (lower.includes('beaut') || lower.includes('skin') || lower.includes('cosmet') || lower.includes('hair') || lower.includes('personal')) {
+const KNOWN_CATE_ID_GROUP: Record<string, Exclude<CategoryKey, 'all'>> = {
+  '601450': 'beauty',
+  '600001': 'home',
+  '600024': 'home',
+  '601739': 'gadget',
+  '601152': 'fashion',
+  '700645': 'wellness',
+  '602118': 'pet',
+  '605196': 'gadget',
+  '824328': 'fashion',
+  '601226': 'fashion',
+  '601352': 'fashion',
+  '601303': 'fashion',
+  '700437': 'wellness',
+  '603014': 'wellness',
+  '602284': 'wellness',
+  '600942': 'gadget',
+};
+
+function normalizeCategory(
+  raw: string,
+  fallback: Exclude<CategoryKey, 'all'>,
+  thaiTitle = '',
+  rawCategoryId?: string
+): Exclude<CategoryKey, 'all'> {
+  if (rawCategoryId && KNOWN_CATE_ID_GROUP[rawCategoryId]) {
+    return KNOWN_CATE_ID_GROUP[rawCategoryId];
+  }
+  const combined = `${raw} ${thaiTitle}`.toLowerCase();
+  if (
+    /beaut|skin|cosmet|hair|personal care|serum|cream|lip|sunscreen|shampoo|makeup|perfume|เซรั่ม|ครีม|ลิป|กันแดด|แชมพู|สบู่|มาส์ก|สกินแคร์|บำรุงผิว|ผิวหน้า|เครื่องสำอาง|น้ำหอม|ยาสระผม/.test(
+      combined
+    )
+  ) {
     return 'beauty';
   }
-  if (lower.includes('home') || lower.includes('kitchen') || lower.includes('clean') || lower.includes('decor')) {
-    return 'home';
-  }
-  if (lower.includes('gadget') || lower.includes('tech') || lower.includes('elec') || lower.includes('phone') || lower.includes('auto')) {
-    return 'gadget';
-  }
-  if (lower.includes('fash') || lower.includes('bag') || lower.includes('cloth') || lower.includes('wear') || lower.includes('shoe') || lower.includes('jewel')) {
-    return 'fashion';
-  }
-  if (lower.includes('pet') || lower.includes('cat') || lower.includes('dog')) {
+  if (/pet|cat|dog|แมว|หมา|สุนัข|สัตว์เลี้ยง|ทรายแมว|อาหารแมว|อาหารสุนัข/.test(combined)) {
     return 'pet';
   }
-  if (lower.includes('well') || lower.includes('health') || lower.includes('massag') || lower.includes('tumbl')) {
+  if (
+    /fash|bag|cloth|wear|shoe|jewel|dress|shirt|pant|bra|underwear|เสื้อ|กางเกง|เดรส|กระโปรง|ชุดชั้นใน|บรา|รองเท้า|กระเป๋า|แฟชั่น|หมวก|แว่นตา|นาฬิกา/.test(
+      combined
+    )
+  ) {
+    return 'fashion';
+  }
+  if (
+    /gadget|tech|elec|phone|auto|moto|appliance|charger|earbud|bluetooth|powerbank|camera|fan|vacuum|โทรศัพท์|มือถือ|เคส|สายชาร์จ|หูฟัง|พาวเวอร์แบงค์|ลำโพง|พัดลม|กล้อง|รถยนต์|มอเตอร์ไซค์|เครื่องดูดฝุ่น|ไดร์เป่าผม/.test(
+      combined
+    )
+  ) {
+    return 'gadget';
+  }
+  if (
+    /well|health|massag|vitamin|collagen|supplement|food|beverage|snack|coffee|tea|baby|maternity|sport|fitness|วิตามิน|คอลลาเจน|อาหารเสริม|สุขภาพ|กาแฟ|ชา|ขนม|โปรตีน|นวด|เด็ก|ทารก|ผ้าอ้อม|กีฬา|ออกกำลังกาย/.test(
+      combined
+    )
+  ) {
     return 'wellness';
+  }
+  if (
+    /home|kitchen|clean|decor|furniture|bedding|pillow|towel|tool|hardware|ครัว|กระทะ|หม้อ|แก้ว|ขวดน้ำ|ทำความสะอาด|ชั้นวาง|ผ้าปู|หมอน|ผ้าห่ม|เฟอร์นิเจอร์|โต๊ะ|เก้าอี้|สว่าน|หลอดไฟ/.test(
+      combined
+    )
+  ) {
+    return 'home';
   }
   if ((VALID_CATEGORIES as readonly string[]).includes(fallback)) {
     return fallback;
@@ -150,9 +206,34 @@ export interface KalodataProductSearchOutput {
 
 function buildScoredKalodataItem(
   raw: KalodataRawProduct,
-  fallbackGroup: Exclude<CategoryKey, 'all'>
+  _fallbackGroup: Exclude<CategoryKey, 'all'>,
+  searchedCateMeta?: { id: string; my?: string; en?: string }
 ): ProductItem {
-  const normalizedCat = normalizeCategory(raw.categoryHint || '', fallbackGroup);
+  const effectiveCateId = raw.rawCategoryId || searchedCateMeta?.id || undefined;
+  const inferred = inferSpecificProductCategory({
+    categoryId: effectiveCateId,
+    categoryHint: raw.categoryHint,
+    thaiTitle: raw.thaiTitle,
+    shopName: raw.shopName,
+  });
+
+  // If the user explicitly searched a single live-synced category and Kalodata omitted category_name on the row,
+  // use the exact searched category's localized label so every item reflects that real category.
+  const categoryLabel =
+    raw.categoryHint
+      ? inferred.label
+      : searchedCateMeta?.en
+        ? {
+            my:
+              searchedCateMeta.my && /[\u1000-\u109F]/.test(searchedCateMeta.my)
+                ? searchedCateMeta.my
+                : translateCategoryNameToMyanmar(searchedCateMeta.en, searchedCateMeta.id),
+            en: searchedCateMeta.en,
+          }
+        : inferred.label;
+
+  const normalizedCat = inferred.visualGroup;
+
   const priceThb = raw.priceThb;
   const commissionRate = raw.commissionRate;
   const commissionThb =
@@ -190,7 +271,8 @@ function buildScoredKalodataItem(
       en: '',
     },
     category: normalizedCat,
-    categoryLabel: CATEGORY_LABELS[normalizedCat],
+    categoryLabel,
+    ...(effectiveCateId ? { kalodataCategoryId: effectiveCateId } : {}),
     shopName: raw.shopName,
     priceThb,
     commissionRate,
@@ -200,6 +282,7 @@ function buildScoredKalodataItem(
     visualTags: [],
     aiEnriched: false,
     scoreBreakdown,
+    kalodataMetrics: raw.kalodataMetrics,
     ...(raw.description
       ? {
           deepInsights: {
@@ -211,49 +294,11 @@ function buildScoredKalodataItem(
   };
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label}_TIMEOUT`)), ms);
-    promise.then(
-      (val) => {
-        clearTimeout(timer);
-        resolve(val);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      }
-    );
-  });
-}
 
-function selectTopCandidatesForAi(
-  rows: KalodataRawProduct[],
-  limit = 8
-): KalodataRawProduct[] {
-  if (rows.length <= limit) return rows;
-  return [...rows]
-    .sort((a, b) => {
-      const scoreA =
-        a.videoRevenueThb7d * 1.6 +
-        a.revenueThb7d +
-        (a.commissionRate ?? 0) * 600 +
-        (a.imageUrl ? 500 : 0);
-      const scoreB =
-        b.videoRevenueThb7d * 1.6 +
-        b.revenueThb7d +
-        (b.commissionRate ?? 0) * 600 +
-        (b.imageUrl ? 500 : 0);
-      return scoreB - scoreA;
-    })
-    .slice(0, limit);
-}
 
 async function enrichChunkWithGemini(
   chunk: KalodataRawProduct[]
 ): Promise<RawAiEnrichment[]> {
-  const ai = getGeminiClient();
-
   const enrichPrompt = `You are a Thailand TikTok Shop affiliate specialist and silent-video creative director helping a Myanmar & English creator understand real Kalodata Thailand TikTok Shop products.
 
 Real Kalodata Thailand TikTok Shop Products (JSON):
@@ -283,25 +328,18 @@ For EVERY product in the JSON list above (keep the exact same "id"), return a JS
    - needsExplanationPenalty (0-40): higher if the product requires spoken explanation.
 Do NOT invent new products. Only evaluate the exact Kalodata product IDs provided.`;
 
-  const structuredResponse = await withTimeout(
-    withRetry(() =>
-      ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: enrichPrompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: enrichmentListSchema,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        },
-      })
-    ),
-    35000,
-    'AI_ENRICH'
-  );
+  const parsed = await generateStructuredJsonStream<RawAiEnrichment[]>({
+    contents: enrichPrompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: enrichmentListSchema,
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+    },
+    timeoutMs: 35000,
+    label: 'AI_ENRICH',
+  });
 
-  const rawText = (structuredResponse.text ?? '[]').trim();
-  const parsed = JSON.parse(rawText);
-  return Array.isArray(parsed) ? (parsed as RawAiEnrichment[]) : [];
+  return Array.isArray(parsed) ? parsed : [];
 }
 
 async function runGeminiEnrichmentAndRank(
@@ -374,6 +412,7 @@ async function runGeminiEnrichmentAndRank(
       productUrl: sanitizeExternalUrl(raw.productUrl),
       visualTags: Array.isArray(info?.visualTags) ? info.visualTags.slice(0, 3) : [],
       aiEnriched: Boolean(info),
+      kalodataMetrics: raw.kalodataMetrics,
       ...(raw.description
         ? {
             deepInsights: {
@@ -409,6 +448,7 @@ async function runGeminiEnrichmentAndRank(
 export async function searchSilentVisualProducts(params: {
   query: string;
   cateIds: string[];
+  selectedCategoryMeta?: { id: string; my?: string; en?: string } | null;
   forceRefresh?: boolean;
   guardrails?: CreditGuardrails;
 }): Promise<KalodataProductSearchOutput> {
@@ -477,11 +517,17 @@ export async function searchSilentVisualProducts(params: {
   }
 
   const fallbackGroup = resolveVisualGroupFromCateIds(params.cateIds);
+  const singleSearchedCateMeta =
+    params.cateIds.length === 1
+      ? params.selectedCategoryMeta && params.selectedCategoryMeta.id === params.cateIds[0]
+        ? params.selectedCategoryMeta
+        : { id: params.cateIds[0] }
+      : undefined;
 
-  // Instant Score Engine on all 20 Kalodata products (NO auto-AI call — user runs AI Explain manually!)
+  // Instant Score Engine on all 20 Kalodata products (NO auto-AI call — user runs Studio AI Analysis manually!)
   const scoredProducts = kalodataProducts
     .slice(0, 20)
-    .map((raw) => buildScoredKalodataItem(raw, fallbackGroup))
+    .map((raw) => buildScoredKalodataItem(raw, fallbackGroup, singleSearchedCateMeta))
     .sort((a, b) => (b.scoreBreakdown?.total ?? 0) - (a.scoreBreakdown?.total ?? 0));
 
   return {
@@ -504,10 +550,11 @@ export async function explainExistingProducts(
     shopName: p.shopName,
     priceThb: p.priceThb,
     commissionRate: p.commissionRate,
-    salesVolume7d: 0,
-    revenueThb7d: 0,
-    videoRevenueThb7d: 0,
-    revenueGrowthRate: 0,
+    salesVolume7d: p.kalodataMetrics?.salesVolume7d ?? 0,
+    revenueThb7d: p.kalodataMetrics?.revenueThb7d ?? 0,
+    videoRevenueThb7d: p.kalodataMetrics?.videoRevenueThb7d ?? 0,
+    revenueGrowthRate: p.kalodataMetrics?.revenueGrowthRate ?? 0,
+    kalodataMetrics: p.kalodataMetrics ?? {},
     categoryHint: p.category,
     imageUrl: p.imageUrl,
     productUrl: p.productUrl,
@@ -521,16 +568,17 @@ export async function explainExistingProducts(
     rawBatch.length
   );
 
-  // Preserve any existing full deepInsights (highlights, painPoints, usageScenarios)
+  // Preserve any existing full deepInsights, kalodataMetrics, and aiAnalysis
   return result.products.map((item) => {
     const prev = existingMap.get(item.id);
-    if (prev?.deepInsights) {
-      return {
-        ...item,
-        deepInsights: prev.deepInsights,
-      };
-    }
-    return item;
+    if (!prev) return item;
+    return {
+      ...item,
+      kalodataCategoryId: prev.kalodataCategoryId ?? item.kalodataCategoryId,
+      kalodataMetrics: prev.kalodataMetrics ?? item.kalodataMetrics,
+      deepInsights: prev.deepInsights ?? item.deepInsights,
+      aiAnalysis: prev.aiAnalysis,
+    };
   });
 }
 
@@ -617,6 +665,7 @@ const videoPlanSchema = {
       },
       required: ['captionTh', 'captionMeaning', 'hashtags', 'keywords', 'postingTip'],
     },
+    masterVideoPrompt: bilingualSchema,
   },
   required: [
     'conceptTitle',
@@ -627,6 +676,7 @@ const videoPlanSchema = {
     'aiVideoPrompts',
     'aiImagePrompts',
     'seo',
+    'masterVideoPrompt',
   ],
 };
 
@@ -639,10 +689,9 @@ const STYLE_DIRECTIONS: Record<VisualStyle, string> = {
 
 export async function generateSilentVideoPlan(
   product: ProductItem,
-  style: VisualStyle
+  style: VisualStyle,
+  onProgress?: () => void
 ): Promise<VideoAdPlan> {
-  const ai = getGeminiClient();
-
   const priceLine =
     product.priceThb !== null ? `฿${product.priceThb} THB` : 'Not specified';
   const commissionLine =
@@ -652,73 +701,67 @@ export async function generateSilentVideoPlan(
 
   const deepBlocks: string[] = [];
   if (product.deepInsights?.description) {
-    deepBlocks.push(`Seller Description (Kalodata): ${product.deepInsights.description}`);
+    deepBlocks.push(`Seller Description (Kalodata): ${product.deepInsights.description.slice(0, 450)}`);
   }
   if (product.deepInsights?.highlights?.length) {
-    deepBlocks.push(`Key Selling Highlights (Kalodata): ${product.deepInsights.highlights.join(', ')}`);
+    deepBlocks.push(`Key Selling Highlights (Kalodata): ${product.deepInsights.highlights.slice(0, 6).join(', ')}`);
   }
   if (product.deepInsights?.painPoints?.length) {
-    deepBlocks.push(`Real Thai Buyer Pain Points (Kalodata Reviews): ${product.deepInsights.painPoints.join('; ')}`);
+    deepBlocks.push(`Real Thai Buyer Pain Points (Kalodata Reviews): ${product.deepInsights.painPoints.slice(0, 4).join('; ')}`);
   }
   if (product.deepInsights?.usageScenarios?.length) {
-    deepBlocks.push(`Real Usage Scenarios (Kalodata Reviews): ${product.deepInsights.usageScenarios.join('; ')}`);
+    deepBlocks.push(`Real Usage Scenarios (Kalodata Reviews): ${product.deepInsights.usageScenarios.slice(0, 4).join('; ')}`);
   }
 
   const hasDeepInsights = deepBlocks.length > 0;
+  const displayEn =
+    product.aiAnalysis?.cleanName?.en?.trim() || product.clearTitle.en || product.thaiTitle;
+  const displayMy =
+    product.aiAnalysis?.cleanName?.my?.trim() || product.clearTitle.my || product.thaiTitle;
 
-  const prompt = `Create a complete, high-converting, 100% SILENT (ZERO SPOKEN DIALOGUE, ZERO VOICEOVER) AI visual TikTok Shop Thailand video production kit for this Kalodata Thailand TikTok Shop product:
+  const prompt = `Create a crisp, high-converting, 100% SILENT (ZERO SPOKEN DIALOGUE, ZERO VOICEOVER) AI visual TikTok Shop Thailand video kit:
 
-Product (English): ${product.clearTitle.en}
-Product (Myanmar): ${product.clearTitle.my}
-Original Thai Listing: ${product.thaiTitle}
-What it is: ${product.whatItIs.en}
-Why silent visuals sell it: ${product.whySilentWorks.en || 'Visual product demonstration'}
-Price: ${priceLine} | Affiliate Commission: ${commissionLine}
-Requested Visual Style: ${STYLE_DIRECTIONS[style]}
-${hasDeepInsights ? `\nVERIFIED KALODATA DEEP INSIGHTS (weave these real selling points & buyer pain points visually into the hooks, scenes, and Thai copy!):\n${deepBlocks.join('\n')}` : ''}
+Product (EN): ${displayEn}
+Product (MY): ${displayMy}
+Thai Listing: ${product.thaiTitle}
+Price: ${priceLine} | Commission: ${commissionLine}
+Visual Style: ${STYLE_DIRECTIONS[style]}
+${hasDeepInsights ? `\nKALODATA DEEP INSIGHTS:\n${deepBlocks.join('\n')}` : ''}
 
-CRITICAL RULES:
-1. STRICTLY NO TALKING, NO VOICEOVER, NO SPOKEN SCRIPT, NO LIP-SYNC. The entire 15-second TikTok ad sells purely through clean, mesmerizing AI visuals, crisp camera motion, subtle ASMR/music beats, and ultra-short Thai on-screen text overlays.
-2. Provide ALL creator explanations, titles, hooks, storyboard actions, and tips in BOTH natural idiomatic Myanmar (my) and clear English (en).
-3. Provide all buyer-facing TikTok text (onScreenTextTh, captionTh) in natural, high-converting Thai (ภาษาไทย) tailored for Thailand TikTok Shop shoppers (including a soft CTA to the yellow basket ตะกร้าเหลือง), along with exact Myanmar & English meanings so the creator understands every Thai line.
-4. hooks: Exactly 3 distinct 0–3 second silent visual hooks.
-5. storyboard: Exactly 4 to 5 tight scenes covering 0–15 seconds (e.g. "0–3s", "3–6s", "6–10s", "10–13s", "13–15s").
-6. aiVideoPrompts: Exactly 3 ready-to-paste English prompts tailored for AI video tools (Veo / Kling / Runway / Sora) — each must specify vertical 9:16 aspect ratio, lighting, camera movement, tactile product details, and explicitly end with "silent visual commercial, no dialogue, no talking, photorealistic 4K".
-7. aiImagePrompts: Exactly 2 ready-to-paste English start-frame keyframe image prompts (vertical 9:16, studio commercial photography, no text).
-8. seo: High-converting Thai caption, 8–10 real Thailand TikTok Shop hashtags (starting with #), 5–6 TikTok TH search keywords, and 1 practical posting tip.`;
+STRICT RULES (ULTRA-CONCISE FOR FAST RESPONSE):
+1. ZERO TALKING / VOICEOVER. Sell purely via AI visuals, camera motion, ASMR beats, and ultra-short Thai text overlays.
+2. Fill every bilingual field in natural Myanmar ("my") and clear English ("en") — max 1 short punchy sentence (10–18 words) per field.
+3. Natural Thailand TikTok Shop Thai for onScreenTextTh and captionTh (include soft CTA to ตะกร้าเหลือง).
+4. hooks: 3 distinct 0–3s visual hooks (short title + 1-line visual action + 3–5 word Thai overlay).
+5. storyboard: 4 tight scenes ("0-3s", "3-7s", "7-11s", "11-15s"), ultra-short 1-line visual, camera, ASMR sound, and Thai text.
+6. aiVideoPrompts: 3 ready-to-paste English prompts (25–40 words each, vertical 9:16, ending with "silent visual commercial, no dialogue, photorealistic 4K").
+7. aiImagePrompts: 2 ready-to-paste English start-frame prompts (20–30 words each, vertical 9:16, studio photo, no text).
+8. seo: 2-line Thai caption, 6 Thailand TikTok Shop hashtags (#...), 4 search keywords, 1 short posting tip.
+9. masterVideoPrompt: 1 comprehensive, all-in-one English master video prompt (80-120 words) that compiles the entire 0-15s silent video sequence (Hook + Scene 1 + Scene 2 + Scene 3 + Scene 4 + ASMR audio cues + Thai text overlays) into a single master prompt for Veo/Kling/Runway/Sora, plus its Myanmar translation.`;
 
-  const response = await withTimeout(
-    withRetry(() =>
-      ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: videoPlanSchema,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        },
-      })
-    ),
-    40000,
-    'VIDEO_PLAN'
-  );
-
-  const rawText = (response.text ?? '{}').trim();
-  let data: Omit<VideoAdPlan, 'id' | 'productId' | 'style' | 'createdAt'>;
-  try {
-    data = JSON.parse(rawText) as Omit<VideoAdPlan, 'id' | 'productId' | 'style' | 'createdAt'>;
-  } catch {
-    throw new Error('INVALID_PLAN_RESPONSE');
-  }
+  const data = await generateStructuredJsonStream<
+    Omit<VideoAdPlan, 'id' | 'productId' | 'style' | 'createdAt'>
+  >({
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: videoPlanSchema,
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+    },
+    timeoutMs: 45000,
+    retries: 1,
+    label: 'VIDEO_PLAN',
+    onProgress,
+  });
 
   return {
     id: `plan_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     productId: product.id,
     style,
     createdAt: new Date().toISOString(),
-    conceptTitle: data.conceptTitle,
-    conceptSummary: data.conceptSummary,
-    visualDirection: data.visualDirection,
+    conceptTitle: data.conceptTitle || { my: displayMy, en: displayEn },
+    conceptSummary: data.conceptSummary || { my: '', en: '' },
+    visualDirection: data.visualDirection || { my: '', en: '' },
     hooks: Array.isArray(data.hooks) ? data.hooks.slice(0, 3) : [],
     storyboard: Array.isArray(data.storyboard) ? data.storyboard.slice(0, 5) : [],
     aiVideoPrompts: Array.isArray(data.aiVideoPrompts) ? data.aiVideoPrompts.slice(0, 4) : [],
@@ -732,6 +775,253 @@ CRITICAL RULES:
       keywords: Array.isArray(data.seo?.keywords) ? data.seo.keywords : [],
       postingTip: data.seo?.postingTip || { my: '', en: '' },
     },
+    masterVideoPrompt: data.masterVideoPrompt || {
+      en: `Vertical 9:16 zero-speech TikTok commercial for ${displayEn}. 0-3s hook with instant visual shock, followed by 3-15s smooth macro ASMR texture and before/after transformation. Photorealistic 4K, studio lighting, no dialogue.`,
+      my: `${displayMy} အတွက် 0 မှ 15 စက္ကန့်အထိ အစအဆုံး တစ်ခါတည်းထွက်မည့် 100% စကားမပြောဘဲ ချက်ချင်းဆွဲဆောင်မည့် 9:16 Vertical AI Video Master Prompt ဖြစ်ပါသည်။`,
+    },
     usedDeepInsights: hasDeepInsights,
+  };
+}
+
+const bilingualListSchema = {
+  type: Type.OBJECT,
+  properties: {
+    my: { type: Type.ARRAY, items: { type: Type.STRING } },
+    en: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ['my', 'en'],
+};
+
+const productAnalysisSchema = {
+  type: Type.OBJECT,
+  properties: {
+    cleanName: bilingualSchema,
+    productOverview: bilingualSchema,
+    salesAndPricingAudit: bilingualSchema,
+    profitCalculation: bilingualSchema,
+    silentVideoVerdict: bilingualSchema,
+    visualAngles: bilingualListSchema,
+    deepDataSpecsAudit: bilingualSchema,
+    deepDataBuyerAudit: bilingualSchema,
+    risks: bilingualListSchema,
+    missingDataNotes: bilingualListSchema,
+    decision: {
+      type: Type.STRING,
+      description: 'One of: strong_go, test_carefully, need_more_data',
+    },
+    bottomLine: bilingualSchema,
+  },
+  required: [
+    'cleanName',
+    'productOverview',
+    'salesAndPricingAudit',
+    'profitCalculation',
+    'silentVideoVerdict',
+    'visualAngles',
+    'deepDataSpecsAudit',
+    'deepDataBuyerAudit',
+    'risks',
+    'missingDataNotes',
+    'decision',
+    'bottomLine',
+  ],
+};
+
+function normalizeDecision(raw: unknown): ProductAnalysisDecision {
+  if (raw === 'strong_go' || raw === 'test_carefully' || raw === 'need_more_data') {
+    return raw;
+  }
+  return 'test_carefully';
+}
+
+export async function analyzeProductWithAi(
+  product: ProductItem,
+  onProgress?: () => void
+): Promise<ProductAiAnalysis> {
+  const m = product.kalodataMetrics;
+  const d = product.deepInsights;
+
+  const hasSalesVolume = typeof m?.salesVolume7d === 'number' && Number.isFinite(m.salesVolume7d);
+  const hasRevenue = typeof m?.revenueThb7d === 'number' && Number.isFinite(m.revenueThb7d);
+  const hasVideoRevenue =
+    typeof m?.videoRevenueThb7d === 'number' && Number.isFinite(m.videoRevenueThb7d);
+  const hasLiveRevenue =
+    typeof m?.liveRevenueThb7d === 'number' && Number.isFinite(m.liveRevenueThb7d);
+  const hasGrowth =
+    typeof m?.revenueGrowthRate === 'number' && Number.isFinite(m.revenueGrowthRate);
+  const hasCreatorCount = typeof m?.creatorCount === 'number' && Number.isFinite(m.creatorCount);
+  const hasRating = typeof m?.rating === 'number' && Number.isFinite(m.rating);
+  const hasReviewCount = typeof m?.reviewCount === 'number' && Number.isFinite(m.reviewCount);
+
+  const hasSalesMetrics = Boolean(hasSalesVolume || hasRevenue || hasVideoRevenue);
+  const hasDetails = Boolean(d?.description && d.description.trim());
+  const hasSpecs = Boolean(d?.highlights && d.highlights.length > 0);
+  const hasComments = Boolean(
+    (d?.painPoints && d.painPoints.length > 0) ||
+      (d?.usageScenarios && d.usageScenarios.length > 0)
+  );
+
+  // Build explicit factual inventory of available vs missing Kalodata data
+  const missingFields: string[] = [];
+  if (product.priceThb === null) missingFields.push('Price (THB)');
+  if (product.commissionRate === null) missingFields.push('Affiliate Commission Rate (%)');
+  if (!hasSalesVolume) missingFields.push('7-Day Sales Volume');
+  if (!hasRevenue) missingFields.push('7-Day Total Revenue');
+  if (!hasVideoRevenue) missingFields.push('7-Day Video Revenue');
+  if (!hasGrowth) missingFields.push('Revenue Growth Rate');
+  if (!hasDetails) missingFields.push('Kalodata Deep Data: Product Details / Seller Description');
+  if (!hasSpecs) missingFields.push('Kalodata Deep Data: Selling Specs & Highlights');
+  if (!hasComments) missingFields.push('Kalodata Deep Data: Buyer Reviews & Pain Points');
+
+  // Pre-compute deterministic math on real numbers so AI calculations are 100% accurate
+  const computedMath: Record<string, string | number | null> = {
+    priceThb: product.priceThb,
+    commissionRatePct: product.commissionRate,
+    commissionPerSaleThb: product.commissionThb,
+    salesNeededFor1000Thb:
+      product.commissionThb && product.commissionThb > 0
+        ? Math.ceil(1000 / product.commissionThb)
+        : null,
+    salesNeededFor10000Thb:
+      product.commissionThb && product.commissionThb > 0
+        ? Math.ceil(10000 / product.commissionThb)
+        : null,
+    videoRevenueSharePct:
+      hasRevenue && hasVideoRevenue && (m?.revenueThb7d ?? 0) > 0
+        ? Math.round(((m!.videoRevenueThb7d! / m!.revenueThb7d!) * 100) * 10) / 10
+        : null,
+    avgDailySales7d:
+      hasSalesVolume ? Math.round((m!.salesVolume7d! / 7) * 10) / 10 : null,
+    avgDailyRevenueThb7d:
+      hasRevenue ? Math.round(m!.revenueThb7d! / 7) : null,
+  };
+
+  const payloadForAi = {
+    productId: product.id,
+    thaiTitle: product.thaiTitle,
+    shopName: product.shopName,
+    category: product.categoryLabel.en,
+    priceThb: product.priceThb,
+    commissionRatePct: product.commissionRate,
+    commissionPerSaleThb: product.commissionThb,
+    kalodataMetrics7d: {
+      salesVolume7d: hasSalesVolume ? m?.salesVolume7d : 'NOT_AVAILABLE',
+      revenueThb7d: hasRevenue ? m?.revenueThb7d : 'NOT_AVAILABLE',
+      videoRevenueThb7d: hasVideoRevenue ? m?.videoRevenueThb7d : 'NOT_AVAILABLE',
+      liveRevenueThb7d: hasLiveRevenue ? m?.liveRevenueThb7d : 'NOT_AVAILABLE',
+      revenueGrowthRate: hasGrowth ? m?.revenueGrowthRate : 'NOT_AVAILABLE',
+      creatorCount: hasCreatorCount ? m?.creatorCount : 'NOT_AVAILABLE',
+      rating: hasRating ? m?.rating : 'NOT_AVAILABLE',
+      reviewCount: hasReviewCount ? m?.reviewCount : 'NOT_AVAILABLE',
+    },
+    precomputedMath: computedMath,
+    silentVisualScore: product.scoreBreakdown ?? 'NOT_AVAILABLE',
+    kalodataDeepData: {
+      sellerDescription: hasDetails ? d?.description?.slice(0, 450) : 'NOT_FETCHED_YET',
+      sellingSpecsHighlights: hasSpecs ? d?.highlights?.slice(0, 6) : 'NOT_FETCHED_YET',
+      buyerPainPoints: d?.painPoints?.length ? d.painPoints.slice(0, 4) : 'NOT_FETCHED_YET',
+      buyerUsageScenarios: d?.usageScenarios?.length ? d.usageScenarios.slice(0, 4) : 'NOT_FETCHED_YET',
+    },
+    missingKalodataFields: missingFields,
+  };
+
+  const prompt = `You are a strict Thailand TikTok Shop affiliate analyst evaluating a product ONLY from the Kalodata JSON below.
+
+KALODATA DATA (JSON):
+${JSON.stringify(payloadForAi)}
+
+STRICT RULES (ZERO HALLUCINATION + ULTRA-FAST CONCISE OUTPUT):
+1. Use ONLY real figures from JSON above. Never invent missing sales, revenue, specs, or reviews.
+2. For any "NOT_AVAILABLE" or "NOT_FETCHED_YET" field, state briefly in 1 short sentence in Myanmar (for 'my') and English (for 'en').
+3. Keep EVERY field crisp and compact (1–2 short sentences max; no fluff).
+4. CRITICAL LANGUAGE REQUIREMENT: Write all analysis and explanation sentences inside 'my' in fluent, natural Myanmar (Burmese) language (သုံးသပ်ချက်စာသားများကို မြန်မာဘာသာဖြင့်သာ ရေးပါ), and 'en' in English.
+5. DO NOT TRANSLATE THE PRODUCT NAME: Never translate the product name (thaiTitle) or brand/shop name into Myanmar. Keep the product name in its original form ("${product.thaiTitle}").
+
+FIELDS:
+- cleanName: Keep the original product name as-is (do not translate into Myanmar).
+- productOverview: 1–2 short sentences explaining what the product is and how it works (in Myanmar for 'my', English for 'en', without translating the product's proper name).
+- salesAndPricingAudit: 1–2 short sentences on 7d sales, revenue, video share, growth & price.
+- profitCalculation: 1–2 short sentences using exact precomputedMath (THB/sale, units for ฿1,000 & ฿10,000).
+- silentVideoVerdict: 1–2 short sentences on zero-speech AI visual ad fit.
+- visualAngles: 2–3 short visual hooks.
+- deepDataSpecsAudit: 1 short sentence on description/highlights.
+- deepDataBuyerAudit: 1 short sentence on buyer pain points/usage.
+- risks: 2–3 brief real risks visible in data.
+- missingDataNotes: Short items from missingKalodataFields (empty array if none).
+- decision: "strong_go" | "test_carefully" | "need_more_data".
+- bottomLine: 1 punchy sentence with next action.`;
+
+  const parsed = await generateStructuredJsonStream<
+    Omit<ProductAiAnalysis, 'analyzedAt' | 'dataSnapshot'>
+  >({
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: productAnalysisSchema,
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+    },
+    timeoutMs: 45000,
+    retries: 1,
+    label: 'PRODUCT_ANALYSIS',
+    onProgress,
+  });
+
+  return {
+    analyzedAt: new Date().toISOString(),
+    dataSnapshot: {
+      hasSalesMetrics,
+      hasDetails,
+      hasSpecs,
+      hasComments,
+    },
+    cleanName: {
+      my: product.thaiTitle,
+      en: product.thaiTitle,
+    },
+    productOverview: {
+      my: parsed.productOverview?.my?.trim() || '',
+      en: parsed.productOverview?.en?.trim() || '',
+    },
+    salesAndPricingAudit: {
+      my: parsed.salesAndPricingAudit?.my?.trim() || '',
+      en: parsed.salesAndPricingAudit?.en?.trim() || '',
+    },
+    profitCalculation: {
+      my: parsed.profitCalculation?.my?.trim() || '',
+      en: parsed.profitCalculation?.en?.trim() || '',
+    },
+    silentVideoVerdict: {
+      my: parsed.silentVideoVerdict?.my?.trim() || '',
+      en: parsed.silentVideoVerdict?.en?.trim() || '',
+    },
+    visualAngles: {
+      my: Array.isArray(parsed.visualAngles?.my) ? parsed.visualAngles.my.slice(0, 4) : [],
+      en: Array.isArray(parsed.visualAngles?.en) ? parsed.visualAngles.en.slice(0, 4) : [],
+    },
+    deepDataSpecsAudit: {
+      my: parsed.deepDataSpecsAudit?.my?.trim() || '',
+      en: parsed.deepDataSpecsAudit?.en?.trim() || '',
+    },
+    deepDataBuyerAudit: {
+      my: parsed.deepDataBuyerAudit?.my?.trim() || '',
+      en: parsed.deepDataBuyerAudit?.en?.trim() || '',
+    },
+    risks: {
+      my: Array.isArray(parsed.risks?.my) ? parsed.risks.my.slice(0, 5) : [],
+      en: Array.isArray(parsed.risks?.en) ? parsed.risks.en.slice(0, 5) : [],
+    },
+    missingDataNotes: {
+      my: Array.isArray(parsed.missingDataNotes?.my)
+        ? parsed.missingDataNotes.my.slice(0, 8)
+        : [],
+      en: Array.isArray(parsed.missingDataNotes?.en)
+        ? parsed.missingDataNotes.en.slice(0, 8)
+        : [],
+    },
+    decision: normalizeDecision(parsed.decision),
+    bottomLine: {
+      my: parsed.bottomLine?.my?.trim() || '',
+      en: parsed.bottomLine?.en?.trim() || '',
+    },
   };
 }

@@ -6,7 +6,9 @@ import type {
   KalodataStatus,
   ProductDeepInsights,
   ProductEnrichOptions,
+  ProductKalodataMetrics,
 } from '../src/types.ts';
+import { translateCategoryNameToMyanmar } from '../src/lib/categoryTranslations.ts';
 import { sanitizeExternalUrl } from './gemini.ts';
 
 export interface KalodataRawProduct {
@@ -19,7 +21,9 @@ export interface KalodataRawProduct {
   revenueThb7d: number;
   videoRevenueThb7d: number;
   revenueGrowthRate: number;
+  kalodataMetrics: ProductKalodataMetrics;
   categoryHint: string;
+  rawCategoryId?: string;
   imageUrl?: string;
   productUrl?: string;
   description?: string;
@@ -35,6 +39,7 @@ export interface KalodataSearchResponse {
 
 export interface KalodataSingleEnrichResponse {
   deepInsights: ProductDeepInsights;
+  kalodataMetrics?: ProductKalodataMetrics;
   shopName?: string;
   imageUrl?: string;
   creditsUsed: number | null;
@@ -353,28 +358,121 @@ function parseRawProductRow(
         : Math.min(60, Math.round(rawCommission * 10) / 10);
   }
 
-  const salesVolume7d = parsePositiveNumber(
-    row.sales_volumn ?? row.sales_volume ?? row.sale_count ?? row.item_sold,
-    0
+  const rawSalesVol = parseFiniteNumber(
+    row.sales_volumn ?? row.sales_volume ?? row.sale_count ?? row.item_sold
   );
-  const revenueThb7d = parsePositiveNumber(
-    row.revenue,
-    priceThb !== null ? salesVolume7d * priceThb : 0
+  const rawRevenue = parseFiniteNumber(row.revenue);
+  const rawVideoRevenue = parseFiniteNumber(row.video_revenue);
+  const rawLiveRevenue = parseFiniteNumber(row.live_revenue);
+  const rawGrowthRate = parseFiniteNumber(row.revenue_growth_rate);
+  const rawCreatorCount = parseFiniteNumber(
+    row.creator_count ?? row.affiliate_count ?? row.influencer_count
   );
-  const videoRevenueThb7d = parsePositiveNumber(row.video_revenue, 0);
-  const revenueGrowthRate = parseFiniteNumber(row.revenue_growth_rate) ?? 0;
+  const rawRating = parseFiniteNumber(row.product_rating ?? row.rating);
+  const rawReviewCount = parseFiniteNumber(row.review_count ?? row.comment_count);
+
+  const salesVolume7d = rawSalesVol !== null && rawSalesVol >= 0 ? Math.round(rawSalesVol) : 0;
+  const revenueThb7d =
+    rawRevenue !== null && rawRevenue >= 0
+      ? Math.round(rawRevenue)
+      : priceThb !== null && rawSalesVol !== null && rawSalesVol >= 0
+        ? Math.round(rawSalesVol * priceThb)
+        : 0;
+  const videoRevenueThb7d =
+    rawVideoRevenue !== null && rawVideoRevenue >= 0 ? Math.round(rawVideoRevenue) : 0;
+  const revenueGrowthRate = rawGrowthRate ?? 0;
+
+  const kalodataMetrics: ProductKalodataMetrics = {
+    salesVolume7d: rawSalesVol !== null && rawSalesVol >= 0 ? Math.round(rawSalesVol) : null,
+    revenueThb7d: rawRevenue !== null && rawRevenue >= 0 ? Math.round(rawRevenue) : null,
+    videoRevenueThb7d:
+      rawVideoRevenue !== null && rawVideoRevenue >= 0 ? Math.round(rawVideoRevenue) : null,
+    liveRevenueThb7d:
+      rawLiveRevenue !== null && rawLiveRevenue >= 0 ? Math.round(rawLiveRevenue) : null,
+    revenueGrowthRate: rawGrowthRate !== null ? Math.round(rawGrowthRate * 100) / 100 : null,
+    creatorCount:
+      rawCreatorCount !== null && rawCreatorCount >= 0 ? Math.round(rawCreatorCount) : null,
+    rating:
+      rawRating !== null && rawRating > 0 && rawRating <= 5
+        ? Math.round(rawRating * 10) / 10
+        : null,
+    reviewCount:
+      rawReviewCount !== null && rawReviewCount >= 0 ? Math.round(rawReviewCount) : null,
+    dateRange: 'last7Day',
+  };
 
   const imageUrl = sanitizeExternalUrl(
     row.master_image_url ?? row.image_url ?? row.cover_url ?? row.main_image
   );
 
   const productUrl = sanitizeExternalUrl(
-    row.product_url ?? row.url ?? row.tiktok_url
+    row.product_url ??
+      row.tiktok_url ??
+      row.share_url ??
+      row.pdp_url ??
+      row.shop_product_url ??
+      row.url
   );
 
   const description = row.product_description
     ? flattenRichText(row.product_description).slice(0, 600)
     : undefined;
+
+  const firstCateArrayId =
+    Array.isArray(row.category_ids) && row.category_ids.length > 0
+      ? String(row.category_ids[0] ?? '')
+      : Array.isArray(row.cate_ids) && row.cate_ids.length > 0
+        ? String(row.cate_ids[0] ?? '')
+        : '';
+  const nestedCategories = Array.isArray(row.categories)
+    ? row.categories
+    : Array.isArray(row.category_list)
+      ? row.category_list
+      : [];
+  const firstNestedCate =
+    nestedCategories.length > 0 &&
+    nestedCategories[0] &&
+    typeof nestedCategories[0] === 'object'
+      ? (nestedCategories[0] as Record<string, unknown>)
+      : null;
+
+  const rawCateIdCandidate = String(
+    row.pri_cate_id ??
+      row.first_cate_id ??
+      row.first_category_id ??
+      row.cate1_id ??
+      row.l1_cate_id ??
+      row.category_level1_id ??
+      row.category_id ??
+      row.cate_id ??
+      firstNestedCate?.category_id ??
+      firstNestedCate?.cate_id ??
+      firstNestedCate?.id ??
+      firstCateArrayId
+  ).trim();
+  const rawCategoryId = /^\d{3,15}$/.test(rawCateIdCandidate) ? rawCateIdCandidate : undefined;
+
+  const categoryPathStr =
+    typeof row.category_path === 'string'
+      ? row.category_path.split(/[>/>]/)[0]?.trim() || ''
+      : typeof row.cate_path === 'string'
+        ? row.cate_path.split(/[>/>]/)[0]?.trim() || ''
+        : '';
+
+  const categoryHint = String(
+    row.pri_cate_name ??
+      row.first_cate_name ??
+      row.first_category_name ??
+      row.cate1_name ??
+      row.l1_cate_name ??
+      row.category_level1_name ??
+      row.category_name ??
+      row.cate_name ??
+      firstNestedCate?.category_name ??
+      firstNestedCate?.cate_name ??
+      firstNestedCate?.name ??
+      categoryPathStr
+  ).trim();
 
   return {
     id: productId,
@@ -386,9 +484,9 @@ function parseRawProductRow(
     revenueThb7d,
     videoRevenueThb7d,
     revenueGrowthRate,
-    categoryHint: String(
-      row.category_name ?? row.first_cate_name ?? row.cate_name ?? ''
-    ).trim(),
+    kalodataMetrics,
+    categoryHint,
+    rawCategoryId,
     imageUrl,
     productUrl,
     description: description || undefined,
@@ -425,7 +523,14 @@ async function kalodataRequest<T>(
 
     let envelope: Record<string, unknown> | null = null;
     try {
-      const parsed: unknown = await response.json();
+      const rawText = await response.text();
+      // Preserve 16-24 digit numeric IDs (such as 19-digit TikTok Shop product_id) as strings
+      // before JSON.parse so IEEE-754 double rounding never corrupts the last 3 digits.
+      const safeJsonText = rawText.replace(
+        /("(?:product_id|id|item_id|shop_id|seller_id|video_id|creator_id)"\s*:\s*)(\d{16,24})(?=\s*[,}\]])/g,
+        '$1"$2"'
+      );
+      const parsed: unknown = JSON.parse(safeJsonText);
       if (parsed && typeof parsed === 'object') {
         envelope = parsed as Record<string, unknown>;
       }
@@ -725,7 +830,7 @@ export async function fetchKalodataLiveCategories(
     liveItems.push({
       id: rawId,
       label: {
-        my: known ? known.label.my : rawName,
+        my: translateCategoryNameToMyanmar(rawName, rawId),
         en: rawName,
       },
       visualGroup: known ? known.visualGroup : inferVisualGroup(rawName),
@@ -903,7 +1008,11 @@ export async function fetchKalodataThailandProducts(params: {
     };
 
     if (cleanCateIds.length > 0) {
+      rankBody.category_ids = cleanCateIds;
       rankBody.cate_ids = cleanCateIds;
+      if (cleanCateIds.length === 1) {
+        rankBody.category_id = cleanCateIds[0];
+      }
     }
     if (cleanQuery) {
       rankBody.keyword = cleanQuery;
@@ -997,6 +1106,7 @@ export async function enrichSingleKalodataProduct(
   const deepInsights: ProductDeepInsights = {
     fetchedAt: new Date().toISOString(),
   };
+  let kalodataMetrics: ProductKalodataMetrics | undefined;
   let shopName: string | undefined;
   let imageUrl: string | undefined;
 
@@ -1021,16 +1131,23 @@ export async function enrichSingleKalodataProduct(
             'POST',
             14000
           );
+          deepInsights.fetchedDetails = true;
           if (detail && typeof detail === 'object') {
             if (typeof detail.shop_name === 'string' && detail.shop_name.trim()) {
               shopName = detail.shop_name.trim();
             }
-            if (detail.product_description) {
-              const desc = flattenRichText(detail.product_description).slice(0, 600);
+            const rawDesc = detail.product_description ?? detail.description ?? detail.desc;
+            if (rawDesc) {
+              const desc = flattenRichText(rawDesc).slice(0, 1400);
               if (desc) deepInsights.description = desc;
             }
             const img = sanitizeExternalUrl(detail.master_image_url);
             if (img) imageUrl = img;
+
+            const parsedDetail = parseRawProductRow(detail, cleanProductId);
+            if (parsedDetail?.kalodataMetrics) {
+              kalodataMetrics = parsedDetail.kalodataMetrics;
+            }
           }
         } catch {
           // Graceful partial enrichment
@@ -1054,15 +1171,33 @@ export async function enrichSingleKalodataProduct(
             'POST',
             18000
           );
-          if (specs && Array.isArray(specs.highlights)) {
-            const list = specs.highlights
-              .map((h) =>
-                h && typeof h === 'object'
-                  ? String((h as Record<string, unknown>).key_word ?? '').trim()
-                  : ''
-              )
+          deepInsights.fetchedSpecs = true;
+          const rawHighlights = Array.isArray(specs?.highlights)
+            ? specs.highlights
+            : Array.isArray(specs?.selling_points)
+              ? specs.selling_points
+              : [];
+          if (rawHighlights.length > 0) {
+            const list = rawHighlights
+              .map((h) => {
+                if (typeof h === 'string') return h.trim();
+                if (h && typeof h === 'object') {
+                  const obj = h as Record<string, unknown>;
+                  const primary = String(
+                    obj.key_word ?? obj.keyword ?? obj.title ?? obj.name ?? obj.text ?? ''
+                  ).trim();
+                  const extra = String(
+                    obj.description ?? obj.content ?? obj.value ?? ''
+                  ).trim();
+                  if (primary && extra && extra.toLowerCase() !== primary.toLowerCase()) {
+                    return `${primary}: ${extra}`;
+                  }
+                  return primary || extra;
+                }
+                return '';
+              })
               .filter(Boolean)
-              .slice(0, 6);
+              .slice(0, 10);
             if (list.length > 0) deepInsights.highlights = list;
           }
         } catch {
@@ -1086,27 +1221,38 @@ export async function enrichSingleKalodataProduct(
             'POST',
             22000
           );
+          deepInsights.fetchedComments = true;
           if (insight && typeof insight === 'object') {
             if (Array.isArray(insight.pain_points)) {
               const list = insight.pain_points
-                .map((p) =>
-                  p && typeof p === 'object'
-                    ? String((p as Record<string, unknown>).view_point ?? '').trim()
-                    : ''
-                )
+                .map((p) => {
+                  if (typeof p === 'string') return p.trim();
+                  if (p && typeof p === 'object') {
+                    const obj = p as Record<string, unknown>;
+                    return String(
+                      obj.view_point ?? obj.viewpoint ?? obj.content ?? obj.summary ?? obj.text ?? ''
+                    ).trim();
+                  }
+                  return '';
+                })
                 .filter(Boolean)
-                .slice(0, 4);
+                .slice(0, 6);
               if (list.length > 0) deepInsights.painPoints = list;
             }
             if (Array.isArray(insight.usage_scenarios)) {
               const list = insight.usage_scenarios
-                .map((u) =>
-                  u && typeof u === 'object'
-                    ? String((u as Record<string, unknown>).view_point ?? '').trim()
-                    : ''
-                )
+                .map((u) => {
+                  if (typeof u === 'string') return u.trim();
+                  if (u && typeof u === 'object') {
+                    const obj = u as Record<string, unknown>;
+                    return String(
+                      obj.view_point ?? obj.viewpoint ?? obj.content ?? obj.summary ?? obj.text ?? ''
+                    ).trim();
+                  }
+                  return '';
+                })
                 .filter(Boolean)
-                .slice(0, 4);
+                .slice(0, 6);
               if (list.length > 0) deepInsights.usageScenarios = list;
             }
           }
@@ -1122,6 +1268,7 @@ export async function enrichSingleKalodataProduct(
 
   return {
     deepInsights,
+    kalodataMetrics,
     shopName,
     imageUrl,
     creditsUsed: post.creditsUsed,

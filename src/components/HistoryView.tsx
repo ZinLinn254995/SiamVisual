@@ -1,8 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
-import { ArrowRight, Download, Search, Trash2, Upload } from 'lucide-react';
+import { ArrowRight, Download, ExternalLink, Search, Trash2, Upload } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Translations } from '../i18n';
+import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
 import { getStudioFallbackImage } from '../lib/media';
+import { hydrateProductFromStorage } from '../lib/storage';
+import { getTikTokShopProductUrl } from '../lib/tiktokLink';
 import type { Language, SavedHistoryEntry } from '../types';
 
 interface HistoryViewProps {
@@ -30,11 +33,23 @@ export function HistoryView({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const hydratedEntries = useMemo(
+    () =>
+      entries.map((entry) => ({
+        ...entry,
+        product: hydrateProductFromStorage(entry.product),
+      })),
+    [entries]
+  );
+
   const filteredEntries = useMemo(() => {
     const q = filterQuery.trim().toLowerCase();
-    if (!q) return entries;
-    return entries.filter((item) => {
+    if (!q) return hydratedEntries;
+    return hydratedEntries.filter((item) => {
       const haystack = [
+        item.product.id,
+        item.product.aiAnalysis?.cleanName?.my,
+        item.product.aiAnalysis?.cleanName?.en,
         item.product.clearTitle.my,
         item.product.clearTitle.en,
         item.product.thaiTitle,
@@ -42,11 +57,12 @@ export function HistoryView({
         item.product.categoryLabel.my,
         item.product.categoryLabel.en,
       ]
+        .filter(Boolean)
         .join(' ')
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [entries, filterQuery]);
+  }, [hydratedEntries, filterQuery]);
 
   function formatSavedDate(iso: string): string {
     try {
@@ -152,11 +168,22 @@ export function HistoryView({
             </div>
           </div>
 
-          {/* Saved Entries Grid */}
+          {/* Saved Products Grid */}
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredEntries.map((entry) => {
               const fallback = getStudioFallbackImage(entry.product.category);
               const isConfirming = confirmDeleteId === entry.id;
+              const primaryTitle = entry.product.thaiTitle;
+              const displayCategoryLabel =
+                language === 'my'
+                  ? entry.product.categoryLabel.my && /[\u1000-\u109F]/.test(entry.product.categoryLabel.my)
+                    ? entry.product.categoryLabel.my
+                    : translateCategoryNameToMyanmar(
+                        entry.product.categoryLabel.en || entry.product.categoryLabel.my,
+                        entry.product.kalodataCategoryId
+                      )
+                  : entry.product.categoryLabel.en || entry.product.categoryLabel.my;
+              const tiktokShopUrl = getTikTokShopProductUrl(entry.product);
 
               return (
                 <article
@@ -166,46 +193,67 @@ export function HistoryView({
                   <div className="flex items-start gap-4 p-4">
                     <img
                       src={entry.product.imageUrl || fallback}
-                      alt={entry.product.clearTitle[language]}
+                      alt={primaryTitle}
                       referrerPolicy="no-referrer"
                       onError={(e) => {
                         if (e.currentTarget.src !== fallback) {
                           e.currentTarget.src = fallback;
                         }
                       }}
-                      className="w-20 h-20 rounded-lg object-cover bg-slate-100 dark:bg-slate-900 shrink-0"
+                      className="w-20 h-20 rounded-lg object-contain bg-slate-50 dark:bg-slate-900/70 p-1 border border-slate-100 dark:border-slate-800 shrink-0"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                        <span>{t.styles[entry.plan.style]}</span>
+                        {entry.plan ? (
+                          <span className="font-medium text-teal-700 dark:text-teal-400">
+                            {t.styles[entry.plan.style]}
+                          </span>
+                        ) : (
+                          <span>{displayCategoryLabel}</span>
+                        )}
                         <span className="mx-1.5" aria-hidden="true">·</span>
                         <span className="font-mono-num">{formatSavedDate(entry.savedAt)}</span>
                       </div>
                       <h3 className="mt-1 font-display text-sm font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">
-                        {entry.product.clearTitle[language]}
+                        {primaryTitle}
                       </h3>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 truncate">
-                        {entry.product.thaiTitle}
+                        {entry.product.shopName}
                       </p>
                     </div>
                   </div>
 
                   <div className="px-4 pb-4 mt-auto">
-                    <div className="pt-3 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between text-xs font-mono-num">
-                      <span className="text-slate-800 dark:text-slate-200 font-semibold">
-                        {entry.product.priceThb !== null
-                          ? `฿${entry.product.priceThb.toLocaleString()}`
-                          : '—'}
-                      </span>
-                      <span className="text-teal-700 dark:text-teal-400 font-medium">
-                        {entry.product.commissionRate !== null
-                          ? `${entry.product.commissionRate}%${
-                              entry.product.commissionThb !== null
-                                ? ` · ฿${entry.product.commissionThb.toLocaleString()}`
-                                : ''
-                            }`
-                          : '—'}
-                      </span>
+                    <div className="pt-3 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between gap-2 text-xs font-mono-num">
+                      <div className="flex items-center gap-2.5 min-w-0 truncate">
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold">
+                          {entry.product.priceThb !== null
+                            ? `฿${entry.product.priceThb.toLocaleString()}`
+                            : '—'}
+                        </span>
+                        <span className="text-teal-700 dark:text-teal-400 font-medium truncate">
+                          {entry.product.commissionRate !== null
+                            ? `${entry.product.commissionRate}%${
+                                entry.product.commissionThb !== null
+                                  ? ` · ฿${entry.product.commissionThb.toLocaleString()}`
+                                  : ''
+                              }`
+                            : '—'}
+                        </span>
+                      </div>
+                      {tiktokShopUrl && (
+                        <a
+                          href={tiktokShopUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={t.card.openTikTokShop}
+                          aria-label={`${t.card.openTikTokShop}: ${primaryTitle}`}
+                          className="font-sans h-6 px-1.5 rounded text-[11px] font-medium text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/50 inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+                        >
+                          <span>Shop</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                        </a>
+                      )}
                     </div>
 
                     <div className="mt-3.5 flex items-center gap-2">

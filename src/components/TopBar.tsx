@@ -1,21 +1,26 @@
+import type { RefObject } from 'react';
 import { CheckCircle2, KeyRound, Moon, Sun } from 'lucide-react';
 import type { Translations } from '../i18n';
 import type { KalodataLimitSettings, KalodataStatus, Language, Theme } from '../types';
 
-export type ActiveTab = 'discover' | 'studio' | 'history';
+export type ActiveTab = 'discover' | 'search_history' | 'studio' | 'history';
 
 interface TopBarProps {
   activeTab: ActiveTab;
-  onNavigate: (tab: 'discover' | 'history') => void;
+  onNavigate: (tab: 'discover' | 'search_history' | 'history') => void;
   language: Language;
   onToggleLanguage: () => void;
   theme: Theme;
   onToggleTheme: () => void;
+  searchHistoryCount: number;
   savedCount: number;
   kalodataStatus: KalodataStatus;
   kalodataLimits: KalodataLimitSettings;
   isKalodataPanelOpen: boolean;
   onToggleKalodataPanel: () => void;
+  headerRef?: RefObject<HTMLElement | null>;
+  isHidden?: boolean;
+  onRevealHeader?: () => void;
   t: Translations;
 }
 
@@ -32,20 +37,33 @@ export function TopBar({
   onToggleLanguage,
   theme,
   onToggleTheme,
+  searchHistoryCount,
   savedCount,
   kalodataStatus,
   kalodataLimits,
   isKalodataPanelOpen,
   onToggleKalodataPanel,
+  headerRef,
+  isHidden = false,
+  onRevealHeader,
   t,
 }: TopBarProps) {
   const isDiscoverActive = activeTab === 'discover' || activeTab === 'studio';
+  const isSearchHistoryActive = activeTab === 'search_history';
   const isHistoryActive = activeTab === 'history';
   const hasLimit =
     kalodataLimits.maxSpendCredits !== null || kalodataLimits.minBalanceReserve !== null;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200/80 dark:border-slate-800/90 bg-[#F8FAFC]/95 dark:bg-[#0B1117]/95 backdrop-blur-md">
+    <header
+      ref={headerRef}
+      onFocusCapture={() => {
+        if (isHidden) onRevealHeader?.();
+      }}
+      className={`sticky top-0 z-30 border-b border-slate-200/80 dark:border-slate-800/90 bg-[#F8FAFC]/95 dark:bg-[#0B1117]/95 backdrop-blur-md transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform ${
+        isHidden ? '-translate-y-full pointer-events-none' : 'translate-y-0'
+      }`}
+    >
       {/* Row 1: Brand (+ Desktop Nav) + Right Utility Controls */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 sm:h-15 flex items-center justify-between gap-2 sm:gap-6">
         <div className="flex items-center gap-6 min-w-0">
@@ -70,6 +88,26 @@ export function TopBar({
             >
               {t.nav.discover}
               {isDiscoverActive && (
+                <span className="absolute inset-x-0 -bottom-[11px] h-[2px] bg-teal-600 dark:bg-teal-400" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('search_history')}
+              className={`relative py-2 text-sm font-medium whitespace-nowrap shrink-0 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded-sm ${
+                isSearchHistoryActive
+                  ? 'text-slate-900 dark:text-white'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <span>{t.nav.searchHistory}</span>
+              {searchHistoryCount > 0 && (
+                <span className="ml-1 text-xs font-mono-num text-slate-400 dark:text-slate-500">
+                  ({searchHistoryCount})
+                </span>
+              )}
+              {isSearchHistoryActive && (
                 <span className="absolute inset-x-0 -bottom-[11px] h-[2px] bg-teal-600 dark:bg-teal-400" />
               )}
             </button>
@@ -158,38 +196,58 @@ export function TopBar({
       {/* Row 2 (Mobile Only): Clean Dedicated Tab Row so buttons NEVER overlap */}
       <nav
         aria-label="Mobile navigation"
-        className="sm:hidden border-t border-slate-200/70 dark:border-slate-800/80 grid grid-cols-2"
+        className="sm:hidden border-t border-slate-200/70 dark:border-slate-800/80 grid grid-cols-3"
       >
         <button
           type="button"
           onClick={() => onNavigate('discover')}
-          className={`relative h-10 text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer ${
+          className={`relative h-10 px-1 text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer ${
             isDiscoverActive
               ? 'text-teal-700 dark:text-teal-400'
               : 'text-slate-500 dark:text-slate-400'
           }`}
         >
-          <span>{t.nav.discover}</span>
+          <span className="truncate">{t.nav.discover}</span>
           {isDiscoverActive && (
-            <span className="absolute inset-x-4 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
+            <span className="absolute inset-x-3 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigate('search_history')}
+          className={`relative h-10 px-1 text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+            isSearchHistoryActive
+              ? 'text-teal-700 dark:text-teal-400'
+              : 'text-slate-500 dark:text-slate-400'
+          }`}
+        >
+          <span className="truncate">{t.nav.searchHistory}</span>
+          {searchHistoryCount > 0 && (
+            <span className="font-mono-num text-[11px] opacity-75 shrink-0">
+              ({searchHistoryCount})
+            </span>
+          )}
+          {isSearchHistoryActive && (
+            <span className="absolute inset-x-3 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
           )}
         </button>
 
         <button
           type="button"
           onClick={() => onNavigate('history')}
-          className={`relative h-10 text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+          className={`relative h-10 px-1 text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer ${
             isHistoryActive
               ? 'text-teal-700 dark:text-teal-400'
               : 'text-slate-500 dark:text-slate-400'
           }`}
         >
-          <span>{t.nav.history}</span>
+          <span className="truncate">{t.nav.history}</span>
           {savedCount > 0 && (
-            <span className="font-mono-num text-[11px] opacity-75">({savedCount})</span>
+            <span className="font-mono-num text-[11px] opacity-75 shrink-0">({savedCount})</span>
           )}
           {isHistoryActive && (
-            <span className="absolute inset-x-4 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
+            <span className="absolute inset-x-3 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
           )}
         </button>
       </nav>

@@ -3,24 +3,38 @@ import type {
   KalodataCategoryItem,
   KalodataLimitSettings,
   Language,
+  ProductAiAnalysis,
   ProductDeepInsights,
   ProductItem,
+  ProductKalodataMetrics,
   RecentSearchEntry,
+  ResultGridCols,
+  ResultListZoom,
+  ResultViewMode,
   SavedDeepInsightRecord,
   SavedHistoryEntry,
   Theme,
 } from '../types';
+import {
+  inferSpecificProductCategory,
+  isLegacyDefaultHomeLabel,
+  localizeCategories,
+} from './categoryTranslations';
 
 const HISTORY_KEY = 'siamvisual_history_v1';
 const RECENT_SEARCHES_KEY = 'siamvisual_recent_searches_v1';
 const DEEP_INSIGHTS_KEY = 'siamvisual_deep_insights_v1';
 const AI_EXPLANATIONS_KEY = 'siamvisual_ai_explanations_v1';
+const PRODUCT_ANALYSIS_KEY = 'siamvisual_product_analysis_v1';
 const THEME_KEY = 'siamvisual_theme_v1';
 const LANG_KEY = 'siamvisual_lang_v1';
 const KALO_LIMITS_KEY = 'siamvisual_kalo_limits_v1';
 const KALO_CATEGORIES_KEY = 'siamvisual_kalo_categories_v1';
+const RESULT_VIEW_KEY = 'siamvisual_result_view_v1';
+const RESULT_GRID_COLS_KEY = 'siamvisual_result_grid_cols_v1';
+const RESULT_LIST_ZOOM_KEY = 'siamvisual_result_list_zoom_v1';
 
-const MAX_RECENT_SEARCHES = 12;
+const MAX_RECENT_SEARCHES = 30;
 
 const CATEGORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -102,7 +116,7 @@ export function loadCachedCategories(): KalodataCategoryItem[] {
       Array.isArray(parsed.items) &&
       parsed.items.length > 1
     ) {
-      return parsed.items;
+      return localizeCategories(parsed.items);
     }
   } catch {
     // fallback to official defaults
@@ -112,9 +126,10 @@ export function loadCachedCategories(): KalodataCategoryItem[] {
 
 export function saveCachedCategories(items: KalodataCategoryItem[]): void {
   try {
+    const localized = localizeCategories(items);
     localStorage.setItem(
       KALO_CATEGORIES_KEY,
-      JSON.stringify({ savedAt: Date.now(), items })
+      JSON.stringify({ savedAt: Date.now(), items: localized })
     );
   } catch {
     // ignore storage quota errors
@@ -189,10 +204,51 @@ export function upsertHistoryEntry(
   current: SavedHistoryEntry[],
   newEntry: SavedHistoryEntry
 ): SavedHistoryEntry[] {
-  const filtered = current.filter(
-    (item) => !(item.product.id === newEntry.product.id && item.plan.style === newEntry.plan.style)
-  );
+  const filtered = current.filter((item) => {
+    if (item.product.id !== newEntry.product.id) return true;
+    if (newEntry.plan) {
+      // Replace same-style plan OR upgrade any plan-less bookmark for this product
+      if (!item.plan) return false;
+      return item.plan.style !== newEntry.plan.style;
+    }
+    // Plan-less bookmark replaces existing plan-less bookmark for the same product
+    return Boolean(item.plan);
+  });
   const next = [newEntry, ...filtered].slice(0, 120);
+  persistSavedHistory(next);
+  return next;
+}
+
+export function toggleSavedProduct(
+  current: SavedHistoryEntry[],
+  product: ProductItem
+): { next: SavedHistoryEntry[]; saved: boolean } {
+  const alreadySaved = current.some((item) => item.product.id === product.id);
+  if (alreadySaved) {
+    const next = current.filter((item) => item.product.id !== product.id);
+    persistSavedHistory(next);
+    return { next, saved: false };
+  }
+  const bookmarkEntry: SavedHistoryEntry = {
+    id: `prod_${product.id}`,
+    savedAt: new Date().toISOString(),
+    product,
+  };
+  const next = [bookmarkEntry, ...current].slice(0, 120);
+  persistSavedHistory(next);
+  return { next, saved: true };
+}
+
+export function syncProductInSavedHistory(
+  current: SavedHistoryEntry[],
+  updatedProduct: ProductItem
+): SavedHistoryEntry[] {
+  if (!current.some((item) => item.product.id === updatedProduct.id)) {
+    return current;
+  }
+  const next = current.map((item) =>
+    item.product.id === updatedProduct.id ? { ...item, product: updatedProduct } : item
+  );
   persistSavedHistory(next);
   return next;
 }
@@ -254,11 +310,7 @@ export function upsertRecentSearch(
   current: RecentSearchEntry[],
   nextEntry: RecentSearchEntry
 ): RecentSearchEntry[] {
-  const signature = `${nextEntry.mode}|${nextEntry.query.trim().toLowerCase()}|${[...nextEntry.cateIds].sort().join(',')}`;
-  const filtered = current.filter((item) => {
-    const itemSig = `${item.mode}|${item.query.trim().toLowerCase()}|${[...item.cateIds].sort().join(',')}`;
-    return itemSig !== signature && item.id !== nextEntry.id;
-  });
+  const filtered = current.filter((item) => item.id !== nextEntry.id);
   const next = [nextEntry, ...filtered].slice(0, MAX_RECENT_SEARCHES);
   persistRecentSearches(next);
   return next;
@@ -309,10 +361,29 @@ export function persistDeepInsightsCache(
   }
 }
 
+function mergeKalodataMetrics(
+  primary?: ProductKalodataMetrics,
+  fallback?: ProductKalodataMetrics
+): ProductKalodataMetrics | undefined {
+  if (!primary && !fallback) return undefined;
+  return {
+    salesVolume7d: primary?.salesVolume7d ?? fallback?.salesVolume7d ?? null,
+    revenueThb7d: primary?.revenueThb7d ?? fallback?.revenueThb7d ?? null,
+    videoRevenueThb7d: primary?.videoRevenueThb7d ?? fallback?.videoRevenueThb7d ?? null,
+    liveRevenueThb7d: primary?.liveRevenueThb7d ?? fallback?.liveRevenueThb7d ?? null,
+    revenueGrowthRate: primary?.revenueGrowthRate ?? fallback?.revenueGrowthRate ?? null,
+    creatorCount: primary?.creatorCount ?? fallback?.creatorCount ?? null,
+    rating: primary?.rating ?? fallback?.rating ?? null,
+    reviewCount: primary?.reviewCount ?? fallback?.reviewCount ?? null,
+    dateRange: primary?.dateRange || fallback?.dateRange || 'last7Day',
+  };
+}
+
 export function saveDeepInsightForProduct(
   productId: string,
   incoming: {
     deepInsights: ProductDeepInsights;
+    kalodataMetrics?: ProductKalodataMetrics;
     shopName?: string;
     imageUrl?: string;
   }
@@ -324,10 +395,31 @@ export function saveDeepInsightForProduct(
     highlights: incoming.deepInsights.highlights ?? prev?.deepInsights.highlights,
     painPoints: incoming.deepInsights.painPoints ?? prev?.deepInsights.painPoints,
     usageScenarios: incoming.deepInsights.usageScenarios ?? prev?.deepInsights.usageScenarios,
+    fetchedDetails: Boolean(
+      incoming.deepInsights.fetchedDetails ||
+        prev?.deepInsights.fetchedDetails ||
+        incoming.deepInsights.description ||
+        prev?.deepInsights.description
+    ),
+    fetchedSpecs: Boolean(
+      incoming.deepInsights.fetchedSpecs ||
+        prev?.deepInsights.fetchedSpecs ||
+        (incoming.deepInsights.highlights && incoming.deepInsights.highlights.length > 0) ||
+        (prev?.deepInsights.highlights && prev.deepInsights.highlights.length > 0)
+    ),
+    fetchedComments: Boolean(
+      incoming.deepInsights.fetchedComments ||
+        prev?.deepInsights.fetchedComments ||
+        (incoming.deepInsights.painPoints && incoming.deepInsights.painPoints.length > 0) ||
+        (incoming.deepInsights.usageScenarios && incoming.deepInsights.usageScenarios.length > 0) ||
+        (prev?.deepInsights.painPoints && prev.deepInsights.painPoints.length > 0) ||
+        (prev?.deepInsights.usageScenarios && prev.deepInsights.usageScenarios.length > 0)
+    ),
     fetchedAt: incoming.deepInsights.fetchedAt || new Date().toISOString(),
   };
   const record: SavedDeepInsightRecord = {
     deepInsights: mergedDeep,
+    kalodataMetrics: mergeKalodataMetrics(incoming.kalodataMetrics, prev?.kalodataMetrics),
     shopName: incoming.shopName || prev?.shopName,
     imageUrl: incoming.imageUrl || prev?.imageUrl,
     savedAt: new Date().toISOString(),
@@ -335,6 +427,45 @@ export function saveDeepInsightForProduct(
   cache[productId] = record;
   persistDeepInsightsCache(cache);
   return record;
+}
+
+// Permanent Browser Storage for AI Product Deep Analyses (keyed by product.id)
+export function loadProductAnalysisCache(): Record<string, ProductAiAnalysis> {
+  try {
+    const raw = localStorage.getItem(PRODUCT_ANALYSIS_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as Record<string, ProductAiAnalysis>;
+  } catch {
+    return {};
+  }
+}
+
+export function persistProductAnalysisCache(
+  cache: Record<string, ProductAiAnalysis>
+): void {
+  try {
+    localStorage.setItem(PRODUCT_ANALYSIS_KEY, JSON.stringify(cache));
+  } catch {
+    const sorted = Object.entries(cache)
+      .sort((a, b) => new Date(b[1].analyzedAt).getTime() - new Date(a[1].analyzedAt).getTime())
+      .slice(0, 60);
+    try {
+      localStorage.setItem(PRODUCT_ANALYSIS_KEY, JSON.stringify(Object.fromEntries(sorted)));
+    } catch {
+      // Ignore gracefully
+    }
+  }
+}
+
+export function saveProductAnalysisForProduct(
+  productId: string,
+  analysis: ProductAiAnalysis
+): void {
+  const cache = loadProductAnalysisCache();
+  cache[productId] = analysis;
+  persistProductAnalysisCache(cache);
 }
 
 // Permanent Browser Storage for Manual AI Explanations (keyed by product.id)
@@ -396,6 +527,7 @@ export function saveAiExplanationsForProducts(products: ProductItem[]): void {
 export function hydrateProductFromStorage(product: ProductItem): ProductItem {
   const deepCache = loadDeepInsightsCache();
   const aiCache = loadAiExplanationsCache();
+  const analysisCache = loadProductAnalysisCache();
 
   let hydrated = product;
 
@@ -406,12 +538,33 @@ export function hydrateProductFromStorage(product: ProductItem): ProductItem {
       highlights: product.deepInsights?.highlights ?? savedDeep.deepInsights.highlights,
       painPoints: product.deepInsights?.painPoints ?? savedDeep.deepInsights.painPoints,
       usageScenarios: product.deepInsights?.usageScenarios ?? savedDeep.deepInsights.usageScenarios,
+      fetchedDetails: Boolean(
+        product.deepInsights?.fetchedDetails ||
+          savedDeep.deepInsights.fetchedDetails ||
+          product.deepInsights?.description ||
+          savedDeep.deepInsights.description
+      ),
+      fetchedSpecs: Boolean(
+        product.deepInsights?.fetchedSpecs ||
+          savedDeep.deepInsights.fetchedSpecs ||
+          (product.deepInsights?.highlights && product.deepInsights.highlights.length > 0) ||
+          (savedDeep.deepInsights.highlights && savedDeep.deepInsights.highlights.length > 0)
+      ),
+      fetchedComments: Boolean(
+        product.deepInsights?.fetchedComments ||
+          savedDeep.deepInsights.fetchedComments ||
+          (product.deepInsights?.painPoints && product.deepInsights.painPoints.length > 0) ||
+          (product.deepInsights?.usageScenarios && product.deepInsights.usageScenarios.length > 0) ||
+          (savedDeep.deepInsights.painPoints && savedDeep.deepInsights.painPoints.length > 0) ||
+          (savedDeep.deepInsights.usageScenarios && savedDeep.deepInsights.usageScenarios.length > 0)
+      ),
       fetchedAt: product.deepInsights?.fetchedAt || savedDeep.deepInsights.fetchedAt,
     };
     hydrated = {
       ...hydrated,
       shopName: savedDeep.shopName || hydrated.shopName,
       imageUrl: savedDeep.imageUrl || hydrated.imageUrl,
+      kalodataMetrics: mergeKalodataMetrics(hydrated.kalodataMetrics, savedDeep.kalodataMetrics),
       deepInsights: mergedDeep,
     };
   }
@@ -431,6 +584,28 @@ export function hydrateProductFromStorage(product: ProductItem): ProductItem {
     };
   }
 
+  const savedAnalysis = analysisCache[product.id];
+  if (savedAnalysis) {
+    hydrated = {
+      ...hydrated,
+      aiAnalysis: savedAnalysis,
+    };
+  }
+
+  // Auto-repair stale legacy "Home & Kitchen" labels on older locally saved search results (0 cr)
+  if (!hydrated.kalodataCategoryId && isLegacyDefaultHomeLabel(hydrated.categoryLabel)) {
+    const inferred = inferSpecificProductCategory({
+      thaiTitle: hydrated.thaiTitle,
+      englishTitle: hydrated.aiAnalysis?.cleanName?.en || hydrated.clearTitle?.en,
+      shopName: hydrated.shopName,
+    });
+    hydrated = {
+      ...hydrated,
+      category: inferred.visualGroup,
+      categoryLabel: inferred.label,
+    };
+  }
+
   return hydrated;
 }
 
@@ -444,14 +619,16 @@ export function exportHistoryBackup(
   recentSearches?: RecentSearchEntry[]
 ): void {
   const deepInsightsCache = loadDeepInsightsCache();
+  const productAnalysisCache = loadProductAnalysisCache();
   const payload: BackupPayload = {
     app: 'SiamVisual',
-    version: 3,
+    version: 4,
     exportedAt: new Date().toISOString(),
     entries,
     limits,
     recentSearches,
     deepInsightsCache,
+    productAnalysisCache,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: 'application/json;charset=utf-8',
@@ -472,6 +649,7 @@ export interface ParsedBackupResult {
   limits?: KalodataLimitSettings;
   recentSearches?: RecentSearchEntry[];
   deepInsightsCache?: Record<string, SavedDeepInsightRecord>;
+  productAnalysisCache?: Record<string, ProductAiAnalysis>;
 }
 
 export function parseBackupFile(text: string): ParsedBackupResult | null {
@@ -484,6 +662,7 @@ export function parseBackupFile(text: string): ParsedBackupResult | null {
     let limits: KalodataLimitSettings | undefined;
     let recentSearches: RecentSearchEntry[] | undefined;
     let deepInsightsCache: Record<string, SavedDeepInsightRecord> | undefined;
+    let productAnalysisCache: Record<string, ProductAiAnalysis> | undefined;
 
     if ('entries' in parsed && Array.isArray((parsed as BackupPayload).entries)) {
       const payload = parsed as BackupPayload;
@@ -517,6 +696,13 @@ export function parseBackupFile(text: string): ParsedBackupResult | null {
       ) {
         deepInsightsCache = payload.deepInsightsCache;
       }
+      if (
+        payload.productAnalysisCache &&
+        typeof payload.productAnalysisCache === 'object' &&
+        !Array.isArray(payload.productAnalysisCache)
+      ) {
+        productAnalysisCache = payload.productAnalysisCache;
+      }
     } else if (Array.isArray(parsed)) {
       rawEntries = parsed;
     } else {
@@ -528,6 +714,7 @@ export function parseBackupFile(text: string): ParsedBackupResult | null {
       limits,
       recentSearches,
       deepInsightsCache,
+      productAnalysisCache,
     };
   } catch {
     return null;
@@ -562,11 +749,14 @@ function isValidHistoryEntry(value: unknown): value is SavedHistoryEntry {
   const obj = value as Record<string, unknown>;
   if (typeof obj.id !== 'string' || typeof obj.savedAt !== 'string') return false;
   if (!obj.product || typeof obj.product !== 'object') return false;
-  if (!obj.plan || typeof obj.plan !== 'object') return false;
   const product = obj.product as Record<string, unknown>;
+  if (typeof product.id !== 'string' || typeof product.thaiTitle !== 'string') return false;
+  if (obj.plan === undefined || obj.plan === null) {
+    return true;
+  }
+  if (typeof obj.plan !== 'object') return false;
   const plan = obj.plan as Record<string, unknown>;
   return (
-    typeof product.thaiTitle === 'string' &&
     typeof plan.id === 'string' &&
     Array.isArray(plan.hooks) &&
     Array.isArray(plan.storyboard)
@@ -607,6 +797,66 @@ export function loadLanguagePreference(): Language {
 export function saveLanguagePreference(lang: Language): void {
   try {
     localStorage.setItem(LANG_KEY, lang);
+  } catch {
+    // ignore
+  }
+}
+
+export function loadResultViewMode(): ResultViewMode {
+  try {
+    const stored = localStorage.getItem(RESULT_VIEW_KEY);
+    if (stored === 'list' || stored === 'grid') return stored;
+  } catch {
+    // fallback
+  }
+  return 'grid';
+}
+
+export function saveResultViewMode(mode: ResultViewMode): void {
+  try {
+    localStorage.setItem(RESULT_VIEW_KEY, mode);
+  } catch {
+    // ignore
+  }
+}
+
+export function loadResultGridCols(): ResultGridCols | null {
+  try {
+    const raw = localStorage.getItem(RESULT_GRID_COLS_KEY);
+    if (!raw) return null;
+    const parsed = Number(raw);
+    if (parsed === 1 || parsed === 2 || parsed === 3 || parsed === 4 || parsed === 5) {
+      return parsed;
+    }
+  } catch {
+    // fallback
+  }
+  return null;
+}
+
+export function saveResultGridCols(cols: ResultGridCols): void {
+  try {
+    localStorage.setItem(RESULT_GRID_COLS_KEY, String(cols));
+  } catch {
+    // ignore
+  }
+}
+
+export function loadResultListZoom(): ResultListZoom {
+  try {
+    const raw = localStorage.getItem(RESULT_LIST_ZOOM_KEY);
+    if (raw === '0') return 0;
+    if (raw === '1') return 1;
+    if (raw === '2') return 2;
+  } catch {
+    // fallback
+  }
+  return 2;
+}
+
+export function saveResultListZoom(level: ResultListZoom): void {
+  try {
+    localStorage.setItem(RESULT_LIST_ZOOM_KEY, String(level));
   } catch {
     // ignore
   }
