@@ -5,6 +5,7 @@ import type {
   HistoricalMetricSnapshot,
   MarketplaceIntelligenceRankingResult,
   OpportunityClassification,
+  ProductDiscoveryShortlistResult,
   ProductItem,
   ProductStrategyReportV2,
   ProductValidatedMetrics,
@@ -16,6 +17,7 @@ import type {
   StrategyRequirementCheck,
   ValidatedMetric,
 } from '../types.ts';
+import { classifyProductDiscoveryShortlist } from './discoveryShortlist.ts';
 import {
   adaptProductItemToValidatedMetrics,
   refreshProductValidatedMetricsFreshness,
@@ -103,6 +105,8 @@ export interface RankedIntelligenceCardItem {
   strategyReport: ProductStrategyReportV2;
   activeStrategyEvaluation: StrategyEvaluationResult | null;
   provenanceSummary: ProductProvenanceSummary;
+  discoveryShortlist: ProductDiscoveryShortlistResult;
+  snapshotCount: number;
 }
 
 export interface ExcludedIntelligenceCardItem {
@@ -121,6 +125,8 @@ export interface ExcludedIntelligenceCardItem {
   commercialScore: CommercialScoreV2Result;
   strategyReport: ProductStrategyReportV2;
   provenanceSummary: ProductProvenanceSummary;
+  discoveryShortlist: ProductDiscoveryShortlistResult;
+  snapshotCount: number;
 }
 
 export interface StrategyTabSummary {
@@ -162,6 +168,10 @@ const METRIC_KEYS_ORDER: MetricFieldKey[] = [
   'reviewCount',
 ];
 
+function hasUnverifiedComparisonNote(metric: ValidatedMetric<number>): boolean {
+  return Boolean(metric.note && /UNVERIFIED_COMPARISON_PERIOD/i.test(metric.note));
+}
+
 export function classifyMetricProvenance(
   metric: ValidatedMetric<number>
 ): MetricProvenanceCategory {
@@ -170,6 +180,7 @@ export function classifyMetricProvenance(
   if (metric.unit === 'UNVERIFIED') return 'unverified';
   if (metric.state === 'UNAVAILABLE') return 'unavailable';
   if (metric.state === 'MISSING') return 'missing';
+  if (hasUnverifiedComparisonNote(metric)) return 'unverified';
   if (metric.state === 'ZERO') return 'zero';
   if (metric.provenance === 'SYNTHETIC') return 'derived';
   return 'verified_source';
@@ -187,6 +198,7 @@ export function getProductMetricProvenanceList(
       category,
       isUnverifiedPhase0:
         metric.unit === 'UNVERIFIED' ||
+        hasUnverifiedComparisonNote(metric) ||
         (metric.state === 'UNAVAILABLE' &&
           validatedMetrics.unresolvedFields.includes(key)),
     };
@@ -243,6 +255,7 @@ export function summarizeProductProvenance(
     hasSyntheticRevenue: validatedMetrics.revenueThb7d.provenance === 'SYNTHETIC',
     hasUnverifiedCoreMetrics:
       validatedMetrics.revenueGrowthRate.unit === 'UNVERIFIED' ||
+      hasUnverifiedComparisonNote(validatedMetrics.revenueGrowthRate) ||
       validatedMetrics.creatorCount.unit === 'UNVERIFIED' ||
       validatedMetrics.rating.unit === 'UNVERIFIED' ||
       validatedMetrics.reviewCount.unit === 'UNVERIFIED',
@@ -391,6 +404,12 @@ export function buildProductIntelligenceView(
             ? entry.strategyReport.strategies[entry.bestStrategyId]
             : null,
           provenanceSummary: summarizeProductProvenance(enrichedProduct.validatedMetrics!),
+          discoveryShortlist: classifyProductDiscoveryShortlist(
+            enrichedProduct.validatedMetrics!,
+            entry.commercialScore
+          ),
+          snapshotCount:
+            options?.historicalSnapshotsByProductId?.[enrichedProduct.id]?.length ?? 0,
         };
       });
 
@@ -447,6 +466,12 @@ export function buildProductIntelligenceView(
         strategyReport,
         activeStrategyEvaluation: entry.evaluation,
         provenanceSummary: summarizeProductProvenance(enrichedProduct.validatedMetrics!),
+        discoveryShortlist: classifyProductDiscoveryShortlist(
+          enrichedProduct.validatedMetrics!,
+          commercialScore
+        ),
+        snapshotCount:
+          options?.historicalSnapshotsByProductId?.[enrichedProduct.id]?.length ?? 0,
       };
     });
 
@@ -479,6 +504,12 @@ export function buildProductIntelligenceView(
         commercialScore,
         strategyReport,
         provenanceSummary: summarizeProductProvenance(enrichedProduct.validatedMetrics!),
+        discoveryShortlist: classifyProductDiscoveryShortlist(
+          enrichedProduct.validatedMetrics!,
+          commercialScore
+        ),
+        snapshotCount:
+          options?.historicalSnapshotsByProductId?.[enrichedProduct.id]?.length ?? 0,
       };
     });
 

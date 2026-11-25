@@ -2,6 +2,7 @@ import type {
   CommercialEligibilityStatus,
   ConfidenceLevel,
   ConversionEvidenceLevel,
+  DiscoveryShortlistCategory,
   DominantConversionChannel,
   Language,
   OpportunityClassification,
@@ -70,6 +71,10 @@ export interface Translations {
     microViewTag: string;
     listCompactTag: string;
     listDetailedTag: string;
+    emptyGuideTitle: string;
+    emptyGuideDesc: string;
+    emptyGuidePoints: string[];
+    emptyGuideDisclaimer: string;
   };
   card: {
     thaiOriginal: string;
@@ -247,6 +252,7 @@ export interface Translations {
     confirmCancelBtn: string;
     savedStyleMark: string;
     videoSectionTitle: string;
+    commercialStudioNotice: string;
     analysisTitle: string;
     analysisSubtitle: string;
     analysisBtn: string;
@@ -336,7 +342,10 @@ export interface Translations {
     cancel: string;
     backupSuccess: string;
     restoreSuccessCount: (added: number, total: number) => string;
+    restoreSuccessWithSearches: (added: number, total: number, searchesAdded: number) => string;
     restoreError: string;
+    noFilterMatches: string;
+    clearFilterAria: string;
     savedCount: (n: number) => string;
   };
   kalodata: {
@@ -387,6 +396,8 @@ export interface Translations {
     commercialScoreLabel: string;
     commercialScoreShort: string;
     strategyScoreLabel: string;
+    strategyScoreShort: string;
+    rankingTransparencyNote: string;
     withheldLabel: string;
     withheldZeroCommLabel: string;
     dimensionsHeading: string;
@@ -455,6 +466,13 @@ export interface Translations {
     provenance: {
       sectionTitle: string;
       sectionSubtitle: string;
+      metricCol: string;
+      valueCol: string;
+      statusCol: string;
+      derivedTag: string;
+      sourceTag: string;
+      verifiedCountLabel: (verified: number, total: number) => string;
+      cardUnverifiedNotice: (count: number) => string;
       categories: Record<MetricProvenanceCategory, string>;
       fields: Record<MetricFieldKey, string>;
       unverifiedCoreBanner: (count: number) => string;
@@ -488,6 +506,12 @@ export interface Translations {
       studioVisualRefTitle: string;
       studioVisualRefNotice: string;
       v1SilentScoreLabel: string;
+      pillarsSummaryTitle: string;
+      pillarCommercial: string;
+      pillarConversion: string;
+      pillarVideo: string;
+      pillarConfidence: string;
+      nonGuaranteeDisclaimer: string;
     };
     riskLabels: Record<string, string>;
     formatRiskTag: (tag: string) => string;
@@ -502,6 +526,13 @@ export interface Translations {
       liveRev: string;
       unverified: string;
       missing: string;
+    };
+    discoveryShortlist: {
+      signalLabel: string;
+      preliminaryTag: string;
+      verifiedQualifiedTag: string;
+      snapshotHistoryLabel: (count: number) => string;
+      categories: Record<DiscoveryShortlistCategory, string>;
     };
   };
 }
@@ -572,6 +603,16 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       microViewTag: 'ပုံ + နာမည်',
       listCompactTag: 'ကျစ်လစ်',
       listDetailedTag: 'အပြည့်အစုံ',
+      emptyGuideTitle: 'Commercial Product Intelligence ဖြင့် ပစ္စည်းရှာဖွေပါ',
+      emptyGuideDesc:
+        'Category ရွေးပါ သို့မဟုတ် Keyword / TikTok Shop Product Link ထည့်၍ ရှာဖွေလိုက်သည်နှင့် ပစ္စည်းတစ်ခုချင်းစီကို အချက် ၄ ချက်ဖြင့် အလိုအလျောက် စိစစ်ပေးပါမည်။',
+      emptyGuidePoints: [
+        'Commercial Opportunity — Demand, Earning, Competition နှင့် Customer Quality ၄ ချက်ကို သီးခြားတွက်ချက်သည်',
+        'Strategy Explorer — Affiliate ဗျူဟာ ၈ မျိုးအနက် ကိုက်ညီသည့်ပစ္စည်းနှင့် ဖယ်ထုတ်ခံရသည့် အကြောင်းရင်းကို ရှင်းလင်းစွာ ပြသည်',
+        'Data Confidence — Verified ဖြစ်ပြီးသား Metric နှင့် Unverified Metric များကို အတိအကျ ခွဲခြားဖော်ပြသည်',
+      ],
+      emptyGuideDisclaimer:
+        'သတိပြုရန် — Commercial Score နှင့် ယခင် Video ရောင်းအားများသည် ဈေးကွက်အလားအလာ အထောက်အထားသာဖြစ်ပြီး အနာဂတ် Affiliate ရောင်းအားကို အာမမခံပါ။',
     },
     card: {
       thaiOriginal: 'ထိုင်း TikTok နာမည်',
@@ -750,6 +791,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       confirmCancelBtn: 'မလုပ်တော့ပါ',
       savedStyleMark: 'သိမ်းပြီး',
       videoSectionTitle: 'Silent AI Video Ideas ဖန်တီးရန်',
+      commercialStudioNotice:
+        'Commercial Score သည် ဈေးကွက်အလားအလာကိုသာ တိုင်းတာပြီး Video Studio အကြံပြုချက်များနှင့် သီးခြားဖြစ်သည်။ Score မြင့်ခြင်း သို့မဟုတ် ယခင် Video ရောင်းအားရှိခြင်းသည် သင့် Video အတွက် ရောင်းအားအာမခံချက် မဟုတ်ပါ။',
       analysisTitle: 'AI ဖြင့် Product အသေးစိတ် သုံးသပ်ချက်',
       analysisSubtitle: 'လက်ရှိရရှိထားသော Kalodata အချက်အလက်များ (နာမည်၊ ဈေးနှုန်း၊ ရောင်းအား၊ ကော်မရှင်၊ Deep Data) ပေါ်မူတည်၍ တွက်ချက်သုံးသပ်ပေးပါမည်။ Data မရှိသေးသောအချက်များကို အတိအကျ ဖော်ပြပေးပါမည်။',
       analysisBtn: 'AI ဖြင့် Product သုံးသပ်မယ် (0 cr)',
@@ -847,7 +890,11 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       backupSuccess: 'Backup ဖိုင်ကို အောင်မြင်စွာ ဒေါင်းလုဒ်ဆွဲပြီးပါပြီ။',
       restoreSuccessCount: (added, total) =>
         `Restore အောင်မြင်ပါသည် — အသစ် ${added} ခု ထပ်ပေါင်းပြီး စုစုပေါင်း ${total} ခု ရှိပါပြီ။`,
+      restoreSuccessWithSearches: (added, total, searchesAdded) =>
+        `Restore အောင်မြင်ပါသည် — ပစ္စည်းအသစ် ${added} ခု (စုစုပေါင်း ${total} ခု) နှင့် ရှာဖွေမှုမှတ်တမ်းအသစ် ${searchesAdded} ခု ပေါင်းထည့်ပြီးပါပြီ။`,
       restoreError: 'ဖိုင်ပုံစံ မမှန်ကန်ပါ။ SiamVisual Backup JSON ဖိုင်ကိုသာ ရွေးချယ်ပါ။',
+      noFilterMatches: 'သင်ရိုက်ရှာသော စာသားနှင့် ကိုက်ညီသည့် သိမ်းထားသောပစ္စည်း မတွေ့ပါ။',
+      clearFilterAria: 'Filter စာသား ရှင်းမယ်',
       savedCount: (n: number) => `စုစုပေါင်း ပစ္စည်း ${n} ခု သိမ်းထားသည်`,
     },
     kalodata: {
@@ -901,6 +948,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       commercialScoreLabel: 'Commercial Score',
       commercialScoreShort: 'Commercial',
       strategyScoreLabel: 'Strategy Score',
+      strategyScoreShort: 'Strategy',
+      rankingTransparencyNote:
+        'Commercial Opportunity (ဈေးကွက်အလားအလာ)၊ Conversion Evidence (ယခင် Video/Live ရောင်းအား)၊ Data Confidence နှင့် Video Suitability တို့ကို သီးခြားခွဲပြထားသည်။ Score မြင့်ခြင်းသည် Affiliate ရောင်းအားကို အာမမခံပါ။',
       withheldLabel: 'Withheld (Data မပြည့်)',
       withheldZeroCommLabel: '0% (Not Monetizable)',
       dimensionsHeading: 'Commercial Dimensions ၄ ချက်',
@@ -1079,16 +1129,25 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       provenance: {
         sectionTitle: 'Metric Provenance & Phase 0 Verification Status',
         sectionSubtitle:
-          'Field တစ်ခုချင်းစီသည် Verified Source၊ Derived (တွက်ချက်)၊ သို့မဟုတ် Phase 0 Unverified ဖြစ်ကြောင်း တိကျစွာ ခွဲခြားပြထားသည်။',
+          'Field တစ်ခုချင်းစီသည် Verified Source၊ Derived (တွက်ချက်)၊ သို့မဟုတ် Unverified ဖြစ်ကြောင်း တိကျစွာ ခွဲခြားပြထားသည်။',
+        metricCol: 'Metric',
+        valueCol: 'တန်ဖိုး',
+        statusCol: 'စစ်ဆေးမှု / အရင်းအမြစ်',
+        derivedTag: 'တွက်ချက်ထား',
+        sourceTag: 'မူရင်း Source',
+        verifiedCountLabel: (verified: number, total: number) =>
+          `Verified ${verified}/${total}`,
+        cardUnverifiedNotice: (count: number) =>
+          `Unverified metric ${count} ခုရှိ၍ Strategy စိစစ်မှုတွင် ထည့်မတွက်ထားပါ`,
         categories: {
           verified_source: 'Verified Source',
-          derived: 'Derived (Synthetic)',
+          derived: 'Derived (တွက်ချက်)',
           unverified: 'Unverified Unit/Scope',
-          missing: 'Missing',
+          missing: 'မရှိသေး (Missing)',
           zero: 'Verified Zero',
           stale: 'Stale (>24h)',
           invalid: 'Invalid',
-          unavailable: 'Unavailable',
+          unavailable: 'မရရှိနိုင်',
         },
         fields: {
           priceThb: 'Price (THB)',
@@ -1104,7 +1163,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
           reviewCount: 'Review Count',
         },
         unverifiedCoreBanner: (count: number) =>
-          `Phase 0 Notice: Metric ${count} ခုသည် Upstream Unit/Definition Unverified ဖြစ်နေ၍ Strategy Qualification တွင် မသုံးထားပါ`,
+          `Metric ${count} ခုသည် Upstream Unit/Definition Unverified ဖြစ်နေ၍ Strategy Qualification တွင် ထည့်မတွက်ထားပါ`,
         syntheticRevenueBanner: 'Revenue ကို Price × Sales မှ Synthetic ခန့်မှန်းထားသည် (Confidence လျှော့ချထားသည်)',
       },
       dialog: {
@@ -1137,6 +1196,13 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         studioVisualRefNotice:
           'အောက်ပါ Visual cues များသည် Video ဖန်တီးမှုအတွက်သာ ဖြစ်ပြီး Commercial Opportunity Ranking တွင် လုံးဝ မပါဝင်ပါ။',
         v1SilentScoreLabel: 'Studio Visual Reference Score (V1)',
+        pillarsSummaryTitle: 'အမှတ်စနစ် ၄ မျိုး ကွဲပြားချက်',
+        pillarCommercial: 'Commercial Opportunity — Demand, Earning, Competition, Quality အပေါ်အခြေခံသည့် ဈေးကွက်အလားအလာ',
+        pillarConversion: 'Conversion Evidence — ယခင် Video/Live ရောင်းအားအထောက်အထား (Commercial Score နှင့် သီးခြား)',
+        pillarVideo: 'Video Suitability — Video Studio ဖန်တီးမှုအတွက်သာ (Commercial Ranking တွင် 0%)',
+        pillarConfidence: 'Data Confidence — Verified ဖြစ်မှု၊ ပြည့်စုံမှုနှင့် Data လတ်ဆတ်မှု အဆင့်',
+        nonGuaranteeDisclaimer:
+          'Commercial Score မြင့်ခြင်း သို့မဟုတ် ယခင် Video ရောင်းအားရှိခြင်းသည် သင့် Affiliate Video အတွက် ရောင်းအားအာမခံချက် မဟုတ်ပါ။',
       },
       riskLabels: {
         EXTREME_COMPETITION: 'Extreme Competition',
@@ -1175,6 +1241,20 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         liveRev: 'Live Rev',
         unverified: 'Unverified',
         missing: 'Missing',
+      },
+      discoveryShortlist: {
+        signalLabel: 'Discovery Signal',
+        preliminaryTag: 'Preliminary',
+        verifiedQualifiedTag: 'Qualified',
+        snapshotHistoryLabel: (count: number) => `Snapshots: ${count}d`,
+        categories: {
+          STRONG_DEMAND_STRONG_VIDEO_SALES: 'Strong Demand + Strong Video Sales',
+          STRONG_DEMAND_LOW_COMPETITION: 'Strong Demand + Low Competition',
+          STRONG_AFFILIATE_EARNINGS: 'Strong Affiliate Earnings',
+          EMERGING_OPPORTUNITY: 'Emerging Opportunity',
+          HIGH_DEMAND_HIGH_COMPETITION: 'High Demand · High Competition',
+          INSUFFICIENT_EVIDENCE: 'Insufficient Evidence',
+        },
       },
     },
   },
@@ -1243,6 +1323,16 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       microViewTag: 'Image + Name',
       listCompactTag: 'Compact',
       listDetailedTag: 'Detailed',
+      emptyGuideTitle: 'Discover commercial affiliate opportunities',
+      emptyGuideDesc:
+        'Pick one or more categories or search by keyword / TikTok Shop product link. Every product is scored independently across 4 commercial dimensions.',
+      emptyGuidePoints: [
+        'Commercial Opportunity — evaluates Demand, Earning, Competition, and Customer Quality separately',
+        'Strategy Explorer — filters 8 affiliate strategies and explains exactly why excluded products did not qualify',
+        'Data Confidence — separates verified source metrics from derived or unverified fields',
+      ],
+      emptyGuideDisclaimer:
+        'Note: Commercial scores and past video sales reflect market signals only and do not guarantee future affiliate sales or your video conversion.',
     },
     card: {
       thaiOriginal: 'Thai TikTok listing',
@@ -1421,6 +1511,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       confirmCancelBtn: 'Cancel',
       savedStyleMark: 'Saved',
       videoSectionTitle: 'Silent AI Video Ideas Generator',
+      commercialStudioNotice:
+        'Commercial Opportunity measures market signals separately from Video Studio suitability. Neither a high score nor past video sales guarantees your affiliate video results.',
       analysisTitle: 'AI Product Deep Analysis',
       analysisSubtitle: 'Analyzes product identity, pricing, sales velocity, commission math, and deep data strictly from available Kalodata records. Clearly flags any missing data.',
       analysisBtn: 'Analyze Product with AI (0 cr)',
@@ -1518,7 +1610,11 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       backupSuccess: 'Backup JSON downloaded successfully.',
       restoreSuccessCount: (added, total) =>
         `Restored successfully — ${added} new ${added === 1 ? 'product' : 'products'} added (${total} total).`,
+      restoreSuccessWithSearches: (added, total, searchesAdded) =>
+        `Restored successfully — ${added} new ${added === 1 ? 'product' : 'products'} (${total} total) and ${searchesAdded} new ${searchesAdded === 1 ? 'search' : 'searches'} merged.`,
       restoreError: 'Invalid file format. Please choose a valid SiamVisual backup JSON file.',
+      noFilterMatches: 'No saved products match your filter.',
+      clearFilterAria: 'Clear filter',
       savedCount: (n: number) => `${n} saved ${n === 1 ? 'product' : 'products'}`,
     },
     kalodata: {
@@ -1572,6 +1668,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       commercialScoreLabel: 'Commercial Score',
       commercialScoreShort: 'Commercial',
       strategyScoreLabel: 'Strategy Score',
+      strategyScoreShort: 'Strategy',
+      rankingTransparencyNote:
+        'Commercial Opportunity, Conversion Evidence, Data Confidence, and Video Suitability are tracked separately. Scores and past video sales never guarantee affiliate results.',
       withheldLabel: 'Withheld (Insufficient Data)',
       withheldZeroCommLabel: '0% (Not Monetizable)',
       dimensionsHeading: '4 Commercial Dimensions',
@@ -1750,7 +1849,16 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       provenance: {
         sectionTitle: 'Metric Provenance & Phase 0 Verification Status',
         sectionSubtitle:
-          'Shows whether each field comes from a verified source, is derived, or remains unverified pending Phase 0 live API probing.',
+          'Shows whether each field comes from a verified source, is derived, or remains unverified.',
+        metricCol: 'Metric',
+        valueCol: 'Value',
+        statusCol: 'Status / Provenance',
+        derivedTag: 'Derived',
+        sourceTag: 'Source',
+        verifiedCountLabel: (verified: number, total: number) =>
+          `Verified ${verified}/${total}`,
+        cardUnverifiedNotice: (count: number) =>
+          `${count} unverified metric(s) excluded from strategy qualification`,
         categories: {
           verified_source: 'Verified Source',
           derived: 'Derived (Synthetic)',
@@ -1775,7 +1883,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
           reviewCount: 'Review Count',
         },
         unverifiedCoreBanner: (count: number) =>
-          `Phase 0 Guard: ${count} metric(s) have unverified upstream units/scope and are blocked from inflating strategy qualification`,
+          `${count} metric(s) have unverified upstream units/scope and are blocked from inflating strategy qualification`,
         syntheticRevenueBanner: 'Revenue is synthetically estimated from price × sales (confidence penalized)',
       },
       dialog: {
@@ -1808,6 +1916,13 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         studioVisualRefNotice:
           'Visual cues below assist with video production only and do not contribute to Commercial Opportunity ranking.',
         v1SilentScoreLabel: 'Studio Visual Reference (V1)',
+        pillarsSummaryTitle: 'How SiamVisual Separates These 4 Signals',
+        pillarCommercial: 'Commercial Opportunity — market potential from Demand, Earning, Competition, and Customer Quality',
+        pillarConversion: 'Conversion Evidence — historical video/live channel revenue (separate from Commercial Score)',
+        pillarVideo: 'Video Suitability — creative Studio guidance only (0% weight in commercial ranking)',
+        pillarConfidence: 'Data Confidence — metric completeness, source verification, and freshness',
+        nonGuaranteeDisclaimer:
+          'A high Commercial Score or strong past video revenue does not guarantee affiliate sales or conversion for your own videos.',
       },
       riskLabels: {
         EXTREME_COMPETITION: 'Extreme Competition',
@@ -1846,6 +1961,20 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         liveRev: 'Live Rev',
         unverified: 'Unverified',
         missing: 'Missing',
+      },
+      discoveryShortlist: {
+        signalLabel: 'Discovery Signal',
+        preliminaryTag: 'Preliminary',
+        verifiedQualifiedTag: 'Qualified',
+        snapshotHistoryLabel: (count: number) => `Snapshots: ${count}d`,
+        categories: {
+          STRONG_DEMAND_STRONG_VIDEO_SALES: 'Strong Demand + Strong Video Sales',
+          STRONG_DEMAND_LOW_COMPETITION: 'Strong Demand + Low Creator Competition',
+          STRONG_AFFILIATE_EARNINGS: 'Strong Affiliate Earnings',
+          EMERGING_OPPORTUNITY: 'Emerging Opportunity',
+          HIGH_DEMAND_HIGH_COMPETITION: 'High Demand but High Competition',
+          INSUFFICIENT_EVIDENCE: 'Insufficient Evidence',
+        },
       },
     },
   },

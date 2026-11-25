@@ -408,7 +408,7 @@ export function KalodataBar({
           </button>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={handlePasteClick}
@@ -421,7 +421,7 @@ export function KalodataBar({
           <button
             type="submit"
             disabled={isConnecting || !keyInput.trim()}
-            className="h-11 px-5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold transition-colors duration-150 whitespace-nowrap disabled:opacity-55 cursor-pointer"
+            className="h-11 flex-1 sm:flex-none px-5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold transition-colors duration-150 whitespace-nowrap disabled:opacity-55 cursor-pointer"
           >
             {isConnecting ? t.kalodata.connectingBtn : t.kalodata.connectBtn}
           </button>

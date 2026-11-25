@@ -49,29 +49,30 @@ export function StrategyExplorerBar({
           </div>
         </div>
 
-        <div className="text-[11px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">
+        <div className="text-[11px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400 shrink-0">
           {t.v2.engineBadge} · {t.v2.strategyExplorer.overallCountLabel(viewModel.poolSize)}
         </div>
       </div>
 
       {/* Scrollable / Responsive Segmented Strategy Selector (Interactive Controls Only) */}
       <div className="px-4 sm:px-5 pb-3.5">
-        <div
-          role="tablist"
-          aria-label={t.v2.strategyExplorer.title}
-          className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 sm:flex-wrap"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={isOverall}
-            onClick={() => onSelectView('overall')}
-            className={`h-8 px-3 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
-              isOverall
-                ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 font-semibold'
-                : 'bg-slate-50 dark:bg-slate-900/70 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-            }`}
+        <div className="relative">
+          <div
+            role="tablist"
+            aria-label={t.v2.strategyExplorer.title}
+            className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 pr-7 sm:pr-0 sm:flex-wrap"
           >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isOverall}
+              onClick={() => onSelectView('overall')}
+              className={`h-9 px-3 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                isOverall
+                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 font-semibold'
+                  : 'bg-slate-50 dark:bg-slate-900/70 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
             <span>{t.v2.overallTabShort}</span>
             <span
               className={`font-mono-num tabular-nums text-[11px] ${
@@ -93,42 +94,48 @@ export function StrategyExplorerBar({
               Boolean(summary.unavailableReason);
 
             return (
-              <button
-                key={summary.id}
-                type="button"
-                role="tab"
-                aria-selected={isSelected}
-                onClick={() => onSelectView(summary.id)}
-                className={`h-8 px-3 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
-                  isSelected
-                    ? 'bg-teal-600 text-white dark:bg-teal-500 dark:text-slate-950 font-semibold'
-                    : 'bg-slate-50 dark:bg-slate-900/70 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                }`}
-              >
-                {summary.requiresHistoricalSnapshots && (
-                  <Clock
-                    className={`w-3 h-3 shrink-0 ${
-                      isSelected
-                        ? 'text-white/90 dark:text-slate-950/80'
-                        : 'text-slate-400 dark:text-slate-500'
-                    }`}
-                  />
-                )}
-                <span>{strategyCopy.shortName}</span>
-                <span
-                  className={`font-mono-num tabular-nums text-[11px] ${
+                <button
+                  key={summary.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isSelected}
+                  onClick={() => onSelectView(summary.id)}
+                  className={`h-9 px-3 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                     isSelected
-                      ? 'text-white/85 dark:text-slate-950/80'
-                      : summary.qualifiedCount > 0
-                        ? 'text-teal-700 dark:text-teal-400 font-semibold'
-                        : 'text-slate-400 dark:text-slate-500'
+                      ? 'bg-teal-600 text-white dark:bg-teal-500 dark:text-slate-950 font-semibold'
+                      : 'bg-slate-50 dark:bg-slate-900/70 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                   }`}
                 >
-                  {isUnavailable ? 'N/A' : summary.qualifiedCount}
-                </span>
-              </button>
-            );
-          })}
+                  {summary.requiresHistoricalSnapshots && (
+                    <Clock
+                      className={`w-3 h-3 shrink-0 ${
+                        isSelected
+                          ? 'text-white/90 dark:text-slate-950/80'
+                          : 'text-slate-400 dark:text-slate-500'
+                      }`}
+                    />
+                  )}
+                  <span>{strategyCopy.shortName}</span>
+                  <span
+                    className={`font-mono-num tabular-nums text-[11px] ${
+                      isSelected
+                        ? 'text-white/85 dark:text-slate-950/80'
+                        : summary.qualifiedCount > 0
+                          ? 'text-teal-700 dark:text-teal-400 font-semibold'
+                          : 'text-slate-400 dark:text-slate-500'
+                    }`}
+                  >
+                    {isUnavailable ? 'N/A' : summary.qualifiedCount}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {/* Right-edge scroll fade indicator on mobile so users notice all 8 strategies */}
+          <div
+            aria-hidden="true"
+            className="sm:hidden pointer-events-none absolute inset-y-0 right-0 w-7 bg-gradient-to-l from-white dark:from-[#131B24] to-transparent"
+          />
         </div>
       </div>
 
@@ -190,7 +197,7 @@ export function StrategyExplorerBar({
                 <button
                   type="button"
                   onClick={onToggleShowExcluded}
-                  className="h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 self-start cursor-pointer"
+                  className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 self-start cursor-pointer"
                 >
                   {showExcluded ? (
                     <EyeOff className="w-3.5 h-3.5 shrink-0" />
@@ -252,6 +259,12 @@ export function StrategyExplorerBar({
             )}
           </div>
         ) : null}
+
+        {/* Concise Non-Guarantee Ranking Transparency Reminder */}
+        <p className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/75 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed flex items-start gap-1.5">
+          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-400 dark:text-slate-500" />
+          <span>{t.v2.rankingTransparencyNote}</span>
+        </p>
       </div>
     </section>
   );

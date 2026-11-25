@@ -7,6 +7,7 @@ import type {
   ProductDeepInsights,
   ProductItem,
   ProductKalodataMetrics,
+  ProductObservationSnapshot,
   ProductValidatedMetrics,
   RecentSearchEntry,
   ResultGridCols,
@@ -26,6 +27,10 @@ import {
   refreshProductValidatedMetricsFreshness,
 } from './metricFoundation';
 import { evaluateProductCommercialV2 } from './scoringEngineV2';
+import {
+  loadProductSnapshotsFromStorage,
+  sanitizeProductSnapshotsMap,
+} from './snapshotStore';
 import { evaluateProductStrategiesV2 } from './strategyEngineV2';
 
 const HISTORY_KEY = 'siamvisual_history_v1';
@@ -374,7 +379,38 @@ function parseTimestampMs(iso?: string | null): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function mergeKalodataMetrics(
+const COHERENT_SNAPSHOT_MERGE_WINDOW_MS = 6 * 3_600_000;
+
+function isMetricAbsentForComplementaryMerge(
+  metric: ProductValidatedMetrics['revenueGrowthRate'] | undefined
+): boolean {
+  if (!metric) return true;
+  if (metric.state === 'MISSING') return true;
+  if (
+    metric.state === 'UNAVAILABLE' &&
+    (metric.rawInput === null || metric.rawInput === undefined || metric.rawInput === '')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function canComplementAcrossSnapshots(
+  aFetchedAt: string | null | undefined,
+  bFetchedAt: string | null | undefined,
+  aDateRange: string | null | undefined,
+  bDateRange: string | null | undefined
+): boolean {
+  const aMs = parseTimestampMs(aFetchedAt);
+  const bMs = parseTimestampMs(bFetchedAt);
+  if (aMs === null || bMs === null) return false;
+  if (Math.abs(aMs - bMs) > COHERENT_SNAPSHOT_MERGE_WINDOW_MS) return false;
+  const normA = (aDateRange || 'last7Day').trim();
+  const normB = (bDateRange || 'last7Day').trim();
+  return normA === normB;
+}
+
+export function mergeKalodataMetrics(
   primary?: ProductKalodataMetrics,
   fallback?: ProductKalodataMetrics
 ): ProductKalodataMetrics | undefined {
@@ -382,11 +418,36 @@ function mergeKalodataMetrics(
   if (!primary) return fallback;
   if (!fallback) return primary;
 
-  // Prefer a coherent snapshot when timestamps differ rather than mixing fields across periods
+  // Prefer a coherent snapshot when timestamps differ beyond the 6h coherent window or across periods
   const primaryMs = parseTimestampMs(primary.fetchedAt);
   const fallbackMs = parseTimestampMs(fallback.fetchedAt);
   if (primaryMs !== null && fallbackMs !== null && primaryMs !== fallbackMs) {
-    return primaryMs >= fallbackMs ? primary : fallback;
+    const newer = primaryMs >= fallbackMs ? primary : fallback;
+    const older = primaryMs >= fallbackMs ? fallback : primary;
+    if (
+      !canComplementAcrossSnapshots(
+        newer.fetchedAt,
+        older.fetchedAt,
+        newer.dateRange,
+        older.dateRange
+      )
+    ) {
+      return newer;
+    }
+    return {
+      salesVolume7d: newer.salesVolume7d ?? older.salesVolume7d ?? null,
+      revenueThb7d: newer.revenueThb7d ?? older.revenueThb7d ?? null,
+      videoRevenueThb7d: newer.videoRevenueThb7d ?? older.videoRevenueThb7d ?? null,
+      liveRevenueThb7d: newer.liveRevenueThb7d ?? older.liveRevenueThb7d ?? null,
+      shoppingMallRevenueThb7d:
+        newer.shoppingMallRevenueThb7d ?? older.shoppingMallRevenueThb7d ?? null,
+      revenueGrowthRate: newer.revenueGrowthRate ?? older.revenueGrowthRate ?? null,
+      creatorCount: newer.creatorCount ?? older.creatorCount ?? null,
+      rating: newer.rating ?? older.rating ?? null,
+      reviewCount: newer.reviewCount ?? older.reviewCount ?? null,
+      dateRange: newer.dateRange || older.dateRange || 'last7Day',
+      fetchedAt: newer.fetchedAt || older.fetchedAt,
+    };
   }
   if (primaryMs !== null && fallbackMs === null) {
     return primary;
@@ -400,6 +461,8 @@ function mergeKalodataMetrics(
     revenueThb7d: primary.revenueThb7d ?? fallback.revenueThb7d ?? null,
     videoRevenueThb7d: primary.videoRevenueThb7d ?? fallback.videoRevenueThb7d ?? null,
     liveRevenueThb7d: primary.liveRevenueThb7d ?? fallback.liveRevenueThb7d ?? null,
+    shoppingMallRevenueThb7d:
+      primary.shoppingMallRevenueThb7d ?? fallback.shoppingMallRevenueThb7d ?? null,
     revenueGrowthRate: primary.revenueGrowthRate ?? fallback.revenueGrowthRate ?? null,
     creatorCount: primary.creatorCount ?? fallback.creatorCount ?? null,
     rating: primary.rating ?? fallback.rating ?? null,
@@ -409,19 +472,90 @@ function mergeKalodataMetrics(
   };
 }
 
-function selectFresherValidatedMetrics(
+export function mergeValidatedMetricsSnapshots(
   primary?: ProductValidatedMetrics,
   fallback?: ProductValidatedMetrics
 ): ProductValidatedMetrics | undefined {
   if (!primary && !fallback) return undefined;
   if (!primary) return fallback;
   if (!fallback) return primary;
+
   const primaryMs = parseTimestampMs(primary.fetchedAt);
   const fallbackMs = parseTimestampMs(fallback.fetchedAt);
+  let newer = primary;
+  let older = fallback;
   if (primaryMs !== null && fallbackMs !== null) {
-    return primaryMs >= fallbackMs ? primary : fallback;
+    if (fallbackMs > primaryMs) {
+      newer = fallback;
+      older = primary;
+    }
+  } else if (fallbackMs !== null && primaryMs === null) {
+    return fallback;
+  } else if (primaryMs !== null && fallbackMs === null) {
+    return primary;
   }
-  return primaryMs !== null ? primary : fallbackMs !== null ? fallback : primary;
+
+  // Only fill endpoint-exclusive absent fields (e.g. /rank growth + /detail creator/review)
+  // when both snapshots share the same dateRange and are within the 6h coherent window.
+  if (
+    !canComplementAcrossSnapshots(
+      newer.fetchedAt,
+      older.fetchedAt,
+      newer.dateRange,
+      older.dateRange
+    )
+  ) {
+    return newer;
+  }
+
+  const pickComplementary = <T extends ProductValidatedMetrics['revenueGrowthRate']>(
+    a: T,
+    b: T
+  ): T => (isMetricAbsentForComplementaryMerge(a) && !isMetricAbsentForComplementaryMerge(b) ? b : a);
+
+  const mergedShoppingMall =
+    newer.shoppingMallRevenueThb7d &&
+    !isMetricAbsentForComplementaryMerge(newer.shoppingMallRevenueThb7d)
+      ? newer.shoppingMallRevenueThb7d
+      : older.shoppingMallRevenueThb7d ?? newer.shoppingMallRevenueThb7d;
+
+  const merged: ProductValidatedMetrics = {
+    ...newer,
+    revenueGrowthRate: pickComplementary(newer.revenueGrowthRate, older.revenueGrowthRate),
+    creatorCount: pickComplementary(newer.creatorCount, older.creatorCount),
+    reviewCount: pickComplementary(newer.reviewCount, older.reviewCount),
+    rating: pickComplementary(newer.rating, older.rating),
+    ...(mergedShoppingMall ? { shoppingMallRevenueThb7d: mergedShoppingMall } : {}),
+  };
+
+  const unresolvedSet = new Set<string>();
+  const fields: Array<[string, ProductValidatedMetrics['revenueGrowthRate'] | undefined]> = [
+    ['priceThb', merged.priceThb],
+    ['commissionRate', merged.commissionRate],
+    ['commissionThb', merged.commissionThb],
+    ['salesVolume7d', merged.salesVolume7d],
+    ['revenueThb7d', merged.revenueThb7d],
+    ['videoRevenueThb7d', merged.videoRevenueThb7d],
+    ['liveRevenueThb7d', merged.liveRevenueThb7d],
+    ['shoppingMallRevenueThb7d', merged.shoppingMallRevenueThb7d],
+    ['revenueGrowthRate', merged.revenueGrowthRate],
+    ['creatorCount', merged.creatorCount],
+    ['rating', merged.rating],
+    ['reviewCount', merged.reviewCount],
+  ];
+  for (const [name, m] of fields) {
+    if (!m) continue;
+    if (
+      m.unit === 'UNVERIFIED' ||
+      m.state === 'UNAVAILABLE' ||
+      Boolean(m.note && /UNVERIFIED_COMPARISON_PERIOD/i.test(m.note))
+    ) {
+      unresolvedSet.add(name);
+    }
+  }
+  merged.unresolvedFields = Array.from(unresolvedSet);
+
+  return merged;
 }
 
 export function saveDeepInsightForProduct(
@@ -466,7 +600,7 @@ export function saveDeepInsightForProduct(
   const record: SavedDeepInsightRecord = {
     deepInsights: mergedDeep,
     kalodataMetrics: mergeKalodataMetrics(incoming.kalodataMetrics, prev?.kalodataMetrics),
-    validatedMetrics: selectFresherValidatedMetrics(
+    validatedMetrics: mergeValidatedMetricsSnapshots(
       incoming.validatedMetrics,
       prev?.validatedMetrics
     ),
@@ -617,7 +751,7 @@ export function hydrateProductFromStorage(
       ),
       fetchedAt: product.deepInsights?.fetchedAt || savedDeep.deepInsights.fetchedAt,
     };
-    const selectedValidated = selectFresherValidatedMetrics(
+    const selectedValidated = mergeValidatedMetricsSnapshots(
       hydrated.validatedMetrics,
       savedDeep.validatedMetrics
     );
@@ -727,15 +861,17 @@ export function exportHistoryBackup(
 ): void {
   const deepInsightsCache = loadDeepInsightsCache();
   const productAnalysisCache = loadProductAnalysisCache();
+  const productSnapshots = loadProductSnapshotsFromStorage();
   const payload: BackupPayload = {
     app: 'SiamVisual',
-    version: 4,
+    version: 5,
     exportedAt: new Date().toISOString(),
     entries,
     limits,
     recentSearches,
     deepInsightsCache,
     productAnalysisCache,
+    productSnapshots,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: 'application/json;charset=utf-8',
@@ -757,6 +893,7 @@ export interface ParsedBackupResult {
   recentSearches?: RecentSearchEntry[];
   deepInsightsCache?: Record<string, SavedDeepInsightRecord>;
   productAnalysisCache?: Record<string, ProductAiAnalysis>;
+  productSnapshots?: Record<string, ProductObservationSnapshot[]>;
 }
 
 export function parseBackupFile(text: string): ParsedBackupResult | null {
@@ -770,6 +907,7 @@ export function parseBackupFile(text: string): ParsedBackupResult | null {
     let recentSearches: RecentSearchEntry[] | undefined;
     let deepInsightsCache: Record<string, SavedDeepInsightRecord> | undefined;
     let productAnalysisCache: Record<string, ProductAiAnalysis> | undefined;
+    let productSnapshots: Record<string, ProductObservationSnapshot[]> | undefined;
 
     if ('entries' in parsed && Array.isArray((parsed as BackupPayload).entries)) {
       const payload = parsed as BackupPayload;
@@ -810,6 +948,16 @@ export function parseBackupFile(text: string): ParsedBackupResult | null {
       ) {
         productAnalysisCache = payload.productAnalysisCache;
       }
+      if (
+        payload.productSnapshots &&
+        typeof payload.productSnapshots === 'object' &&
+        !Array.isArray(payload.productSnapshots)
+      ) {
+        const sanitized = sanitizeProductSnapshotsMap(payload.productSnapshots);
+        if (Object.keys(sanitized).length > 0) {
+          productSnapshots = sanitized;
+        }
+      }
     } else if (Array.isArray(parsed)) {
       rawEntries = parsed;
     } else {
@@ -822,6 +970,7 @@ export function parseBackupFile(text: string): ParsedBackupResult | null {
       recentSearches,
       deepInsightsCache,
       productAnalysisCache,
+      productSnapshots,
     };
   } catch {
     return null;
@@ -848,6 +997,29 @@ export function mergeRestoredHistory(
     (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
   );
   persistSavedHistory(merged);
+  return { merged, addedCount };
+}
+
+export function mergeRestoredRecentSearches(
+  current: RecentSearchEntry[],
+  imported: RecentSearchEntry[]
+): { merged: RecentSearchEntry[]; addedCount: number } {
+  const existingIds = new Set(current.map((item) => item.id));
+  let addedCount = 0;
+  const map = new Map<string, RecentSearchEntry>();
+  for (const item of imported) {
+    if (!existingIds.has(item.id)) addedCount += 1;
+    map.set(item.id, item);
+  }
+  for (const item of current) {
+    if (!map.has(item.id)) {
+      map.set(item.id, item);
+    }
+  }
+  const merged = Array.from(map.values())
+    .sort((a, b) => new Date(b.searchedAt).getTime() - new Date(a.searchedAt).getTime())
+    .slice(0, MAX_RECENT_SEARCHES);
+  persistRecentSearches(merged);
   return { merged, addedCount };
 }
 

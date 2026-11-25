@@ -63,7 +63,7 @@ export function AiChatPromptCard({ product, t }: AiChatPromptCardProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setShowPreview((prev) => !prev)}
@@ -80,7 +80,7 @@ export function AiChatPromptCard({ product, t }: AiChatPromptCardProps) {
           <button
             type="button"
             onClick={handleCopyPrompt}
-            className="h-10 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="h-10 flex-1 sm:flex-none px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             {copied ? (
               <Check className="w-3.5 h-3.5 shrink-0" />

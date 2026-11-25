@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { Translations } from '../i18n';
 import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
+import { classifyProductDiscoveryShortlist } from '../lib/discoveryShortlist.ts';
 import { getStudioFallbackImage } from '../lib/media';
 import {
   type ActiveStrategyView,
@@ -210,7 +211,7 @@ export function ProductCard({
           aria-pressed={isSaved}
           aria-label={label}
           title={label}
-          className={`absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-md border inline-flex items-center justify-center backdrop-blur-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+          className={`absolute top-1.5 right-1.5 z-10 h-8 w-8 rounded-lg border inline-flex items-center justify-center backdrop-blur-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
             isSaved
               ? 'border-teal-500/70 bg-teal-50/95 dark:bg-teal-950/85 text-teal-700 dark:text-teal-300'
               : 'border-slate-200/80 dark:border-slate-700/80 bg-white/85 dark:bg-[#131B24]/85 text-slate-500 dark:text-slate-300 hover:text-teal-700 dark:hover:text-teal-400 hover:border-teal-400/70'
@@ -221,7 +222,7 @@ export function ProductCard({
       );
     }
 
-    const sizeClass = variant === 'regular' ? 'h-7 w-7' : 'h-6 w-6';
+    const sizeClass = variant === 'regular' ? 'h-9 w-9' : 'h-8 w-8';
     return (
       <button
         type="button"
@@ -232,7 +233,7 @@ export function ProductCard({
         aria-pressed={isSaved}
         aria-label={label}
         title={label}
-        className={`${sizeClass} rounded-md inline-flex items-center justify-center transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+        className={`${sizeClass} rounded-lg inline-flex items-center justify-center transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
           isSaved
             ? 'text-teal-700 dark:text-teal-400 bg-teal-50/90 dark:bg-teal-950/50 hover:bg-teal-100/80 dark:hover:bg-teal-950/80'
             : 'text-slate-400 dark:text-slate-500 hover:text-teal-700 dark:hover:text-teal-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -375,8 +376,8 @@ export function ProductCard({
         onClick={() => handleCopy('thai', product.thaiTitle)}
         title={t.card.copyThai}
         className={`${
-          compactMode ? 'h-5.5 px-1 text-[10px]' : 'h-6 px-1.5 text-[11px]'
-        } rounded font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-colors cursor-pointer`}
+          compactMode ? 'h-7 px-1.5 text-[10px]' : 'h-8 px-2 text-[11px]'
+        } rounded-md font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-colors cursor-pointer`}
       >
         {copiedField === 'thai' ? (
           <Check className="w-3 h-3 text-teal-600 dark:text-teal-400" />
@@ -390,8 +391,8 @@ export function ProductCard({
         onClick={() => handleCopy('id', product.id)}
         title={`${t.card.copyId}: ${product.id}`}
         className={`${
-          compactMode ? 'h-5.5 px-1 text-[10px]' : 'h-6 px-1.5 text-[11px]'
-        } rounded font-mono-num font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-colors cursor-pointer`}
+          compactMode ? 'h-7 px-1.5 text-[10px]' : 'h-8 px-2 text-[11px]'
+        } rounded-md font-mono-num font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-colors cursor-pointer`}
       >
         {copiedField === 'id' ? (
           <Check className="w-3 h-3 text-teal-600 dark:text-teal-400" />
@@ -412,8 +413,8 @@ export function ProductCard({
             title={t.card.openTikTokShop}
             aria-label={`${t.card.openTikTokShop}: ${primaryTitle}`}
             className={`${
-              compactMode ? 'h-5.5 px-1 text-[10px]' : 'h-6 px-1.5 text-[11px]'
-            } rounded font-medium text-teal-700 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/50 inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500`}
+              compactMode ? 'h-7 px-1.5 text-[10px]' : 'h-8 px-2 text-[11px]'
+            } rounded-md font-medium text-teal-700 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/50 inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500`}
           >
             <span className={compactMode ? 'hidden sm:inline' : 'inline'}>Shop</span>
             <ExternalLink className="w-3 h-3 shrink-0" />
@@ -483,15 +484,44 @@ export function ProductCard({
         ? intelligenceItem.failedRequirements
         : strategyEval?.failedRequirements ?? [];
 
+    const verifiedCount = provenanceSummary.verifiedSourceCount + provenanceSummary.zeroCount;
+    const discoveryShortlist =
+      intelligenceItem?.discoveryShortlist ??
+      classifyProductDiscoveryShortlist(validated, commercial);
+    const snapshotCount = intelligenceItem?.snapshotCount ?? 0;
+    const shortlistToneClass =
+      discoveryShortlist.primaryClassification === 'STRONG_DEMAND_LOW_COMPETITION' ||
+      discoveryShortlist.primaryClassification === 'EMERGING_OPPORTUNITY'
+        ? 'text-emerald-700 dark:text-emerald-400'
+        : discoveryShortlist.primaryClassification === 'STRONG_DEMAND_STRONG_VIDEO_SALES' ||
+            discoveryShortlist.primaryClassification === 'STRONG_AFFILIATE_EARNINGS'
+          ? 'text-teal-700 dark:text-teal-400'
+          : discoveryShortlist.primaryClassification === 'HIGH_DEMAND_HIGH_COMPETITION'
+            ? 'text-amber-700 dark:text-amber-400'
+            : 'text-slate-500 dark:text-slate-400';
+
+    const inlineExclusionSummary = isExcluded
+      ? failedReqs[0]
+        ? `${failedReqs[0].label}: ${failedReqs[0].detail}`
+        : intelligenceItem?.explanation ?? null
+      : null;
+    const inlineRankingHighlight = !isExcluded && reasons.length > 0 ? reasons[0] : null;
+
     return (
       <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 space-y-2 text-[11px]">
-        {/* Confidence + Conversion Evidence (strictly separated) */}
+        {/* Confidence + Verified Count + Conversion Evidence (strictly separated) */}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <div className="inline-flex items-center gap-1.5 min-w-0">
+          <div className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
             <span className="text-slate-500 dark:text-slate-400">{t.v2.confidenceLabel}:</span>
             <span className={`font-mono-num tabular-nums font-semibold ${confidenceTone}`}>
               {Math.round(commercial.dataConfidence.score)}/100 ·{' '}
               {t.v2.confidenceLevels[commercial.dataConfidence.level]}
+            </span>
+            <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
+              ·
+            </span>
+            <span className="font-mono-num tabular-nums text-[10px] text-slate-500 dark:text-slate-400">
+              {t.v2.provenance.verifiedCountLabel(verifiedCount, 11)}
             </span>
           </div>
 
@@ -504,6 +534,43 @@ export function ProductCard({
           </div>
         </div>
 
+        {/* Evidence-Based Discovery Shortlist Signal (strictly separated from Commercial Score & Video Suitability) */}
+        {discoveryShortlist.primaryClassification !== 'INSUFFICIENT_EVIDENCE' && (
+          <div
+            className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-snug"
+            title={discoveryShortlist.cautionNote}
+          >
+            <span className="text-slate-500 dark:text-slate-400 shrink-0">
+              {t.v2.discoveryShortlist.signalLabel}:
+            </span>
+            <span className={`font-semibold min-w-0 ${shortlistToneClass}`}>
+              {t.v2.discoveryShortlist.categories[discoveryShortlist.primaryClassification]}
+            </span>
+            {discoveryShortlist.isPreliminaryCandidate && (
+              <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400 shrink-0">
+                ({t.v2.discoveryShortlist.preliminaryTag})
+              </span>
+            )}
+            {snapshotCount >= 2 && (
+              <span className="text-[10px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400 shrink-0">
+                · {t.v2.discoveryShortlist.snapshotHistoryLabel(snapshotCount)}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Immediate 1-Line Discovery Summary (Why it ranks here OR Why it was excluded — no extra click needed) */}
+        {inlineExclusionSummary ? (
+          <p className="text-[11px] text-rose-700 dark:text-rose-400 leading-snug line-clamp-2">
+            <span className="font-semibold">{t.v2.strategyExplorer.failedRequirementsTitle}:</span>{' '}
+            {inlineExclusionSummary}
+          </p>
+        ) : inlineRankingHighlight ? (
+          <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug line-clamp-2">
+            {inlineRankingHighlight}
+          </p>
+        ) : null}
+
         {/* Concise Unboxed Risk / Unverified Warning Line */}
         {(formattedRisks.length > 0 || provenanceSummary.hasUnverifiedCoreMetrics) && (
           <div className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400 leading-snug">
@@ -511,18 +578,18 @@ export function ProductCard({
             <span className="min-w-0">
               {formattedRisks.length > 0
                 ? formattedRisks.join(' · ')
-                : t.v2.provenance.unverifiedCoreBanner(provenanceSummary.unverifiedCount)}
+                : t.v2.provenance.cardUnverifiedNotice(provenanceSummary.unverifiedCount)}
             </span>
           </div>
         )}
 
-        {/* Inline Expandable Why-Ranked & Full Breakdown Trigger */}
-        <div className="flex items-center justify-between gap-2 pt-0.5">
+        {/* Inline Expandable Why-Ranked & Full Breakdown Trigger (Comfortable Mobile Hit Targets) */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
           <button
             type="button"
             onClick={() => setIsDetailsExpanded((prev) => !prev)}
             aria-expanded={isDetailsExpanded}
-            className="text-[11px] font-medium text-teal-700 dark:text-teal-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+            className="min-h-[34px] px-1.5 -ml-1.5 rounded-md text-[11px] font-medium text-teal-700 dark:text-teal-400 hover:bg-teal-50/70 dark:hover:bg-teal-950/40 inline-flex items-center gap-1 transition-colors cursor-pointer"
           >
             <span>
               {isDetailsExpanded
@@ -539,7 +606,7 @@ export function ProductCard({
           <button
             type="button"
             onClick={() => onOpenScoreDetails(product)}
-            className="text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white inline-flex items-center gap-1 cursor-pointer"
+            className="min-h-[34px] px-1.5 -mr-1.5 rounded-md text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100/80 dark:hover:bg-slate-800/70 inline-flex items-center gap-1 transition-colors cursor-pointer"
           >
             <SlidersHorizontal className="w-3 h-3 shrink-0" />
             <span>{t.v2.strategyExplorer.viewFullBreakdownBtn}</span>
@@ -751,9 +818,9 @@ export function ProductCard({
                 type="button"
                 onClick={() => onSelect(product)}
                 aria-label={`${primaryTitle} — ${t.discover.openStudioShort}`}
-                className="h-8 px-2.5 sm:px-3 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                className="h-9 px-2.5 sm:px-3 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
               >
-                <span className="hidden xs:inline sm:inline">{t.discover.openStudioShort}</span>
+                <span className="hidden sm:inline">{t.discover.openStudioShort}</span>
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />
               </button>
             </div>
@@ -910,7 +977,7 @@ export function ProductCard({
             <button
               type="button"
               onClick={() => onSelect(product)}
-              className="sm:hidden h-8 px-3 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+              className="sm:hidden h-9 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <span>{t.discover.openStudioShort}</span>
               <ArrowRight className="w-3.5 h-3.5 shrink-0" />
@@ -1141,7 +1208,7 @@ export function ProductCard({
               displayedScore ?? '—'
             }/100) — ${t.score.tooltipBtn}`}
             aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? 'Withheld'}`}
-            className="inline-flex items-center justify-center rounded-full p-0.5 -mt-0.5 -mr-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:scale-[1.04] transition-all shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            className="inline-flex flex-col items-center justify-center rounded-xl p-0.5 -mt-0.5 -mr-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             <ScoreRing
               score={displayedScore}
@@ -1149,6 +1216,13 @@ export function ProductCard({
               size={isSpacious ? 48 : isCompact ? 34 : 44}
               strokeWidth={isCompact ? 3 : 3.5}
             />
+            {!isCompact && (
+              <span className="mt-0.5 text-[9px] font-medium text-slate-500 dark:text-slate-400 leading-none">
+                {isStrategyView && !isExcluded
+                  ? t.v2.strategyScoreShort
+                  : t.v2.commercialScoreShort}
+              </span>
+            )}
           </button>
         </div>
 
@@ -1166,17 +1240,17 @@ export function ProductCard({
 
         {/* 4 Independent Dimensions */}
         {isCompact ? (
-          <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-4 gap-1 text-center font-mono-num tabular-nums">
+          <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-2 gap-x-2 gap-y-1 font-mono-num tabular-nums">
             {dimensions.map((dim) => {
               const tone = getDimensionBarClass(dim.score, dim.status);
               return (
-                <div key={dim.key} className="min-w-0">
-                  <div className="text-[9px] text-slate-400 dark:text-slate-500 truncate">
+                <div key={dim.key} className="min-w-0 flex items-baseline justify-between gap-1">
+                  <span className="font-sans text-[10px] text-slate-500 dark:text-slate-400 truncate">
                     {dim.label}
-                  </div>
-                  <div className={`text-[11px] font-semibold ${tone.textClass}`}>
+                  </span>
+                  <span className={`text-[11px] font-semibold shrink-0 ${tone.textClass}`}>
                     {dim.score !== null ? Math.round(dim.score) : dim.status === 'NOT_MONETIZABLE' ? '0%' : '—'}
-                  </div>
+                  </span>
                 </div>
               );
             })}
@@ -1260,7 +1334,7 @@ export function ProductCard({
             type="button"
             onClick={() => onSelect(product)}
             className={`w-full rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#131B24] ${
-              isCompact ? 'mt-2.5 h-8 px-2.5 text-[11px]' : 'mt-3.5 h-10 px-4 text-xs sm:text-sm'
+              isCompact ? 'mt-2.5 h-9 px-2.5 text-[11px]' : 'mt-3.5 h-10 px-4 text-xs sm:text-sm'
             }`}
           >
             <span className="truncate">{isCompact ? t.discover.openStudioShort : t.card.createPlan}</span>

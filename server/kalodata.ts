@@ -75,6 +75,7 @@ export class KalodataApiError extends Error {
     | 'KALODATA_RATE_LIMITED'
     | 'KALODATA_LIMIT_EXCEEDED'
     | 'KALODATA_INVALID_LINK'
+    | 'KALODATA_TIMEOUT'
     | 'KALODATA_UPSTREAM_ERROR';
   httpStatus: number;
 
@@ -87,6 +88,28 @@ export class KalodataApiError extends Error {
     this.code = code;
     this.httpStatus = httpStatus;
   }
+}
+
+/**
+ * Strips any occurrence of an active API key or credential-like header/token
+ * from upstream error text so secrets can never leak into logs or browser responses.
+ */
+export function sanitizeKalodataErrorText(
+  rawMsg: string,
+  activeKey?: string | null
+): string {
+  let clean = String(rawMsg || '').trim();
+  if (!clean) return '';
+  if (activeKey && activeKey.trim().length >= 4) {
+    const escaped = activeKey.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    clean = clean.replace(new RegExp(escaped, 'gi'), '[REDACTED]');
+  }
+  clean = clean
+    .replace(/secret[-_]?key\s*[:=]\s*\S+/gi, 'secret-key=[REDACTED]')
+    .replace(/(the\s+key\s+)[^\s,;:]+/gi, '$1[REDACTED]')
+    .replace(/\b[A-Za-z0-9_-]{24,}\b/g, '[REDACTED]')
+    .slice(0, 240);
+  return clean;
 }
 
 // Official Kalodata Open Center v1 API base URL (strictly allowlisted)
@@ -156,13 +179,40 @@ let lastKnownBalance: KalodataCreditBalance | null = null;
 
 // 10-minute smart search cache & in-flight deduplication to prevent duplicate credit charges
 const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
+// 30-minute per-layer enrichment cache (detail / specs / comments) shared across single-link & studio enrich
+const ENRICH_LAYER_CACHE_TTL_MS = 30 * 60 * 1000;
+
 interface CachedSearchEntry {
   expiresAt: number;
   products: KalodataRawProduct[];
   mode: 'rank' | 'single_link';
 }
+interface CachedLayerEntry<T> {
+  expiresAt: number;
+  fetchedAt: string;
+  data: T;
+}
+
 const searchCache = new Map<string, CachedSearchEntry>();
 const inFlightSearches = new Map<string, Promise<KalodataSearchResponse>>();
+
+const detailLayerCache = new Map<string, CachedLayerEntry<Record<string, unknown>>>();
+const specsLayerCache = new Map<string, CachedLayerEntry<Record<string, unknown>>>();
+const commentsLayerCache = new Map<string, CachedLayerEntry<Record<string, unknown>>>();
+const inFlightDetailLayers = new Map<string, Promise<{ data: Record<string, unknown> | null; fetchedAt: string }>>();
+const inFlightSpecsLayers = new Map<string, Promise<{ data: Record<string, unknown> | null; fetchedAt: string }>>();
+const inFlightCommentsLayers = new Map<string, Promise<{ data: Record<string, unknown> | null; fetchedAt: string }>>();
+
+export function clearKalodataCachesForTests(): void {
+  searchCache.clear();
+  detailLayerCache.clear();
+  specsLayerCache.clear();
+  commentsLayerCache.clear();
+  inFlightSearches.clear();
+  inFlightDetailLayers.clear();
+  inFlightSpecsLayers.clear();
+  inFlightCommentsLayers.clear();
+}
 
 function hashKeyPrefix(apiKey: string): string {
   return crypto.createHash('sha256').update(apiKey).digest('hex').slice(0, 12);
@@ -236,12 +286,14 @@ export function getActiveKalodataKey(): {
   key: string | null;
   source: 'env' | 'ui' | 'none';
 } {
-  if (sessionKalodataApiKey && sessionKalodataApiKey.trim()) {
-    return { key: sessionKalodataApiKey.trim(), source: 'ui' };
-  }
+  // Backend Secret (process.env.KALODATA_API_KEY) always takes strict precedence
+  // and is never mixed with or overridden by a UI-entered session value.
   const envKey = process.env.KALODATA_API_KEY?.trim();
   if (envKey) {
     return { key: envKey, source: 'env' };
+  }
+  if (sessionKalodataApiKey && sessionKalodataApiKey.trim()) {
+    return { key: sessionKalodataApiKey.trim(), source: 'ui' };
   }
   return { key: null, source: 'none' };
 }
@@ -249,22 +301,18 @@ export function getActiveKalodataKey(): {
 export function setSessionKalodataKey(key: string): void {
   sessionKalodataApiKey = key.trim();
   lastKnownBalance = null;
-  searchCache.clear();
+  clearKalodataCachesForTests();
 }
 
 export function clearSessionKalodataKey(): void {
   sessionKalodataApiKey = null;
   lastKnownBalance = null;
-  searchCache.clear();
+  clearKalodataCachesForTests();
 }
 
-export function maskApiKey(key: string | null): string | null {
-  if (!key) return null;
-  const trimmed = key.trim();
-  if (trimmed.length <= 8) {
-    return '••••' + trimmed.slice(-2);
-  }
-  return `${trimmed.slice(0, 4)}••••${trimmed.slice(-4)}`;
+export function maskApiKey(_key: string | null): string | null {
+  // Never expose raw or partial API key characters in browser responses.
+  return null;
 }
 
 export function getCachedKalodataStatus(): KalodataStatus {
@@ -272,7 +320,7 @@ export function getCachedKalodataStatus(): KalodataStatus {
   return {
     connected: Boolean(key),
     keySource: source,
-    maskedKey: maskApiKey(key),
+    maskedKey: null,
     balance: key ? lastKnownBalance : null,
   };
 }
@@ -358,12 +406,13 @@ export function extractMetricsFromRawRow(
   const rawCommission = parseNonNegativeOrNull(row.commission_rate);
   let commissionRate: number | null = null;
   if (rawCommission !== null) {
-    commissionRate =
-      rawCommission === 0
-        ? 0
-        : rawCommission > 0 && rawCommission < 1
-          ? Math.round(rawCommission * 1000) / 10
-          : Math.min(100, Math.round(rawCommission * 10) / 10);
+    if (rawCommission === 0) {
+      commissionRate = 0;
+    } else if (rawCommission >= 1 && rawCommission <= 100) {
+      commissionRate = Math.round(rawCommission * 100) / 100;
+    }
+    // 0 < rawCommission < 1 stays null here (never multiplied by 100) because
+    // Phase 0 verified percentage-point encoding (10 = 10%) and sub-1% encoding is UNVERIFIED.
   }
 
   const rawSalesVol = parseFiniteNumber(
@@ -372,18 +421,24 @@ export function extractMetricsFromRawRow(
   const rawRevenue = parseFiniteNumber(row.revenue);
   const rawVideoRevenue = parseFiniteNumber(row.video_revenue);
   const rawLiveRevenue = parseFiniteNumber(row.live_revenue);
+  const rawShoppingMallRevenue = parseFiniteNumber(
+    row.shopping_mall_revenue ?? row.showcase_revenue
+  );
   const rawGrowthRate = parseFiniteNumber(row.revenue_growth_rate);
   const rawCreatorCount = parseFiniteNumber(
-    row.creator_count ?? row.affiliate_count ?? row.influencer_count
+    row.creator_number ?? row.creator_count ?? row.affiliate_count ?? row.influencer_count
   );
   const rawRating = parseFiniteNumber(row.product_rating ?? row.rating);
-  const rawReviewCount = parseFiniteNumber(row.review_count ?? row.comment_count);
+  const rawReviewCount = parseFiniteNumber(
+    row.product_review_count ?? row.review_count ?? row.comment_count
+  );
 
   const hasAnyRawMetricField =
     rawSalesVol !== null ||
     rawRevenue !== null ||
     rawVideoRevenue !== null ||
     rawLiveRevenue !== null ||
+    rawShoppingMallRevenue !== null ||
     rawGrowthRate !== null ||
     rawCreatorCount !== null ||
     rawRating !== null ||
@@ -404,11 +459,20 @@ export function extractMetricsFromRawRow(
 
   const kalodataMetrics: ProductKalodataMetrics = {
     salesVolume7d: rawSalesVol !== null && rawSalesVol >= 0 ? Math.round(rawSalesVol) : null,
-    revenueThb7d: rawRevenue !== null && rawRevenue >= 0 ? Math.round(rawRevenue) : null,
+    revenueThb7d:
+      rawRevenue !== null && rawRevenue >= 0 ? Math.round(rawRevenue * 100) / 100 : null,
     videoRevenueThb7d:
-      rawVideoRevenue !== null && rawVideoRevenue >= 0 ? Math.round(rawVideoRevenue) : null,
+      rawVideoRevenue !== null && rawVideoRevenue >= 0
+        ? Math.round(rawVideoRevenue * 100) / 100
+        : null,
     liveRevenueThb7d:
-      rawLiveRevenue !== null && rawLiveRevenue >= 0 ? Math.round(rawLiveRevenue) : null,
+      rawLiveRevenue !== null && rawLiveRevenue >= 0
+        ? Math.round(rawLiveRevenue * 100) / 100
+        : null,
+    shoppingMallRevenueThb7d:
+      rawShoppingMallRevenue !== null && rawShoppingMallRevenue >= 0
+        ? Math.round(rawShoppingMallRevenue * 100) / 100
+        : null,
     revenueGrowthRate: rawGrowthRate !== null ? Math.round(rawGrowthRate * 100) / 100 : null,
     creatorCount:
       rawCreatorCount !== null && rawCreatorCount >= 0 ? Math.round(rawCreatorCount) : null,
@@ -482,6 +546,11 @@ export function parseRawProductRow(
     ? flattenRichText(row.product_description).slice(0, 600)
     : undefined;
 
+  const priCategoryObj =
+    row.pri_category && typeof row.pri_category === 'object' && !Array.isArray(row.pri_category)
+      ? (row.pri_category as Record<string, unknown>)
+      : null;
+
   const firstCateArrayId =
     Array.isArray(row.category_ids) && row.category_ids.length > 0
       ? String(row.category_ids[0] ?? '')
@@ -501,7 +570,10 @@ export function parseRawProductRow(
       : null;
 
   const rawCateIdCandidate = String(
-    row.pri_cate_id ??
+    priCategoryObj?.category_id ??
+      priCategoryObj?.cate_id ??
+      priCategoryObj?.id ??
+      row.pri_cate_id ??
       row.first_cate_id ??
       row.first_category_id ??
       row.cate1_id ??
@@ -524,7 +596,10 @@ export function parseRawProductRow(
         : '';
 
   const categoryHint = String(
-    row.pri_cate_name ??
+    priCategoryObj?.category_name ??
+      priCategoryObj?.cate_name ??
+      priCategoryObj?.name ??
+      row.pri_cate_name ??
       row.first_cate_name ??
       row.first_category_name ??
       row.cate1_name ??
@@ -607,8 +682,22 @@ async function kalodataRequest<T>(
       if (response.status === 401 || response.status === 403) {
         throw new KalodataApiError(
           'KALODATA_INVALID_KEY',
-          'Kalodata rejected this API key. Please check your secret-key from Open Center.',
+          'Kalodata rejected the API key. Please check your KALODATA_API_KEY configuration.',
           401
+        );
+      }
+      if (response.status === 402) {
+        throw new KalodataApiError(
+          'KALODATA_INSUFFICIENT_CREDITS',
+          'Insufficient Kalodata credit balance. Please top up credits in Kalodata Open Center.',
+          402
+        );
+      }
+      if (response.status === 429) {
+        throw new KalodataApiError(
+          'KALODATA_RATE_LIMITED',
+          'Kalodata API rate limit reached. Please wait a few seconds and try again.',
+          429
         );
       }
       throw new KalodataApiError(
@@ -623,8 +712,8 @@ async function kalodataRequest<T>(
     }
 
     const codeStr = String(envelope.code ?? response.status);
-    const msg = String(envelope.message ?? envelope.msg ?? '').trim();
-    const low = msg.toLowerCase();
+    const rawMsg = String(envelope.message ?? envelope.msg ?? '').trim();
+    const low = rawMsg.toLowerCase();
 
     if (
       response.status === 401 ||
@@ -632,11 +721,19 @@ async function kalodataRequest<T>(
       (codeStr === '501' && low.startsWith('the key')) ||
       low.includes('key is not allowed') ||
       low.includes('invalid key') ||
-      low.includes('unauthorized')
+      low.includes('invalid secret') ||
+      low.includes('unauthorized') ||
+      (low.includes('secret-key') &&
+        (low.includes('invalid') ||
+          low.includes('missing') ||
+          low.includes('required') ||
+          low.includes('expired') ||
+          low.includes('denied')))
     ) {
+      // Never echo raw upstream message here because Kalodata may include key text in error strings.
       throw new KalodataApiError(
         'KALODATA_INVALID_KEY',
-        msg || 'Kalodata rejected this API key. Please copy your key again from Kalodata Open Center.',
+        'Kalodata rejected the API key. Please verify KALODATA_API_KEY in Backend Secrets or Kalodata Open Center.',
         401
       );
     }
@@ -648,26 +745,43 @@ async function kalodataRequest<T>(
     ) {
       throw new KalodataApiError(
         'KALODATA_INSUFFICIENT_CREDITS',
-        msg || 'Insufficient Kalodata credit balance. Please top up credits in Kalodata Open Center.',
+        'Insufficient Kalodata credit balance. Please top up credits in Kalodata Open Center.',
         402
       );
     }
 
-    if (response.status === 429 || low.includes('too many') || low.includes('rate limit')) {
+    if (
+      response.status === 429 ||
+      low.includes('too many') ||
+      low.includes('rate limit') ||
+      low.includes('qps') ||
+      low.includes('frequency') ||
+      low.includes('throttle')
+    ) {
       throw new KalodataApiError(
         'KALODATA_RATE_LIMITED',
-        msg || 'Kalodata API rate limit reached. Please wait a few seconds and try again.',
+        'Kalodata API rate limit reached. Please wait a few seconds and try again.',
         429
       );
     }
 
+    const safeUpstreamMsg = sanitizeKalodataErrorText(rawMsg, apiKey);
     throw new KalodataApiError(
       'KALODATA_UPSTREAM_ERROR',
-      msg || `Kalodata API error (code ${codeStr}).`,
+      safeUpstreamMsg
+        ? `Kalodata API error (code ${codeStr}): ${safeUpstreamMsg}`
+        : `Kalodata API error (code ${codeStr}).`,
       502
     );
   } catch (err) {
     if (err instanceof KalodataApiError) throw err;
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new KalodataApiError(
+        'KALODATA_TIMEOUT',
+        'Kalodata API request timed out. Please try again shortly.',
+        504
+      );
+    }
     throw new KalodataApiError(
       'KALODATA_UPSTREAM_ERROR',
       'Unable to reach Kalodata Open Center API right now. Please try again shortly.',
@@ -685,8 +799,8 @@ export async function fetchKalodataCreditBalance(
   if (!apiKey) {
     throw new KalodataApiError(
       'KALODATA_NOT_CONNECTED',
-      'Please paste and connect your Kalodata API key first.',
-      401
+      'Kalodata API key is not configured on the server.',
+      503
     );
   }
 
@@ -726,11 +840,20 @@ export async function fetchKalodataCreditBalance(
 export async function verifyAndConnectKalodataKey(
   rawKey: string
 ): Promise<KalodataStatus> {
+  // Never mix or override a server Backend Secret with a UI-entered key.
+  if (process.env.KALODATA_API_KEY?.trim()) {
+    throw new KalodataApiError(
+      'KALODATA_UPSTREAM_ERROR',
+      'Kalodata API key is already managed via server Backend Secrets and cannot be overridden from the browser.',
+      409
+    );
+  }
+
   const apiKey = rawKey.trim();
   if (apiKey.length < 8 || apiKey.length > 512) {
     throw new KalodataApiError(
       'KALODATA_INVALID_KEY',
-      'API key format looks too short. Please copy the full secret-key from Kalodata Open Center.',
+      'API key format looks invalid. Please check your key from Kalodata Open Center.',
       400
     );
   }
@@ -742,7 +865,7 @@ export async function verifyAndConnectKalodataKey(
   return {
     connected: true,
     keySource: 'ui',
-    maskedKey: maskApiKey(apiKey),
+    maskedKey: null,
     balance,
   };
 }
@@ -849,8 +972,8 @@ export async function fetchKalodataLiveCategories(
   if (!apiKey) {
     throw new KalodataApiError(
       'KALODATA_NOT_CONNECTED',
-      'Please connect your Kalodata API key first.',
-      401
+      'Kalodata API key is not configured on the server.',
+      503
     );
   }
 
@@ -925,8 +1048,8 @@ export async function fetchSingleKalodataProductById(params: {
   if (!apiKey) {
     throw new KalodataApiError(
       'KALODATA_NOT_CONNECTED',
-      'Please connect your Kalodata API key first.',
-      401
+      'Kalodata API key is not configured on the server.',
+      503
     );
   }
 
@@ -971,9 +1094,19 @@ export async function fetchSingleKalodataProductById(params: {
       20000
     );
 
+    const fetchedAt = new Date().toISOString();
+    if (detail && typeof detail === 'object') {
+      const layerKey = `${hashKeyPrefix(apiKey)}|detail|${cleanId}`;
+      detailLayerCache.set(layerKey, {
+        expiresAt: Date.now() + ENRICH_LAYER_CACHE_TTL_MS,
+        fetchedAt,
+        data: detail,
+      });
+    }
+
     const parsed =
       detail && typeof detail === 'object'
-        ? parseRawProductRow(detail, cleanId, 'detail')
+        ? parseRawProductRow(detail, cleanId, 'detail', fetchedAt)
         : null;
     const products = parsed ? [parsed] : [];
 
@@ -1022,8 +1155,8 @@ export async function fetchKalodataThailandProducts(params: {
   if (!apiKey) {
     throw new KalodataApiError(
       'KALODATA_NOT_CONNECTED',
-      'Please connect your Kalodata API key first.',
-      401
+      'Kalodata API key is not configured on the server.',
+      503
     );
   }
 
@@ -1142,8 +1275,8 @@ export async function enrichSingleKalodataProduct(
   if (!apiKey) {
     throw new KalodataApiError(
       'KALODATA_NOT_CONNECTED',
-      'Please connect your Kalodata API key first.',
-      401
+      'Kalodata API key is not configured on the server.',
+      503
     );
   }
 
@@ -1156,12 +1289,25 @@ export async function enrichSingleKalodataProduct(
     );
   }
 
-  const estimatedCost =
-    (options.includeDetails ? 0.2 : 0) +
-    (options.includeSpecs ? 0.5 : 0) +
-    (options.includeComments ? 1.0 : 0);
+  const keyPrefix = hashKeyPrefix(apiKey);
+  const now = Date.now();
+  const detailKey = `${keyPrefix}|detail|${cleanProductId}`;
+  const specsKey = `${keyPrefix}|specs|${cleanProductId}`;
+  const commentsKey = `${keyPrefix}|comments|${cleanProductId}`;
 
-  if (estimatedCost <= 0) {
+  const cachedDetail = options.includeDetails ? detailLayerCache.get(detailKey) : undefined;
+  const hasFreshDetail = Boolean(cachedDetail && cachedDetail.expiresAt > now);
+  const cachedSpecs = options.includeSpecs ? specsLayerCache.get(specsKey) : undefined;
+  const hasFreshSpecs = Boolean(cachedSpecs && cachedSpecs.expiresAt > now);
+  const cachedComments = options.includeComments ? commentsLayerCache.get(commentsKey) : undefined;
+  const hasFreshComments = Boolean(cachedComments && cachedComments.expiresAt > now);
+
+  const estimatedCost =
+    (options.includeDetails && !hasFreshDetail ? 0.2 : 0) +
+    (options.includeSpecs && !hasFreshSpecs ? 0.5 : 0) +
+    (options.includeComments && !hasFreshComments ? 1.0 : 0);
+
+  if (!options.includeDetails && !options.includeSpecs && !options.includeComments) {
     return {
       deepInsights: { fetchedAt: new Date().toISOString() },
       creditsUsed: 0,
@@ -1169,10 +1315,13 @@ export async function enrichSingleKalodataProduct(
     };
   }
 
-  const balanceBefore = await checkGuardrailsBeforeSpend(apiKey, {
-    ...guardrails,
-    estimatedCost,
-  });
+  const balanceBefore =
+    estimatedCost > 0
+      ? await checkGuardrailsBeforeSpend(apiKey, {
+          ...guardrails,
+          estimatedCost,
+        })
+      : lastKnownBalance;
 
   const enrichFetchedAt = new Date().toISOString();
   const deepInsights: ProductDeepInsights = {
@@ -1193,22 +1342,54 @@ export async function enrichSingleKalodataProduct(
     tasks.push(
       (async () => {
         try {
-          const detail = await kalodataRequest<Record<string, unknown>>(
-            apiKey,
-            '/tiktok/product/detail',
-            {
-              region: 'TH',
-              language: 'en-US',
-              currency: 'THB',
-              date_range: 'last7Day',
-              product_id: cleanProductId,
-              need_extra: true,
-              need_image: 1,
-            },
-            'POST',
-            14000
-          );
+          let detail: Record<string, unknown> | null = null;
+          let detailFetchedAt = enrichFetchedAt;
+
+          if (hasFreshDetail && cachedDetail) {
+            detail = cachedDetail.data;
+            detailFetchedAt = cachedDetail.fetchedAt;
+          } else {
+            let pending = inFlightDetailLayers.get(detailKey);
+            if (!pending) {
+              pending = (async () => {
+                const payload = await kalodataRequest<Record<string, unknown>>(
+                  apiKey,
+                  '/tiktok/product/detail',
+                  {
+                    region: 'TH',
+                    language: 'en-US',
+                    currency: 'THB',
+                    date_range: 'last7Day',
+                    product_id: cleanProductId,
+                    need_extra: true,
+                    need_image: 1,
+                  },
+                  'POST',
+                  14000
+                );
+                const ts = new Date().toISOString();
+                if (payload && typeof payload === 'object') {
+                  detailLayerCache.set(detailKey, {
+                    expiresAt: Date.now() + ENRICH_LAYER_CACHE_TTL_MS,
+                    fetchedAt: ts,
+                    data: payload,
+                  });
+                }
+                return { data: payload && typeof payload === 'object' ? payload : null, fetchedAt: ts };
+              })();
+              inFlightDetailLayers.set(detailKey, pending);
+            }
+            try {
+              const resolved = await pending;
+              detail = resolved.data;
+              detailFetchedAt = resolved.fetchedAt;
+            } finally {
+              inFlightDetailLayers.delete(detailKey);
+            }
+          }
+
           deepInsights.fetchedDetails = true;
+          deepInsights.fetchedAt = detailFetchedAt;
           if (detail && typeof detail === 'object') {
             if (typeof detail.shop_name === 'string' && detail.shop_name.trim()) {
               shopName = detail.shop_name.trim();
@@ -1221,7 +1402,7 @@ export async function enrichSingleKalodataProduct(
             const img = sanitizeExternalUrl(detail.master_image_url);
             if (img) imageUrl = img;
 
-            const extracted = extractMetricsFromRawRow(detail, 'detail', enrichFetchedAt);
+            const extracted = extractMetricsFromRawRow(detail, 'detail', detailFetchedAt);
             if (extracted.hasAnyRawMetricField || extracted.priceThb !== null || extracted.commissionRate !== null) {
               kalodataMetrics = extracted.kalodataMetrics;
               validatedMetrics = extracted.validatedMetrics;
@@ -1240,17 +1421,44 @@ export async function enrichSingleKalodataProduct(
     tasks.push(
       (async () => {
         try {
-          const specs = await kalodataRequest<Record<string, unknown>>(
-            apiKey,
-            '/tiktok/product/analysis',
-            {
-              product_id: cleanProductId,
-              region: 'TH',
-              language: 'en-US',
-            },
-            'POST',
-            18000
-          );
+          let specs: Record<string, unknown> | null = null;
+          if (hasFreshSpecs && cachedSpecs) {
+            specs = cachedSpecs.data;
+          } else {
+            let pending = inFlightSpecsLayers.get(specsKey);
+            if (!pending) {
+              pending = (async () => {
+                const payload = await kalodataRequest<Record<string, unknown>>(
+                  apiKey,
+                  '/tiktok/product/analysis',
+                  {
+                    product_id: cleanProductId,
+                    region: 'TH',
+                    language: 'en-US',
+                  },
+                  'POST',
+                  18000
+                );
+                const ts = new Date().toISOString();
+                if (payload && typeof payload === 'object') {
+                  specsLayerCache.set(specsKey, {
+                    expiresAt: Date.now() + ENRICH_LAYER_CACHE_TTL_MS,
+                    fetchedAt: ts,
+                    data: payload,
+                  });
+                }
+                return { data: payload && typeof payload === 'object' ? payload : null, fetchedAt: ts };
+              })();
+              inFlightSpecsLayers.set(specsKey, pending);
+            }
+            try {
+              const resolved = await pending;
+              specs = resolved.data;
+            } finally {
+              inFlightSpecsLayers.delete(specsKey);
+            }
+          }
+
           deepInsights.fetchedSpecs = true;
           const rawHighlights = Array.isArray(specs?.highlights)
             ? specs.highlights
@@ -1293,16 +1501,43 @@ export async function enrichSingleKalodataProduct(
     tasks.push(
       (async () => {
         try {
-          const insight = await kalodataRequest<Record<string, unknown>>(
-            apiKey,
-            '/tiktok/product/comment/insight',
-            {
-              product_id: cleanProductId,
-              country_code: 'th',
-            },
-            'POST',
-            22000
-          );
+          let insight: Record<string, unknown> | null = null;
+          if (hasFreshComments && cachedComments) {
+            insight = cachedComments.data;
+          } else {
+            let pending = inFlightCommentsLayers.get(commentsKey);
+            if (!pending) {
+              pending = (async () => {
+                const payload = await kalodataRequest<Record<string, unknown>>(
+                  apiKey,
+                  '/tiktok/product/comment/insight',
+                  {
+                    product_id: cleanProductId,
+                    country_code: 'th',
+                  },
+                  'POST',
+                  22000
+                );
+                const ts = new Date().toISOString();
+                if (payload && typeof payload === 'object') {
+                  commentsLayerCache.set(commentsKey, {
+                    expiresAt: Date.now() + ENRICH_LAYER_CACHE_TTL_MS,
+                    fetchedAt: ts,
+                    data: payload,
+                  });
+                }
+                return { data: payload && typeof payload === 'object' ? payload : null, fetchedAt: ts };
+              })();
+              inFlightCommentsLayers.set(commentsKey, pending);
+            }
+            try {
+              const resolved = await pending;
+              insight = resolved.data;
+            } finally {
+              inFlightCommentsLayers.delete(commentsKey);
+            }
+          }
+
           deepInsights.fetchedComments = true;
           if (insight && typeof insight === 'object') {
             if (Array.isArray(insight.pain_points)) {
@@ -1361,7 +1596,10 @@ export async function enrichSingleKalodataProduct(
     );
   }
 
-  const post = await computePostSpendDiff(apiKey, balanceBefore);
+  const post =
+    estimatedCost > 0
+      ? await computePostSpendDiff(apiKey, balanceBefore)
+      : { balance: lastKnownBalance, creditsUsed: 0 };
 
   return {
     deepInsights,

@@ -2075,6 +2075,16 @@ export function rankProductIntelligenceV2<
   const poolSize = evaluated.length;
   const smallPoolWarning = poolSize < scoringConfig.aggregation.smallPoolWarningThreshold;
 
+  const computePartialDimAverage = (score: CommercialScoreV2Result): number => {
+    const vals: number[] = [];
+    if (score.demandScore.score !== null) vals.push(score.demandScore.score);
+    if (score.earningScore.score !== null) vals.push(score.earningScore.score);
+    if (score.competitionScore.score !== null) vals.push(score.competitionScore.score);
+    if (score.customerQualityScore.score !== null) vals.push(score.customerQualityScore.score);
+    if (vals.length === 0) return -1;
+    return vals.reduce((acc, v) => acc + v, 0) / vals.length;
+  };
+
   // 1. Overall Commercial Ranking (input-order independent)
   const overallSorted = [...evaluated].sort((a, b) => {
     const classDiff =
@@ -2089,6 +2099,18 @@ export function rankProductIntelligenceV2<
 
     const confDiff = b.commercialScore.dataConfidence.score - a.commercialScore.dataConfidence.score;
     if (confDiff !== 0) return confDiff;
+
+    const partialDimDiff =
+      computePartialDimAverage(b.commercialScore) - computePartialDimAverage(a.commercialScore);
+    if (Math.abs(partialDimDiff) > 1e-9) return partialDimDiff;
+
+    const earningDiff =
+      (b.commercialScore.earningScore.score ?? -1) - (a.commercialScore.earningScore.score ?? -1);
+    if (earningDiff !== 0) return earningDiff;
+
+    const demandDiff =
+      (b.commercialScore.demandScore.score ?? -1) - (a.commercialScore.demandScore.score ?? -1);
+    if (demandDiff !== 0) return demandDiff;
 
     return a.productId.localeCompare(b.productId);
   });

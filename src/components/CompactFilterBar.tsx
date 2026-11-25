@@ -89,7 +89,7 @@ export function CompactFilterBar({
       }`}
     >
       {/* Main Compact Single Row: Horizontally Scrollable Category Filters + Compact Search Controls */}
-      <div className="max-w-6xl mx-auto px-3 sm:px-6 h-12 flex items-center gap-2 sm:gap-3">
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 h-[52px] flex items-center gap-2 sm:gap-3">
         {/* Compact Scrollable Category Strip */}
         <div
           className={`relative flex-1 min-w-0 transition-opacity duration-150 ${
@@ -110,7 +110,7 @@ export function CompactFilterBar({
                   type="button"
                   tabIndex={isVisible ? 0 : -1}
                   onClick={() => onToggleCategory(cat.id)}
-                  className={`h-8 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                  className={`h-9 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                     isSelected
                       ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950'
                       : 'bg-white dark:bg-[#131B24] text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -154,7 +154,7 @@ export function CompactFilterBar({
             aria-expanded={isCompactSearchOpen}
             aria-label={isCompactSearchOpen ? t.search.closeSearchBoxBtn : t.search.openSearchBoxBtn}
             title={isCompactSearchOpen ? t.search.closeSearchBoxBtn : t.search.openSearchBoxBtn}
-            className={`h-8 px-2 sm:px-2.5 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+            className={`h-9 min-w-[36px] px-2 sm:px-2.5 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
               isCompactSearchOpen || query.trim()
                 ? 'bg-teal-50/80 dark:bg-teal-950/40 border-teal-300/90 dark:border-teal-800 text-teal-800 dark:text-teal-300'
                 : 'bg-white dark:bg-[#131B24] border-slate-200/90 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
@@ -181,7 +181,7 @@ export function CompactFilterBar({
               onCloseCompactSearch();
               onSubmitSearch();
             }}
-            className="h-8 px-2.5 sm:px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap shrink-0 disabled:opacity-55 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            className="h-9 px-2.5 sm:px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap shrink-0 disabled:opacity-55 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             {isSingleLinkValid ? (
               <Link2 className="w-3.5 h-3.5 shrink-0" />
@@ -237,7 +237,7 @@ export function CompactFilterBar({
                       }
                     }}
                     placeholder={t.search.placeholder}
-                    className="w-full h-9 pl-9 pr-8 rounded-xl bg-transparent text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
+                    className="w-full h-10 pl-9 pr-9 rounded-xl bg-transparent text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
                   />
                   {query && (
                     <button
@@ -246,10 +246,10 @@ export function CompactFilterBar({
                         onQueryChange('');
                         inputRef.current?.focus();
                       }}
-                      aria-label="Clear search"
-                      className="absolute right-1.5 h-6 w-6 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                      aria-label={t.history.clearFilterAria}
+                      className="absolute right-1 h-8 w-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-4 h-4" />
                     </button>
                   )}
                 </div>

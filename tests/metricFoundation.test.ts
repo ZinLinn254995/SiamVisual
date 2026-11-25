@@ -254,8 +254,13 @@ describe('Phase 1 — Unified ValidatedMetric & Normalization Foundation', () =>
     assert.equal(validated.commissionThb.provenance, 'SYNTHETIC');
     assert.equal(validated.commissionThb.value, null);
 
-    assert.equal(validated.revenueGrowthRate.state, 'UNAVAILABLE');
+    // Verified percentage-point unit for revenue_growth_rate, while comparison period stays UNVERIFIED
+    assert.equal(validated.revenueGrowthRate.state, 'OK');
+    assert.equal(validated.revenueGrowthRate.unit, 'PERCENT');
+    assert.equal(validated.revenueGrowthRate.value, 0.35);
     assert.equal(validated.revenueGrowthRate.rawInput, 0.35);
+    assert.match(validated.revenueGrowthRate.note ?? '', /UNVERIFIED_COMPARISON_PERIOD/);
+
     assert.equal(validated.creatorCount.state, 'UNAVAILABLE');
     assert.equal(validated.creatorCount.rawInput, 14);
     assert.equal(validated.rating.state, 'UNAVAILABLE');
@@ -285,7 +290,8 @@ describe('Phase 1 — Unified ValidatedMetric & Normalization Foundation', () =>
       nowMs: NOW_MS,
     });
     const invalid = validatePriceThbMetric('199-299', { fetchedAt: NOW_ISO, nowMs: NOW_MS });
-    const unavailable = validateCommissionRateMetric(15, { fetchedAt: NOW_ISO, nowMs: NOW_MS });
+    const verifiedCommission = validateCommissionRateMetric(15, { fetchedAt: NOW_ISO, nowMs: NOW_MS });
+    const unavailable = validateCommissionRateMetric(0.15, { fetchedAt: NOW_ISO, nowMs: NOW_MS });
     const stale = validatePriceThbMetric(199, {
       fetchedAt: new Date(NOW_MS - DEFAULT_METRIC_STALE_MS - 1000).toISOString(),
       nowMs: NOW_MS,
@@ -297,6 +303,9 @@ describe('Phase 1 — Unified ValidatedMetric & Normalization Foundation', () =>
 
     assert.equal(isUsableScoringMetric(sourceOk), true);
     assert.equal(isUsableScoringMetric(sourceZero), true);
+    assert.equal(isUsableScoringMetric(verifiedCommission), true);
+    assert.equal(verifiedCommission.unit, 'PERCENT');
+    assert.equal(verifiedCommission.value, 15);
     assert.equal(isUsableScoringMetric(missing), false);
     assert.equal(isUsableScoringMetric(invalid), false);
     assert.equal(isUsableScoringMetric(unavailable), false);

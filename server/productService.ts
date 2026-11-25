@@ -294,11 +294,12 @@ function buildScoredKalodataItem(
     validatedMetrics: raw.validatedMetrics,
     commercialScoreV2: commercialV2,
     strategyIntelligenceV2: evaluateProductStrategiesV2(raw.validatedMetrics, commercialV2),
-    ...(raw.description
+    ...(raw.description || raw.validatedMetrics.sourceEndpoint === 'detail'
       ? {
           deepInsights: {
-            description: raw.description,
-            fetchedAt: new Date().toISOString(),
+            ...(raw.description ? { description: raw.description } : {}),
+            ...(raw.validatedMetrics.sourceEndpoint === 'detail' ? { fetchedDetails: true } : {}),
+            fetchedAt: raw.validatedMetrics.fetchedAt ?? new Date().toISOString(),
           },
         }
       : {}),

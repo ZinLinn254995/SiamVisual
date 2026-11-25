@@ -53,6 +53,7 @@ export interface ProductKalodataMetrics {
   revenueThb7d?: number | null;
   videoRevenueThb7d?: number | null;
   liveRevenueThb7d?: number | null;
+  shoppingMallRevenueThb7d?: number | null;
   revenueGrowthRate?: number | null;
   creatorCount?: number | null;
   rating?: number | null;
@@ -235,11 +236,13 @@ export interface SavedDeepInsightRecord {
 
 export interface BackupPayload {
   app: 'SiamVisual';
-  version: 1 | 2 | 3 | 4;
+  version: 1 | 2 | 3 | 4 | 5;
   exportedAt: string;
   entries: SavedHistoryEntry[];
   limits?: KalodataLimitSettings;
   recentSearches?: RecentSearchEntry[];
   deepInsightsCache?: Record<string, SavedDeepInsightRecord>;
   productAnalysisCache?: Record<string, ProductAiAnalysis>;
+  productSnapshots?: Record<string, import('./types/metrics').ProductObservationSnapshot[]>;
 }
+

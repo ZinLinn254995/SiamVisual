@@ -45,7 +45,7 @@ function formatMetricValue(key: string, val: number | null): string {
     return `฿${Math.round(val).toLocaleString()}`;
   }
   if (key === 'commissionRate') return `${val}%`;
-  if (key === 'revenueGrowthRate') return `${val}`;
+  if (key === 'revenueGrowthRate') return `${val > 0 ? '+' : ''}${val}%`;
   if (key === 'rating') return `${val.toFixed(2)}/5`;
   return val.toLocaleString();
 }
@@ -160,7 +160,9 @@ export function ScoreDetailContent({
           value:
             commercial.earningScore.payoutPerSaleThb !== null
               ? `฿${commercial.earningScore.payoutPerSaleThb.toFixed(2)} (${
-                  commercial.earningScore.payoutProvenance === 'SYNTHETIC' ? 'Derived' : 'Source'
+                  commercial.earningScore.payoutProvenance === 'SYNTHETIC'
+                    ? t.v2.provenance.derivedTag
+                    : t.v2.provenance.sourceTag
                 })`
               : '—',
         },
@@ -182,7 +184,7 @@ export function ScoreDetailContent({
             commercial.competitionScore.creatorCount !== null
               ? commercial.competitionScore.creatorCount.toLocaleString()
               : validated.creatorCount.unit === 'UNVERIFIED'
-                ? 'Unverified'
+                ? t.v2.metricsShort.unverified
                 : '—',
         },
         {
@@ -224,7 +226,7 @@ export function ScoreDetailContent({
             commercial.customerQualityScore.rawRating !== null
               ? `${commercial.customerQualityScore.rawRating.toFixed(2)}/5`
               : validated.rating.unit === 'UNVERIFIED'
-                ? 'Unverified'
+                ? t.v2.metricsShort.unverified
                 : '—',
         },
         {
@@ -233,7 +235,7 @@ export function ScoreDetailContent({
             commercial.customerQualityScore.reviewCount !== null
               ? commercial.customerQualityScore.reviewCount.toLocaleString()
               : validated.reviewCount.unit === 'UNVERIFIED'
-                ? 'Unverified'
+                ? t.v2.metricsShort.unverified
                 : '—',
         },
       ],
@@ -244,15 +246,16 @@ export function ScoreDetailContent({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Sticky Header so Close button & Score remain accessible while scrolling on mobile */}
-      <div className="p-4 sm:p-6 shrink-0 border-b border-slate-100 dark:border-slate-800/90 bg-white dark:bg-[#131B24]">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-4 min-w-0">
+      {/* Compact Sticky Header so Close button & Score stay accessible without crowding mobile screens */}
+      <div className="p-3.5 sm:p-6 shrink-0 border-b border-slate-100 dark:border-slate-800/90 bg-white dark:bg-[#131B24]">
+        <div className="flex items-start justify-between gap-3 sm:gap-4">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
             <ScoreRing
               score={overallScore}
               grade={scoreGrade}
-              size={64}
+              size={60}
               strokeWidth={4.5}
+              className="w-12 h-12 sm:w-16 sm:h-16"
             />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
@@ -279,7 +282,7 @@ export function ScoreDetailContent({
 
               <h2
                 id="score-dialog-title"
-                className="mt-1 font-display text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2"
+                className="mt-1 font-display text-sm sm:text-lg font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2"
               >
                 {product.thaiTitle}
               </h2>
@@ -308,56 +311,73 @@ export function ScoreDetailContent({
             type="button"
             onClick={onClose}
             aria-label={t.score.closeBtn}
-            className="h-9 w-9 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            className="h-10 w-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-
-        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-          {t.v2.dialog.v2Subtitle}
-        </p>
-
-        {provenanceSummary.hasUnverifiedCoreMetrics && (
-          <div className="mt-2.5 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
-            <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{t.v2.provenance.unverifiedCoreBanner(provenanceSummary.unverifiedCount)}</span>
-          </div>
-        )}
       </div>
 
       <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/90">
-        {/* Section 1: Gate Decisions & Overall Summary */}
+        {/* Section 1: Gate Decisions, Transparency Distinctions & Overall Summary */}
         <div className="p-4 sm:p-6 space-y-3 text-xs">
-        <div className="font-semibold text-slate-900 dark:text-slate-100">
-          {t.v2.dialog.gateDecisionsTitle}
-        </div>
-        <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
-          {commercial.scoreExplanation.summary}
-        </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+            {t.v2.dialog.v2Subtitle}
+          </p>
 
-        {commercial.scoreExplanation.gateDecisions.length > 0 && (
-          <ul className="space-y-1 text-slate-600 dark:text-slate-300 list-disc pl-4">
-            {commercial.scoreExplanation.gateDecisions.map((gate, i) => (
-              <li key={i}>{gate}</li>
-            ))}
-          </ul>
-        )}
+          {provenanceSummary.hasUnverifiedCoreMetrics && (
+            <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
+              <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{t.v2.provenance.unverifiedCoreBanner(provenanceSummary.unverifiedCount)}</span>
+            </div>
+          )}
 
-        {commercial.riskTags.length > 0 && (
-          <div className="flex items-start gap-2 pt-1 text-amber-700 dark:text-amber-400">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>
-              {commercial.riskTags
-                .map((tag) => t.v2.riskLabels[tag] ?? t.v2.formatRiskTag(tag))
-                .join(' · ')}
-            </span>
+          <div className="pt-1 font-semibold text-slate-900 dark:text-slate-100">
+            {t.v2.dialog.gateDecisionsTitle}
           </div>
-        )}
-      </div>
+          <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+            {commercial.scoreExplanation.summary}
+          </p>
+
+          {commercial.scoreExplanation.gateDecisions.length > 0 && (
+            <ul className="space-y-1 text-slate-600 dark:text-slate-300 list-disc pl-4">
+              {commercial.scoreExplanation.gateDecisions.map((gate, i) => (
+                <li key={i}>{gate}</li>
+              ))}
+            </ul>
+          )}
+
+          {commercial.riskTags.length > 0 && (
+            <div className="flex items-start gap-2 pt-1 text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                {commercial.riskTags
+                  .map((tag) => t.v2.riskLabels[tag] ?? t.v2.formatRiskTag(tag))
+                  .join(' · ')}
+              </span>
+            </div>
+          )}
+
+          {/* Clear 4-Signal Separation & Non-Guarantee Transparency Note */}
+          <div className="mt-2 p-3 rounded-xl bg-slate-50/75 dark:bg-slate-900/45 border border-slate-200/75 dark:border-slate-800 space-y-1.5">
+            <div className="font-semibold text-slate-800 dark:text-slate-200">
+              {t.v2.dialog.pillarsSummaryTitle}
+            </div>
+            <ul className="space-y-1 text-[11px] text-slate-600 dark:text-slate-300 list-disc pl-4 leading-relaxed">
+              <li>{t.v2.dialog.pillarCommercial}</li>
+              <li>{t.v2.dialog.pillarConversion}</li>
+              <li>{t.v2.dialog.pillarVideo}</li>
+              <li>{t.v2.dialog.pillarConfidence}</li>
+            </ul>
+            <p className="pt-1 text-[11px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
+              <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>{t.v2.dialog.nonGuaranteeDisclaimer}</span>
+            </p>
+          </div>
+        </div>
 
       {/* Section 2: 4 Independent Commercial Dimensions */}
-      <div className="p-5 sm:p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-4">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           {t.v2.dimensionsHeading}
         </h3>
@@ -429,7 +449,7 @@ export function ScoreDetailContent({
       </div>
 
       {/* Section 3: Data Confidence Breakdown & Metric Provenance */}
-      <div className="p-5 sm:p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -474,9 +494,9 @@ export function ScoreDetailContent({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 dark:bg-slate-900/60 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-200/80 dark:border-slate-800">
               <tr>
-                <th className="py-2 px-3 font-medium">Metric</th>
-                <th className="py-2 px-3 font-medium text-right">Value</th>
-                <th className="py-2 px-3 font-medium">Status / Provenance</th>
+                <th className="py-2 px-3 font-medium">{t.v2.provenance.metricCol}</th>
+                <th className="py-2 px-3 font-medium text-right">{t.v2.provenance.valueCol}</th>
+                <th className="py-2 px-3 font-medium">{t.v2.provenance.statusCol}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
@@ -514,7 +534,7 @@ export function ScoreDetailContent({
       </div>
 
       {/* Section 4: Separate Conversion Evidence */}
-      <div className="p-5 sm:p-6 space-y-2.5 text-xs">
+      <div className="p-4 sm:p-6 space-y-2.5 text-xs">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             {t.v2.dialog.conversionSectionTitle}
@@ -578,7 +598,7 @@ export function ScoreDetailContent({
       </div>
 
       {/* Section 5: 8-Strategy Eligibility Matrix */}
-      <div className="p-5 sm:p-6 space-y-3">
+      <div className="p-4 sm:p-6 space-y-3">
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             {t.v2.dialog.strategyMatrixTitle}
@@ -631,7 +651,7 @@ export function ScoreDetailContent({
       </div>
 
       {/* Section 6: Secondary Video Studio Reference (Strictly Separated) */}
-      <div className="p-5 sm:p-6 bg-slate-50/50 dark:bg-slate-900/30 space-y-2 text-xs">
+      <div className="p-4 sm:p-6 bg-slate-50/50 dark:bg-slate-900/30 space-y-2 text-xs">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
             <Video className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
@@ -652,11 +672,11 @@ export function ScoreDetailContent({
       </div>
 
       {/* Footer */}
-      <div className="px-5 sm:px-6 py-3.5 flex items-center justify-end">
+      <div className="px-4 sm:px-6 py-3.5 flex items-center justify-end">
         <button
           type="button"
           onClick={onClose}
-          className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="h-10 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           {t.score.closeBtn}
         </button>

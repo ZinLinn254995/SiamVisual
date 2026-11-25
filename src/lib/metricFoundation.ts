@@ -406,6 +406,7 @@ export function validateUnverifiedNumericMetric(
     allowNegative?: boolean;
     minValue?: number;
     maxValue?: number;
+    missingAsUnavailable?: boolean;
     unverifiedNote: string;
     context?: MetricContext;
   }
@@ -422,13 +423,18 @@ export function validateUnverifiedNumericMetric(
     maxValue: options.maxValue,
     staleAfterMs: options.context?.staleAfterMs,
     nowMs: options.context?.nowMs,
+    missingAsUnavailable: options.missingAsUnavailable,
     unavailableReason: options.unverifiedNote,
   });
 }
 
 /**
- * Validates commission_rate without guessing decimal vs percentage on non-zero values.
- * Zero (0) is mathematically invariant across decimal and percentage formats and stays ZERO.
+ * Validates commission_rate using Phase 0 live-verified percentage-point scale:
+ * - 0 stays ZERO/PERCENT (mathematically invariant).
+ * - 1..100 is verified percentage points on /rank and /detail (e.g. 10 = 10%, 7 = 7%, 15 = 15%).
+ * - 0 < val < 1 stays UNAVAILABLE/UNVERIFIED because sub-1% encoding vs legacy decimal ratio
+ *   was not observed in live top-20 samples.
+ * - < 0 or > 100 is INVALID.
  */
 export function validateCommissionRateMetric(
   rawInput: unknown,
@@ -436,26 +442,65 @@ export function validateCommissionRateMetric(
 ): ValidatedMetric<number> {
   const parsed = parseStrictNumericInput(rawInput);
 
-  if (parsed.kind === 'valid' && parsed.value === 0) {
-    return validateNumericMetric({
-      rawInput,
-      unit: 'PERCENT',
-      provenance: 'SOURCE',
-      fetchedAt: context?.fetchedAt,
-      dateRange: context?.dateRange ?? null,
-      allowZero: true,
-      allowNegative: false,
-      staleAfterMs: context?.staleAfterMs,
-      nowMs: context?.nowMs,
-      note: 'Zero commission is invariant across decimal and percentage representations.',
-    });
+  if (parsed.kind === 'valid') {
+    if (parsed.value === 0) {
+      return validateNumericMetric({
+        rawInput,
+        unit: 'PERCENT',
+        provenance: 'SOURCE',
+        fetchedAt: context?.fetchedAt,
+        dateRange: context?.dateRange ?? null,
+        allowZero: true,
+        allowNegative: false,
+        staleAfterMs: context?.staleAfterMs,
+        nowMs: context?.nowMs,
+        note: 'Zero commission is invariant across decimal and percentage representations.',
+      });
+    }
+
+    if (parsed.value >= 1 && parsed.value <= 100) {
+      return validateNumericMetric({
+        rawInput,
+        unit: 'PERCENT',
+        provenance: 'SOURCE',
+        fetchedAt: context?.fetchedAt,
+        dateRange: context?.dateRange ?? null,
+        allowZero: true,
+        allowNegative: false,
+        minValue: 0,
+        maxValue: 100,
+        decimalPlaces: 2,
+        staleAfterMs: context?.staleAfterMs,
+        nowMs: context?.nowMs,
+        note: 'Phase 0 verified percentage-point unit on /rank and /detail (e.g. 10 = 10%); open-plan vs targeted-plan commission semantics remain UNVERIFIED.',
+      });
+    }
+
+    if (parsed.value > 0 && parsed.value < 1) {
+      return validateUnverifiedNumericMetric(rawInput, {
+        allowNegative: false,
+        minValue: 0,
+        maxValue: 100,
+        unverifiedNote:
+          'UNVERIFIED_COMMISSION_SUB_ONE: raw commission_rate between 0 and 1 preserved; sub-1% percentage vs decimal ratio encoding was not observed in Phase 0 live samples.',
+        context,
+      });
+    }
   }
 
-  return validateUnverifiedNumericMetric(rawInput, {
+  return validateNumericMetric({
+    rawInput,
+    unit: 'PERCENT',
+    provenance: 'SOURCE',
+    fetchedAt: context?.fetchedAt,
+    dateRange: context?.dateRange ?? null,
+    allowZero: true,
     allowNegative: false,
-    unverifiedNote:
-      'UNVERIFIED_COMMISSION_UNIT: non-zero commission_rate raw value preserved; decimal vs percentage representation unverified pending Phase 0 live API probe.',
-    context,
+    minValue: 0,
+    maxValue: 100,
+    decimalPlaces: 2,
+    staleAfterMs: context?.staleAfterMs,
+    nowMs: context?.nowMs,
   });
 }
 
@@ -667,6 +712,10 @@ function pickFirstDefined(
   return { key: null, value: undefined };
 }
 
+function hasUnverifiedSemanticsNote(metric: ValidatedMetric<number>): boolean {
+  return Boolean(metric.note && /UNVERIFIED_COMPARISON_PERIOD/i.test(metric.note));
+}
+
 function collectUnresolvedFields(metrics: Omit<ProductValidatedMetrics, 'unresolvedFields'>): string[] {
   const entries: Array<[string, ValidatedMetric<number>]> = [
     ['priceThb', metrics.priceThb],
@@ -676,13 +725,21 @@ function collectUnresolvedFields(metrics: Omit<ProductValidatedMetrics, 'unresol
     ['revenueThb7d', metrics.revenueThb7d],
     ['videoRevenueThb7d', metrics.videoRevenueThb7d],
     ['liveRevenueThb7d', metrics.liveRevenueThb7d],
+    ...(metrics.shoppingMallRevenueThb7d
+      ? ([['shoppingMallRevenueThb7d', metrics.shoppingMallRevenueThb7d]] as Array<[string, ValidatedMetric<number>]>)
+      : []),
     ['revenueGrowthRate', metrics.revenueGrowthRate],
     ['creatorCount', metrics.creatorCount],
     ['rating', metrics.rating],
     ['reviewCount', metrics.reviewCount],
   ];
   return entries
-    .filter(([, m]) => m.unit === 'UNVERIFIED' || m.state === 'UNAVAILABLE')
+    .filter(
+      ([, m]) =>
+        m.unit === 'UNVERIFIED' ||
+        m.state === 'UNAVAILABLE' ||
+        hasUnverifiedSemanticsNote(m)
+    )
     .map(([name]) => name);
 }
 
@@ -738,13 +795,13 @@ export function adaptRawKalodataRowToValidatedMetrics(
     dateRange: ctx.dateRange,
     allowZero: true,
     allowNegative: false,
-    integerOnly: true,
+    decimalPlaces: 2,
     staleAfterMs: ctx.staleAfterMs,
     nowMs: ctx.nowMs,
     note:
       row.revenue === undefined || row.revenue === null
         ? 'Upstream revenue missing; synthetic sales*price estimate not substituted.'
-        : 'Requested currency THB; raw scale partially verified pending Phase 0 live probe.',
+        : 'Phase 0 verified THB currency scale (matches video + live + shopping_mall/showcase); gross vs net-of-refunds remains UNVERIFIED.',
   });
 
   const videoRevenueThb7d = validateNumericMetric({
@@ -755,13 +812,13 @@ export function adaptRawKalodataRowToValidatedMetrics(
     dateRange: ctx.dateRange,
     allowZero: true,
     allowNegative: false,
-    integerOnly: true,
+    decimalPlaces: 2,
     staleAfterMs: ctx.staleAfterMs,
     nowMs: ctx.nowMs,
     note:
       row.video_revenue === undefined || row.video_revenue === null
         ? 'Upstream video_revenue missing.'
-        : 'Requested currency THB; period alignment partially verified pending Phase 0 live probe.',
+        : 'Phase 0 verified THB video channel revenue aligned with requested window.',
   });
 
   const liveRevenueThb7d = validateNumericMetric({
@@ -772,49 +829,88 @@ export function adaptRawKalodataRowToValidatedMetrics(
     dateRange: ctx.dateRange,
     allowZero: true,
     allowNegative: false,
-    integerOnly: true,
+    decimalPlaces: 2,
     staleAfterMs: ctx.staleAfterMs,
     nowMs: ctx.nowMs,
     note:
       row.live_revenue === undefined || row.live_revenue === null
         ? 'Upstream live_revenue missing.'
-        : 'Requested currency THB; period alignment partially verified pending Phase 0 live probe.',
+        : 'Phase 0 verified THB live channel revenue aligned with requested window.',
   });
 
-  const revenueGrowthRate = validateUnverifiedNumericMetric(row.revenue_growth_rate, {
+  const mallRevPick = pickFirstDefined(row, ['shopping_mall_revenue', 'showcase_revenue']);
+  const shoppingMallRevenueThb7d = validateNumericMetric({
+    rawInput: mallRevPick.value,
+    unit: 'THB',
+    provenance: 'SOURCE',
+    fetchedAt: ctx.fetchedAt,
+    dateRange: ctx.dateRange,
+    allowZero: true,
+    allowNegative: false,
+    decimalPlaces: 2,
+    staleAfterMs: ctx.staleAfterMs,
+    nowMs: ctx.nowMs,
+    note: mallRevPick.key
+      ? `Phase 0 verified THB ${mallRevPick.key} channel revenue aligned with requested window.`
+      : 'Upstream shopping_mall_revenue / showcase_revenue missing.',
+  });
+
+  const revenueGrowthRate = validateNumericMetric({
+    rawInput: row.revenue_growth_rate,
+    unit: 'PERCENT',
+    provenance: 'SOURCE',
+    fetchedAt: ctx.fetchedAt,
+    dateRange: ctx.dateRange,
+    allowZero: true,
     allowNegative: true,
-    unverifiedNote:
-      'UNVERIFIED_GROWTH_UNIT: upstream unit (decimal ratio vs percentage) and comparison period unverified pending Phase 0 live API probe.',
-    context: ctx,
+    decimalPlaces: 2,
+    staleAfterMs: ctx.staleAfterMs,
+    nowMs: ctx.nowMs,
+    note:
+      row.revenue_growth_rate === undefined || row.revenue_growth_rate === null
+        ? 'Upstream revenue_growth_rate absent (not returned by /detail; returned on /rank).'
+        : 'Phase 0 verified percentage-point unit on /rank (e.g. 17.75 = +17.75%); UNVERIFIED_COMPARISON_PERIOD: exact baseline window and zero-baseline encoding remain UNVERIFIED.',
   });
 
   const creatorPick = pickFirstDefined(row, [
+    'creator_number',
     'creator_count',
     'affiliate_count',
     'influencer_count',
   ]);
   const creatorCount = validateUnverifiedNumericMetric(creatorPick.value, {
     allowNegative: false,
-    unverifiedNote:
-      'UNVERIFIED_CREATOR_DEFINITION: upstream scope (lifetime vs active vs selling creators) and key coverage unverified pending Phase 0 live API probe.',
+    unverifiedNote: creatorPick.key
+      ? `UNVERIFIED_CREATOR_DEFINITION: mapped from ${creatorPick.key}; active-window vs selling-creators vs lifetime scope remains UNVERIFIED.`
+      : 'UNVERIFIED_CREATOR_DEFINITION: creator_number absent on /rank; time-window scope remains UNVERIFIED.',
     context: ctx,
   });
 
   const ratingPick = pickFirstDefined(row, ['product_rating', 'rating']);
+  const isKalodataTestedEndpoint =
+    options.sourceEndpoint === 'rank' || options.sourceEndpoint === 'detail';
   const rating = validateUnverifiedNumericMetric(ratingPick.value, {
     allowNegative: false,
     minValue: 0,
     maxValue: 5,
+    missingAsUnavailable: isKalodataTestedEndpoint,
     unverifiedNote:
-      'UNVERIFIED_RATING_SEMANTICS: upstream rating coverage (/rank vs /detail) and zero-vs-unrated sentinel unverified pending Phase 0 live API probe.',
+      ratingPick.value === undefined || ratingPick.value === null
+        ? 'RATING_UNAVAILABLE_ON_ENDPOINT: tested Kalodata /rank and /detail (need_extra: true) endpoints do not return product rating.'
+        : 'UNVERIFIED_RATING_SEMANTICS: upstream rating coverage and zero-vs-unrated sentinel remain UNVERIFIED.',
     context: ctx,
   });
 
-  const reviewPick = pickFirstDefined(row, ['review_count', 'comment_count']);
+  const reviewPick = pickFirstDefined(row, [
+    'product_review_count',
+    'review_count',
+    'comment_count',
+  ]);
   const reviewCount = validateUnverifiedNumericMetric(reviewPick.value, {
     allowNegative: false,
-    unverifiedNote:
-      'UNVERIFIED_REVIEW_COUNT: meaning (lifetime PDP reviews vs 7d reviews vs video comments) unverified pending Phase 0 live API probe.',
+    unverifiedNote: reviewPick.key
+      ? `UNVERIFIED_REVIEW_COUNT: mapped from ${reviewPick.key}; lifetime PDP count vs window-scoped semantics remain UNVERIFIED.`
+      : 'UNVERIFIED_REVIEW_COUNT: product_review_count absent on /rank; time-window semantics remain UNVERIFIED.',
     context: ctx,
   });
 
@@ -826,6 +922,7 @@ export function adaptRawKalodataRowToValidatedMetrics(
     revenueThb7d,
     videoRevenueThb7d,
     liveRevenueThb7d,
+    shoppingMallRevenueThb7d,
     revenueGrowthRate,
     creatorCount,
     rating,
@@ -891,7 +988,7 @@ export function adaptProductItemToValidatedMetrics(
     dateRange: ctx.dateRange,
     allowZero: true,
     allowNegative: false,
-    integerOnly: true,
+    decimalPlaces: 2,
     staleAfterMs: ctx.staleAfterMs,
     nowMs: ctx.nowMs,
   });
@@ -904,7 +1001,7 @@ export function adaptProductItemToValidatedMetrics(
     dateRange: ctx.dateRange,
     allowZero: true,
     allowNegative: false,
-    integerOnly: true,
+    decimalPlaces: 2,
     staleAfterMs: ctx.staleAfterMs,
     nowMs: ctx.nowMs,
   });
@@ -917,22 +1014,48 @@ export function adaptProductItemToValidatedMetrics(
     dateRange: ctx.dateRange,
     allowZero: true,
     allowNegative: false,
-    integerOnly: true,
+    decimalPlaces: 2,
     staleAfterMs: ctx.staleAfterMs,
     nowMs: ctx.nowMs,
   });
 
-  const revenueGrowthRate = validateUnverifiedNumericMetric(m?.revenueGrowthRate ?? null, {
+  const shoppingMallRevenueThb7d =
+    m?.shoppingMallRevenueThb7d !== undefined
+      ? validateNumericMetric({
+          rawInput: m.shoppingMallRevenueThb7d,
+          unit: 'THB',
+          provenance: 'SOURCE',
+          fetchedAt: ctx.fetchedAt,
+          dateRange: ctx.dateRange,
+          allowZero: true,
+          allowNegative: false,
+          decimalPlaces: 2,
+          staleAfterMs: ctx.staleAfterMs,
+          nowMs: ctx.nowMs,
+        })
+      : undefined;
+
+  const revenueGrowthRate = validateNumericMetric({
+    rawInput: m?.revenueGrowthRate ?? null,
+    unit: 'PERCENT',
+    provenance: 'SOURCE',
+    fetchedAt: ctx.fetchedAt,
+    dateRange: ctx.dateRange,
+    allowZero: true,
     allowNegative: true,
-    unverifiedNote:
-      'UNVERIFIED_GROWTH_UNIT: upstream unit and comparison period unverified pending Phase 0 live API probe.',
-    context: ctx,
+    decimalPlaces: 2,
+    staleAfterMs: ctx.staleAfterMs,
+    nowMs: ctx.nowMs,
+    note:
+      m?.revenueGrowthRate === undefined || m?.revenueGrowthRate === null
+        ? 'Legacy product missing revenueGrowthRate.'
+        : 'Legacy growth rate preserved in percentage points; UNVERIFIED_COMPARISON_PERIOD: exact baseline window remains UNVERIFIED.',
   });
 
   const creatorCount = validateUnverifiedNumericMetric(m?.creatorCount ?? null, {
     allowNegative: false,
     unverifiedNote:
-      'UNVERIFIED_CREATOR_DEFINITION: creator_count scope unverified pending Phase 0 live API probe.',
+      'UNVERIFIED_CREATOR_DEFINITION: creator_number time-window and activity scope remain UNVERIFIED.',
     context: ctx,
   });
 
@@ -940,15 +1063,18 @@ export function adaptProductItemToValidatedMetrics(
     allowNegative: false,
     minValue: 0,
     maxValue: 5,
+    missingAsUnavailable: true,
     unverifiedNote:
-      'UNVERIFIED_RATING_SEMANTICS: rating coverage and unrated sentinel unverified pending Phase 0 live API probe.',
+      m?.rating === undefined || m?.rating === null
+        ? 'RATING_UNAVAILABLE_ON_ENDPOINT: tested Kalodata endpoints do not return product rating.'
+        : 'UNVERIFIED_RATING_SEMANTICS: rating coverage and unrated sentinel remain UNVERIFIED.',
     context: ctx,
   });
 
   const reviewCount = validateUnverifiedNumericMetric(m?.reviewCount ?? null, {
     allowNegative: false,
     unverifiedNote:
-      'UNVERIFIED_REVIEW_COUNT: review/comment period and meaning unverified pending Phase 0 live API probe.',
+      'UNVERIFIED_REVIEW_COUNT: product_review_count time-window semantics remain UNVERIFIED.',
     context: ctx,
   });
 
@@ -960,6 +1086,7 @@ export function adaptProductItemToValidatedMetrics(
     revenueThb7d,
     videoRevenueThb7d,
     liveRevenueThb7d,
+    ...(shoppingMallRevenueThb7d ? { shoppingMallRevenueThb7d } : {}),
     revenueGrowthRate,
     creatorCount,
     rating,
@@ -1024,6 +1151,9 @@ export function refreshProductValidatedMetricsFreshness(
   const revenueThb7d = refreshSingleValidatedMetricFreshness(metrics.revenueThb7d, options);
   const videoRevenueThb7d = refreshSingleValidatedMetricFreshness(metrics.videoRevenueThb7d, options);
   const liveRevenueThb7d = refreshSingleValidatedMetricFreshness(metrics.liveRevenueThb7d, options);
+  const shoppingMallRevenueThb7d = metrics.shoppingMallRevenueThb7d
+    ? refreshSingleValidatedMetricFreshness(metrics.shoppingMallRevenueThb7d, options)
+    : undefined;
   const revenueGrowthRate = refreshSingleValidatedMetricFreshness(metrics.revenueGrowthRate, options);
   const creatorCount = refreshSingleValidatedMetricFreshness(metrics.creatorCount, options);
   const rating = refreshSingleValidatedMetricFreshness(metrics.rating, options);
@@ -1056,6 +1186,7 @@ export function refreshProductValidatedMetricsFreshness(
     revenueThb7d !== metrics.revenueThb7d ||
     videoRevenueThb7d !== metrics.videoRevenueThb7d ||
     liveRevenueThb7d !== metrics.liveRevenueThb7d ||
+    shoppingMallRevenueThb7d !== metrics.shoppingMallRevenueThb7d ||
     revenueGrowthRate !== metrics.revenueGrowthRate ||
     creatorCount !== metrics.creatorCount ||
     rating !== metrics.rating ||
@@ -1073,6 +1204,7 @@ export function refreshProductValidatedMetricsFreshness(
     revenueThb7d,
     videoRevenueThb7d,
     liveRevenueThb7d,
+    ...(shoppingMallRevenueThb7d ? { shoppingMallRevenueThb7d } : {}),
     revenueGrowthRate,
     creatorCount,
     rating,

@@ -39,6 +39,42 @@ export interface HistoricalMetricSnapshot {
   revenueGrowthRate?: ValidatedMetric<number>;
 }
 
+export type DiscoveryShortlistCategory =
+  | 'STRONG_DEMAND_STRONG_VIDEO_SALES'
+  | 'STRONG_DEMAND_LOW_COMPETITION'
+  | 'STRONG_AFFILIATE_EARNINGS'
+  | 'EMERGING_OPPORTUNITY'
+  | 'HIGH_DEMAND_HIGH_COMPETITION'
+  | 'INSUFFICIENT_EVIDENCE';
+
+export type CompetitionEvidenceStatus =
+  | 'VERIFIED_LOW'
+  | 'VERIFIED_MODERATE'
+  | 'VERIFIED_HIGH'
+  | 'UNVERIFIED'
+  | 'MISSING';
+
+export type VideoSalesEvidenceStatus =
+  | 'STRONG'
+  | 'MODERATE'
+  | 'WEAK'
+  | 'INSUFFICIENT';
+
+export interface ProductDiscoveryShortlistResult {
+  primaryClassification: DiscoveryShortlistCategory;
+  secondarySignals: DiscoveryShortlistCategory[];
+  /** True when commercial eligibility is not fully ELIGIBLE (e.g., competition/quality still unverified or unavailable). */
+  isPreliminaryCandidate: boolean;
+  isNotMonetizable: boolean;
+  competitionEvidenceStatus: CompetitionEvidenceStatus;
+  videoSalesEvidenceStatus: VideoSalesEvidenceStatus;
+  videoRevenueSharePct: number | null;
+  reasons: string[];
+  evidenceGaps: string[];
+  cautionNote: string;
+}
+
+
 export interface StrategyRequirementCheck {
   key: string;
   label: string;

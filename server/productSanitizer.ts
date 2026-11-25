@@ -53,6 +53,7 @@ export function sanitizeProductPayloadForAi(
           revenueThb7d: safeFinite(rawM.revenueThb7d),
           videoRevenueThb7d: safeFinite(rawM.videoRevenueThb7d),
           liveRevenueThb7d: safeFinite(rawM.liveRevenueThb7d),
+          shoppingMallRevenueThb7d: safeFinite(rawM.shoppingMallRevenueThb7d),
           revenueGrowthRate: safeFinite(rawM.revenueGrowthRate),
           creatorCount: safeFinite(rawM.creatorCount),
           rating: safeFinite(rawM.rating),

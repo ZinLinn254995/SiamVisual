@@ -34,6 +34,12 @@ import {
   sortProductsByV2Overall,
 } from './lib/productIntelligenceView';
 import { evaluateProductCommercialV2 } from './lib/scoringEngineV2';
+import {
+  buildStrategySnapshotsMap,
+  loadProductSnapshotsFromStorage,
+  mergeRestoredProductSnapshots,
+  recordProductSnapshotsInStorage,
+} from './lib/snapshotStore';
 import { evaluateProductStrategiesV2 } from './lib/strategyEngineV2';
 import {
   clearAllRecentSearches,
@@ -51,7 +57,10 @@ import {
   loadResultViewMode,
   loadSavedHistory,
   loadThemePreference,
+  mergeKalodataMetrics,
   mergeRestoredHistory,
+  mergeRestoredRecentSearches,
+  mergeValidatedMetricsSnapshots,
   parseBackupFile,
   persistDeepInsightsCache,
   persistProductAnalysisCache,
@@ -85,6 +94,7 @@ import type {
   ProductEnrichOptions,
   ProductItem,
   ProductKalodataMetrics,
+  ProductObservationSnapshot,
   ProductValidatedMetrics,
   RecentSearchEntry,
   ResultGridCols,
@@ -330,6 +340,16 @@ export default function App() {
 
   const [evaluationNowMs, setEvaluationNowMs] = useState<number>(() => Date.now());
 
+  // Append-only daily observation snapshots stored locally for longitudinal strategies (0 extra API calls)
+  const [productSnapshots, setProductSnapshots] = useState<
+    Record<string, ProductObservationSnapshot[]>
+  >(() => loadProductSnapshotsFromStorage());
+
+  const historicalSnapshotsByProductId = useMemo(
+    () => buildStrategySnapshotsMap(productSnapshots),
+    [productSnapshots]
+  );
+
   // Home Search Results always initialize with the latest Recent History (0 cr)
   const [hasSearched, setHasSearched] = useState<boolean>(() => Boolean(initialLatestSearch));
   const [isSearching, setIsSearching] = useState(false);
@@ -353,6 +373,7 @@ export default function App() {
 
   // Studio state
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
+  const selectedProductIdRef = useRef<string | null>(null);
   const [selectedStyle, setSelectedStyle] = useState<VisualStyle>('cinematic');
   const [activePlan, setActivePlan] = useState<VideoAdPlan | null>(null);
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
@@ -369,6 +390,19 @@ export default function App() {
     text: string;
     tone: 'neutral' | 'error';
   } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    selectedProductIdRef.current = selectedProduct?.id ?? null;
+  }, [selectedProduct?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
 
   const t = TRANSLATIONS[language];
 
@@ -631,8 +665,12 @@ export default function App() {
   }, [selectedCateIds]);
 
   function showToast(text: string, tone: 'neutral' | 'error' = 'neutral') {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
     setToastMessage({ text, tone });
-    setTimeout(() => {
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null;
       setToastMessage((prev) => (prev?.text === text ? null : prev));
     }, 3400);
   }
@@ -761,6 +799,10 @@ export default function App() {
     setActiveRecentId(null);
     setRestoredFromBrowser(false);
     setProducts([]);
+    setSelectedCateIds([]);
+    setActiveStrategyView('overall');
+    setShowExcludedCandidates(false);
+    setSearchError(null);
     setHasSearched(false);
     setLastSearchCreditsUsed(null);
   }
@@ -966,11 +1008,13 @@ export default function App() {
       const nowMs = Date.now();
       setEvaluationNowMs(nowMs);
       const rawFetched = Array.isArray(data.products) ? data.products : [];
-      // Persist any single-link Seller description into permanent Deep Insights cache too
+      // Persist any single-link /detail layer (even if description is empty) into permanent Deep Insights cache
       for (const item of rawFetched) {
-        if (item.deepInsights?.description) {
+        if (item.deepInsights?.fetchedDetails || item.deepInsights?.description) {
           saveDeepInsightForProduct(item.id, {
             deepInsights: item.deepInsights,
+            kalodataMetrics: item.kalodataMetrics,
+            validatedMetrics: item.validatedMetrics,
             shopName: item.shopName,
             imageUrl: item.imageUrl,
           });
@@ -978,8 +1022,16 @@ export default function App() {
       }
       const hydratedProducts = sortProductsByV2Overall(
         hydrateProductsFromStorage(rawFetched, { nowMs }),
-        { nowMs }
+        { nowMs, historicalSnapshotsByProductId }
       );
+
+      // Append genuine Kalodata source observations into local daily snapshot history (0 extra API calls)
+      if (hydratedProducts.length > 0) {
+        const snapshotUpdate = recordProductSnapshotsInStorage(hydratedProducts, { nowMs });
+        if (snapshotUpdate.addedCount > 0 || snapshotUpdate.updatedCount > 0) {
+          setProductSnapshots(snapshotUpdate.snapshotsByProductId);
+        }
+      }
 
       const resolvedMode: 'rank' | 'single_link' =
         data.mode === 'single_link' ? 'single_link' : 'rank';
@@ -1029,14 +1081,17 @@ export default function App() {
     style: VisualStyle,
     forceFresh = false
   ) {
+    const targetProductId = product.id;
     if (!forceFresh) {
       const cached = history.find(
-        (entry) => entry.product.id === product.id && entry.plan?.style === style
+        (entry) => entry.product.id === targetProductId && entry.plan?.style === style
       );
       if (cached?.plan) {
-        setActivePlan(cached.plan);
-        setPlanError(null);
-        setIsGeneratingPlan(false);
+        if (selectedProductIdRef.current === targetProductId) {
+          setActivePlan(cached.plan);
+          setPlanError(null);
+          setIsGeneratingPlan(false);
+        }
         return;
       }
     }
@@ -1061,8 +1116,6 @@ export default function App() {
       }
 
       const generatedPlan = data.plan;
-      setActivePlan(generatedPlan);
-
       const newEntry: SavedHistoryEntry = {
         id: generatedPlan.id,
         savedAt: generatedPlan.createdAt,
@@ -1070,24 +1123,36 @@ export default function App() {
         plan: generatedPlan,
       };
       setHistory((prev) => upsertHistoryEntry(prev, newEntry));
+
+      if (selectedProductIdRef.current === targetProductId) {
+        setActivePlan(generatedPlan);
+      }
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        setPlanError(
-          language === 'my'
-            ? 'AI Video Plan ဖန်တီးချိန် ကြာသွားပါသည် — ထပ်မံကြိုးစားပေးပါ။'
-            : 'AI video generation timed out. Please try again.'
-        );
-      } else {
-        setPlanError(err instanceof Error ? err.message : 'Unable to generate video plan right now.');
+      if (selectedProductIdRef.current === targetProductId) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          setPlanError(
+            language === 'my'
+              ? 'AI Video Plan ဖန်တီးချိန် ကြာသွားပါသည် — ထပ်မံကြိုးစားပေးပါ။'
+              : 'AI video generation timed out. Please try again.'
+          );
+        } else {
+          setPlanError(
+            err instanceof Error ? err.message : 'Unable to generate video plan right now.'
+          );
+        }
       }
     } finally {
       window.clearTimeout(clientTimer);
-      setIsGeneratingPlan(false);
+      if (selectedProductIdRef.current === targetProductId) {
+        setIsGeneratingPlan(false);
+      }
     }
   }
 
   async function handleFetchProductDeepInsights(options: ProductEnrichOptions) {
     if (!selectedProduct) return;
+    const targetProduct = selectedProduct;
+    const targetProductId = targetProduct.id;
     setIsEnrichingProduct(true);
     setEnrichError(null);
     try {
@@ -1095,7 +1160,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          productId: selectedProduct.id,
+          productId: targetProductId,
           options,
           minBalanceReserve: kalodataLimits.minBalanceReserve,
           maxSpendRemaining,
@@ -1133,35 +1198,48 @@ export default function App() {
       const nowMs = Date.now();
       setEvaluationNowMs(nowMs);
 
+      const mergedIncomingKalodata = mergeKalodataMetrics(
+        data.kalodataMetrics,
+        targetProduct.kalodataMetrics
+      );
+      const mergedIncomingValidated = mergeValidatedMetricsSnapshots(
+        data.validatedMetrics,
+        targetProduct.validatedMetrics
+      );
+
       // Permanently save fetched Kalodata Deep Data & Metrics into browser localStorage (never auto-generates Video Ideas!)
-      const savedRecord = saveDeepInsightForProduct(selectedProduct.id, {
+      const savedRecord = saveDeepInsightForProduct(targetProductId, {
         deepInsights: data.deepInsights,
-        kalodataMetrics: data.kalodataMetrics,
-        validatedMetrics: data.validatedMetrics,
+        kalodataMetrics: mergedIncomingKalodata,
+        validatedMetrics: mergedIncomingValidated,
         shopName: data.shopName,
         imageUrl: data.imageUrl,
       });
 
-      const nextValidated = savedRecord.validatedMetrics ?? selectedProduct.validatedMetrics;
+      const nextValidated = savedRecord.validatedMetrics ?? targetProduct.validatedMetrics;
       const nextCommercialV2 = nextValidated
         ? evaluateProductCommercialV2(nextValidated, { nowMs })
-        : selectedProduct.commercialScoreV2;
+        : targetProduct.commercialScoreV2;
       const upgradedProduct: ProductItem = {
-        ...selectedProduct,
-        shopName: savedRecord.shopName || selectedProduct.shopName,
-        imageUrl: savedRecord.imageUrl || selectedProduct.imageUrl,
-        kalodataMetrics: savedRecord.kalodataMetrics ?? selectedProduct.kalodataMetrics,
+        ...targetProduct,
+        shopName: savedRecord.shopName || targetProduct.shopName,
+        imageUrl: savedRecord.imageUrl || targetProduct.imageUrl,
+        kalodataMetrics: savedRecord.kalodataMetrics ?? targetProduct.kalodataMetrics,
         validatedMetrics: nextValidated,
         commercialScoreV2: nextCommercialV2,
         strategyIntelligenceV2: nextValidated
           ? evaluateProductStrategiesV2(nextValidated, nextCommercialV2, {
               scoringConfig: { nowMs },
             })
-          : selectedProduct.strategyIntelligenceV2,
+          : targetProduct.strategyIntelligenceV2,
         deepInsights: savedRecord.deepInsights,
       };
 
-      setSelectedProduct(upgradedProduct);
+      const snapshotUpdate = recordProductSnapshotsInStorage([upgradedProduct], { nowMs });
+      if (snapshotUpdate.addedCount > 0 || snapshotUpdate.updatedCount > 0) {
+        setProductSnapshots(snapshotUpdate.snapshotsByProductId);
+      }
+
       setHistory((prev) => syncProductInSavedHistory(prev, upgradedProduct));
       setProducts((prev) => {
         const nextList = prev.map((item) =>
@@ -1171,23 +1249,35 @@ export default function App() {
         return nextList;
       });
 
+      if (selectedProductIdRef.current === targetProductId) {
+        setSelectedProduct(upgradedProduct);
+      }
+
       if (Array.isArray(data.failedLayers) && data.failedLayers.length > 0) {
         const partialMsg = t.studio.deepPartialWarning(data.failedLayers);
-        setEnrichError(partialMsg);
+        if (selectedProductIdRef.current === targetProductId) {
+          setEnrichError(partialMsg);
+        }
         showToast(partialMsg, 'error');
       } else {
         showToast(t.studio.deepUpgradedToast, 'neutral');
       }
     } catch (err) {
-      setEnrichError(err instanceof Error ? err.message : 'Unable to enrich product.');
+      if (selectedProductIdRef.current === targetProductId) {
+        setEnrichError(err instanceof Error ? err.message : 'Unable to enrich product.');
+      }
     } finally {
-      setIsEnrichingProduct(false);
+      if (selectedProductIdRef.current === targetProductId) {
+        setIsEnrichingProduct(false);
+      }
     }
   }
 
   // Manual AI Deep Product Analysis strictly grounded in available Kalodata data (0 Kalodata credits)
   async function handleAnalyzeProduct() {
     if (!selectedProduct || isAnalyzingProduct) return;
+    const targetProduct = selectedProduct;
+    const targetProductId = targetProduct.id;
     setIsAnalyzingProduct(true);
     setAnalysisError(null);
     const controller = new AbortController();
@@ -1196,7 +1286,7 @@ export default function App() {
       const response = await fetch('/api/products/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product: selectedProduct }),
+        body: JSON.stringify({ product: targetProduct }),
         signal: controller.signal,
       });
       const data = await parseApiStreamOrJson<{ analysis?: ProductAiAnalysis }>(
@@ -1207,13 +1297,12 @@ export default function App() {
         throw new Error('Unable to analyze product right now.');
       }
 
-      saveProductAnalysisForProduct(selectedProduct.id, data.analysis);
+      saveProductAnalysisForProduct(targetProductId, data.analysis);
 
       const analyzedProduct: ProductItem = {
-        ...selectedProduct,
+        ...targetProduct,
         aiAnalysis: data.analysis,
       };
-      setSelectedProduct(analyzedProduct);
       setHistory((prev) => syncProductInSavedHistory(prev, analyzedProduct));
       setProducts((prev) => {
         const nextList = prev.map((item) =>
@@ -1222,21 +1311,29 @@ export default function App() {
         syncUpdatedProductsToActiveRecent(nextList);
         return nextList;
       });
+
+      if (selectedProductIdRef.current === targetProductId) {
+        setSelectedProduct(analyzedProduct);
+      }
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        setAnalysisError(
-          language === 'my'
-            ? 'AI သုံးသပ်ချက် ဖန်တီးချိန် ကြာသွားပါသည် — ထပ်မံကြိုးစားပေးပါ။'
-            : 'AI product analysis timed out. Please try again.'
-        );
-      } else {
-        setAnalysisError(
-          err instanceof Error ? err.message : 'Unable to analyze product right now.'
-        );
+      if (selectedProductIdRef.current === targetProductId) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          setAnalysisError(
+            language === 'my'
+              ? 'AI သုံးသပ်ချက် ဖန်တီးချိန် ကြာသွားပါသည် — ထပ်မံကြိုးစားပေးပါ။'
+              : 'AI product analysis timed out. Please try again.'
+          );
+        } else {
+          setAnalysisError(
+            err instanceof Error ? err.message : 'Unable to analyze product right now.'
+          );
+        }
       }
     } finally {
       window.clearTimeout(clientTimer);
-      setIsAnalyzingProduct(false);
+      if (selectedProductIdRef.current === targetProductId) {
+        setIsAnalyzingProduct(false);
+      }
     }
   }
 
@@ -1260,6 +1357,7 @@ export default function App() {
     const defaultStyle: VisualStyle = 'cinematic';
     const existingSavedPlan = findSavedPlanFor(hydrated.id, defaultStyle);
 
+    selectedProductIdRef.current = hydrated.id;
     setSelectedProduct(hydrated);
     setSelectedStyle(defaultStyle);
     setActivePlan(existingSavedPlan);
@@ -1267,6 +1365,7 @@ export default function App() {
     setEnrichError(null);
     setAnalysisError(null);
     setIsGeneratingPlan(false);
+    setIsEnrichingProduct(false);
     setIsAnalyzingProduct(false);
     setCameFromHistory(false);
     setActiveTab('studio');
@@ -1277,6 +1376,8 @@ export default function App() {
     const hydrated = hydrateProductFromStorage(entry.product, { nowMs: evaluationNowMs });
     const nextStyle: VisualStyle = entry.plan?.style ?? 'cinematic';
     const nextPlan: VideoAdPlan | null = entry.plan ?? findSavedPlanFor(hydrated.id, nextStyle);
+
+    selectedProductIdRef.current = hydrated.id;
     setSelectedProduct(hydrated);
     setSelectedStyle(nextStyle);
     setActivePlan(nextPlan);
@@ -1284,6 +1385,7 @@ export default function App() {
     setEnrichError(null);
     setAnalysisError(null);
     setIsGeneratingPlan(false);
+    setIsEnrichingProduct(false);
     setIsAnalyzingProduct(false);
     setCameFromHistory(true);
     setActiveTab('studio');
@@ -1324,12 +1426,14 @@ export default function App() {
         setKalodataLimits(parsed.limits);
         saveKalodataLimits(parsed.limits);
       }
+      let cachesRestored = false;
       if (parsed.deepInsightsCache) {
         const mergedDeepCache = {
           ...loadDeepInsightsCache(),
           ...parsed.deepInsightsCache,
         };
         persistDeepInsightsCache(mergedDeepCache);
+        cachesRestored = true;
       }
       if (parsed.productAnalysisCache) {
         const mergedAnalysisCache = {
@@ -1337,15 +1441,44 @@ export default function App() {
           ...parsed.productAnalysisCache,
         };
         persistProductAnalysisCache(mergedAnalysisCache);
+        cachesRestored = true;
       }
+      if (parsed.productSnapshots) {
+        const { merged: mergedSnapshots } = mergeRestoredProductSnapshots(
+          productSnapshots,
+          parsed.productSnapshots
+        );
+        setProductSnapshots(mergedSnapshots);
+        cachesRestored = true;
+      }
+      let searchesAdded = 0;
       if (parsed.recentSearches && parsed.recentSearches.length > 0) {
-        setRecentSearches(parsed.recentSearches);
-        persistRecentSearches(parsed.recentSearches);
-        if (!hasSearched) {
-          loadRecentEntryIntoHome(parsed.recentSearches[0]);
+        const { merged: mergedSearches, addedCount: addedSearches } =
+          mergeRestoredRecentSearches(recentSearches, parsed.recentSearches);
+        searchesAdded = addedSearches;
+        setRecentSearches(mergedSearches);
+        if (!hasSearched && mergedSearches[0]) {
+          loadRecentEntryIntoHome(mergedSearches[0]);
         }
       }
-      showToast(t.history.restoreSuccessCount(addedCount, merged.length), 'neutral');
+      if (cachesRestored) {
+        const nowMs = Date.now();
+        setEvaluationNowMs(nowMs);
+        setProducts((prev) =>
+          prev.length > 0
+            ? sortProductsByV2Overall(hydrateProductsFromStorage(prev, { nowMs }), { nowMs })
+            : prev
+        );
+        setSelectedProduct((prev) =>
+          prev ? hydrateProductFromStorage(prev, { nowMs }) : prev
+        );
+      }
+      showToast(
+        searchesAdded > 0
+          ? t.history.restoreSuccessWithSearches(addedCount, merged.length, searchesAdded)
+          : t.history.restoreSuccessCount(addedCount, merged.length),
+        'neutral'
+      );
     } catch {
       showToast(t.history.restoreError, 'error');
     }
@@ -1418,8 +1551,9 @@ export default function App() {
     () =>
       buildProductIntelligenceView(filteredProducts, activeStrategyView, {
         nowMs: evaluationNowMs,
+        historicalSnapshotsByProductId,
       }),
-    [filteredProducts, activeStrategyView, evaluationNowMs]
+    [filteredProducts, activeStrategyView, evaluationNowMs, historicalSnapshotsByProductId]
   );
 
   const isRestoredDataStale = useMemo(() => {
@@ -2243,7 +2377,7 @@ export default function App() {
 
                           {/* View Mode (List / Grid) & Adjustable Grid Column Controls */}
                           {filteredProducts.length > 0 && (
-                            <div className="flex items-center gap-2 self-start sm:self-end shrink-0">
+                            <div className="flex flex-wrap items-center gap-2 self-start sm:self-end shrink-0">
                               <div
                                 role="group"
                                 aria-label="Result layout view"
@@ -2254,7 +2388,7 @@ export default function App() {
                                   onClick={() => handleSelectViewMode('grid')}
                                   aria-pressed={resultViewMode === 'grid'}
                                   title={t.discover.viewGrid}
-                                  className={`h-7 px-2 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                                  className={`h-8 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer ${
                                     resultViewMode === 'grid'
                                       ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
                                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -2268,7 +2402,7 @@ export default function App() {
                                   onClick={() => handleSelectViewMode('list')}
                                   aria-pressed={resultViewMode === 'list'}
                                   title={t.discover.viewList}
-                                  className={`h-7 px-2 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                                  className={`h-8 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer ${
                                     resultViewMode === 'list'
                                       ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
                                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -2284,7 +2418,7 @@ export default function App() {
                                   role="group"
                                   aria-label={t.discover.pinchZoomHint}
                                   title={t.discover.pinchZoomHint}
-                                  className="inline-flex items-center gap-1 h-8 px-1.5 rounded-lg bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/75 dark:border-slate-700/70"
+                                  className="inline-flex items-center gap-1 h-9 px-1 rounded-lg bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/75 dark:border-slate-700/70"
                                 >
                                   <button
                                     type="button"
@@ -2292,7 +2426,7 @@ export default function App() {
                                     onClick={() => applyActiveZoomIndex(activeZoomIndex - 1)}
                                     aria-label={t.discover.zoomOut}
                                     title={t.discover.zoomOut}
-                                    className="h-6 w-6 rounded-md inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-[#131B24] hover:text-slate-900 dark:hover:text-white transition-colors disabled:opacity-35 cursor-pointer disabled:cursor-default"
+                                    className="h-8 w-8 rounded-md inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-[#131B24] hover:text-slate-900 dark:hover:text-white transition-colors disabled:opacity-35 cursor-pointer disabled:cursor-default"
                                   >
                                     <ZoomOut className="w-3.5 h-3.5" />
                                   </button>
@@ -2312,7 +2446,7 @@ export default function App() {
                                     onClick={() => applyActiveZoomIndex(activeZoomIndex + 1)}
                                     aria-label={t.discover.zoomIn}
                                     title={t.discover.zoomIn}
-                                    className="h-6 w-6 rounded-md inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-[#131B24] hover:text-slate-900 dark:hover:text-white transition-colors disabled:opacity-35 cursor-pointer disabled:cursor-default"
+                                    className="h-8 w-8 rounded-md inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-[#131B24] hover:text-slate-900 dark:hover:text-white transition-colors disabled:opacity-35 cursor-pointer disabled:cursor-default"
                                   >
                                     <ZoomIn className="w-3.5 h-3.5" />
                                   </button>
@@ -2594,7 +2728,27 @@ export default function App() {
                       </p>
                     </div>
                   )
-                ) : null}
+                ) : (
+                  <div className="max-w-2xl mx-auto rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-[#131B24] p-5 sm:p-6">
+                    <h2 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
+                      {t.discover.emptyGuideTitle}
+                    </h2>
+                    <p className="mt-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                      {t.discover.emptyGuideDesc}
+                    </p>
+                    <ul className="mt-3.5 space-y-2 text-xs text-slate-700 dark:text-slate-300">
+                      {t.discover.emptyGuidePoints.map((point, idx) => (
+                        <li key={idx} className="flex items-start gap-2 leading-relaxed">
+                          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-teal-600 dark:bg-teal-400 shrink-0" />
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                      {t.discover.emptyGuideDisclaimer}
+                    </p>
+                  </div>
+                )}
               </section>
             </motion.div>
           )}
@@ -2669,6 +2823,7 @@ export default function App() {
             >
               <HistoryView
                 entries={history}
+                recentSearchesCount={recentSearches.length}
                 language={language}
                 nowMs={evaluationNowMs}
                 t={t}
@@ -2717,7 +2872,7 @@ export default function App() {
             exit={{ opacity: 0, y: 12 }}
             transition={{ duration: 0.18 }}
             role="status"
-            className={`fixed bottom-5 right-5 z-50 max-w-sm px-4 py-3 rounded-xl text-sm font-medium border shadow-sm ${
+            className={`fixed bottom-4 inset-x-4 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:max-w-sm z-50 px-4 py-3 rounded-xl text-sm font-medium border shadow-sm ${
               toastMessage.tone === 'error'
                 ? 'bg-red-600 text-white border-red-700'
                 : 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 border-slate-800 dark:border-slate-200'

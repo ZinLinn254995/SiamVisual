@@ -92,7 +92,7 @@ export function computeDirectKalodataScore(metrics: RawKalodataMetrics): Product
         : 65;
 
   const growthBoost =
-    metrics.revenueGrowthRate > 0.2
+    metrics.revenueGrowthRate >= 20
       ? 6
       : metrics.revenueGrowthRate > 0
         ? 3

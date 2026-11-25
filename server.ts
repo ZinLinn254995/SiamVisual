@@ -11,6 +11,7 @@ import {
   getCachedKalodataStatus,
   KalodataApiError,
   OFFICIAL_TH_CATEGORIES,
+  sanitizeKalodataErrorText,
   verifyAndConnectKalodataKey,
 } from './server/kalodata.ts';
 import {
@@ -165,7 +166,9 @@ async function streamNdjsonAction<T>(
     if (mapped.code === 'API_KEY_REQUIRED') {
       console.warn('[SiamVisual AI] GEMINI_API_KEY is not configured in Settings > Secrets.');
     } else {
-      console.error('[SiamVisual AI Stream Error]', err);
+      console.error(
+        `[SiamVisual AI Stream Error] code=${mapped.code} status=${mapped.status} msg=${sanitizeKalodataErrorText(mapped.message)}`
+      );
     }
     safeWrite({
       type: 'error',

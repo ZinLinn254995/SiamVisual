@@ -330,6 +330,17 @@ function normalizeValidatedMetricsWithFreshness(
       sanitizeMetricDomain(metrics.liveRevenueThb7d, { allowZero: true, allowNegative: false }),
       config
     ),
+    ...(metrics.shoppingMallRevenueThb7d
+      ? {
+          shoppingMallRevenueThb7d: refreshMetricFreshness(
+            sanitizeMetricDomain(metrics.shoppingMallRevenueThb7d, {
+              allowZero: true,
+              allowNegative: false,
+            }),
+            config
+          ),
+        }
+      : {}),
     revenueGrowthRate: refreshMetricFreshness(
       sanitizeMetricDomain(metrics.revenueGrowthRate, { allowZero: true, allowNegative: true }),
       config
@@ -1978,6 +1989,16 @@ function isBetterDuplicateCandidate<TItem>(
   return false;
 }
 
+function computeVerifiedDimensionTieBreaker(score: CommercialScoreV2Result): number {
+  const scored: number[] = [];
+  if (score.demandScore.score !== null) scored.push(score.demandScore.score);
+  if (score.earningScore.score !== null) scored.push(score.earningScore.score);
+  if (score.competitionScore.score !== null) scored.push(score.competitionScore.score);
+  if (score.customerQualityScore.score !== null) scored.push(score.customerQualityScore.score);
+  if (scored.length === 0) return -1;
+  return scored.reduce((acc, v) => acc + v, 0) / scored.length;
+}
+
 /**
  * Deterministically ranks evaluated V2 commercial opportunities.
  * Excludes/demotes NOT_MONETIZABLE and INSUFFICIENT_DATA below monetizable candidates.
@@ -2013,6 +2034,17 @@ export function rankCommercialOpportunitiesV2<
 
     const confDiff = b.score.dataConfidence.score - a.score.dataConfidence.score;
     if (confDiff !== 0) return confDiff;
+
+    const partialDimDiff =
+      computeVerifiedDimensionTieBreaker(b.score) -
+      computeVerifiedDimensionTieBreaker(a.score);
+    if (Math.abs(partialDimDiff) > 1e-9) return partialDimDiff;
+
+    const earningDiff = (b.score.earningScore.score ?? -1) - (a.score.earningScore.score ?? -1);
+    if (earningDiff !== 0) return earningDiff;
+
+    const demandDiff = (b.score.demandScore.score ?? -1) - (a.score.demandScore.score ?? -1);
+    if (demandDiff !== 0) return demandDiff;
 
     return a.productId.localeCompare(b.productId);
   });

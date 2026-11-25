@@ -2,10 +2,8 @@ import type { ProductItem } from '../types';
 import { getTikTokShopProductUrl } from './tiktokLink';
 
 function formatGrowthPct(rate: number): string {
-  const pct =
-    Math.abs(rate) <= 3 && rate !== 0
-      ? Math.round(rate * 1000) / 10
-      : Math.round(rate * 10) / 10;
+  // Phase 0 live-verified percentage-point unit on /rank (e.g. 17.75 = +17.75%, -1.8 = -1.8%)
+  const pct = Math.round(rate * 10) / 10;
   return `${pct > 0 ? '+' : ''}${pct}%`;
 }
 
@@ -226,9 +224,9 @@ export function buildExternalAiChatPrompt(product: ProductItem): string {
         ? `฿${m!.liveRevenueThb7d!.toLocaleString()}${liveRevSharePct !== null ? ` (~${liveRevSharePct}% calculated share of total revenue)` : ''}`
         : '[Not available]'
     }`,
-    `- Revenue Growth Rate (Period Trend) [Verified Historical]: ${hasGrowth ? formatGrowthPct(m!.revenueGrowthRate!) : '[Not available]'}`,
-    `- Active Affiliate Creators [Verified Historical]: ${hasCreators ? `${m!.creatorCount!.toLocaleString()} creators` : '[Not available]'}`,
-    `- Product Rating & Review Count [Verified Historical]: ${
+    `- Revenue Growth Rate (Period Trend) [Percentage Points — Comparison Baseline Unverified]: ${hasGrowth ? formatGrowthPct(m!.revenueGrowthRate!) : '[Not available]'}`,
+    `- Affiliate Creators (creator_number) [Raw Upstream Count — Time-Window Scope Unverified]: ${hasCreators ? `${m!.creatorCount!.toLocaleString()} creators` : '[Not available]'}`,
+    `- Product Rating & Review Count [Rating Unavailable on Tested Endpoints; Review Scope Unverified]: ${
       hasRating || hasReviewCount
         ? `${hasRating ? `${m!.rating}/5` : '[Rating not available]'}${hasReviewCount ? ` (${m!.reviewCount!.toLocaleString()} reviews)` : ''}`
         : '[Not available]'

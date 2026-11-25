@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { ArrowRight, Download, ExternalLink, Search, Trash2, Upload } from 'lucide-react';
+import { ArrowRight, Download, ExternalLink, Search, Trash2, Upload, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Translations } from '../i18n';
 import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
@@ -10,6 +10,7 @@ import type { Language, SavedHistoryEntry } from '../types';
 
 interface HistoryViewProps {
   entries: SavedHistoryEntry[];
+  recentSearchesCount?: number;
   language: Language;
   nowMs?: number;
   t: Translations;
@@ -22,6 +23,7 @@ interface HistoryViewProps {
 
 export function HistoryView({
   entries,
+  recentSearchesCount = 0,
   language,
   nowMs,
   t,
@@ -107,7 +109,7 @@ export function HistoryView({
           <button
             type="button"
             onClick={onExportBackup}
-            disabled={entries.length === 0}
+            disabled={entries.length === 0 && recentSearchesCount === 0}
             className="h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-800 dark:text-slate-100 text-sm font-medium inline-flex items-center gap-2 hover:border-slate-300 dark:hover:border-slate-600 disabled:opacity-45 disabled:cursor-not-allowed transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             <Download className="w-4 h-4 shrink-0" />
@@ -168,14 +170,28 @@ export function HistoryView({
                 value={filterQuery}
                 onChange={(e) => setFilterQuery(e.target.value)}
                 placeholder={t.history.searchPlaceholder}
-                className="w-full h-11 pl-10 pr-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B24] text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full h-11 pl-10 pr-10 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B24] text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
+              {filterQuery && (
+                <button
+                  type="button"
+                  onClick={() => setFilterQuery('')}
+                  aria-label={t.history.clearFilterAria}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Saved Products Grid */}
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredEntries.map((entry) => {
+          {filteredEntries.length === 0 ? (
+            <p className="mt-10 text-sm text-slate-500 dark:text-slate-400">
+              {t.history.noFilterMatches}
+            </p>
+          ) : (
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredEntries.map((entry) => {
               const fallback = getStudioFallbackImage(entry.product.category);
               const isConfirming = confirmDeleteId === entry.id;
               const primaryTitle = entry.product.thaiTitle;
@@ -268,18 +284,18 @@ export function HistoryView({
                       )}
                     </div>
 
-                    <div className="mt-3.5 flex items-center gap-2">
+                    <div className="mt-3.5 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => onOpenEntry(entry)}
-                        className="flex-1 h-10 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer"
+                        className="flex-1 min-w-[120px] h-10 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer"
                       >
                         <span>{t.history.openPlan}</span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </button>
 
                       {isConfirming ? (
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                           <button
                             type="button"
                             onClick={() => {
@@ -314,7 +330,8 @@ export function HistoryView({
                 </article>
               );
             })}
-          </div>
+            </div>
+          )}
         </>
       )}
     </motion.section>

@@ -10,6 +10,7 @@ import {
   Copy,
   Database,
   ExternalLink,
+  Info,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { Translations } from '../i18n';
+import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
 import { getStudioFallbackImage } from '../lib/media';
 import { getKalodataProductUrl, getTikTokShopProductUrl } from '../lib/tiktokLink';
 import type {
@@ -78,8 +80,8 @@ const SINGLE_SPECS_COST = 0.5;
 const SINGLE_COMMENTS_COST = 1.0;
 
 function formatGrowthRate(rate: number): string {
-  // Kalodata may return ratio (e.g. 0.25 for 25%) or percentage (e.g. 25 for 25%)
-  const pct = Math.abs(rate) <= 3 && rate !== 0 ? Math.round(rate * 1000) / 10 : Math.round(rate * 10) / 10;
+  // Phase 0 live-verified percentage-point unit on /rank (e.g. 17.75 = +17.75%, -1.8 = -1.8%)
+  const pct = Math.round(rate * 10) / 10;
   return `${pct > 0 ? '+' : ''}${pct}%`;
 }
 
@@ -176,6 +178,9 @@ export function VideoStudioView({
 
   useEffect(() => {
     setIsDescExpanded(false);
+    setCopiedKey(null);
+    setConfirmMode(null);
+    setIsDeepPanelOpen(false);
   }, [product.id]);
 
   useEffect(() => {
@@ -192,14 +197,19 @@ export function VideoStudioView({
     product.deepInsights?.fetchedComments,
   ]);
 
-  // Close confirmation dialog cleanly on Escape
+  // Close confirmation dialog cleanly on Escape and lock body scroll while open
   useEffect(() => {
     if (!confirmMode) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') setConfirmMode(null);
     }
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
   }, [confirmMode]);
 
   const productWithV2 = useMemo(
@@ -533,7 +543,15 @@ export function VideoStudioView({
               {t.v2.classifications[strategyV2.opportunityClassification]}
             </span>
             <span aria-hidden="true">·</span>
-            <span>{product.categoryLabel[language]}</span>
+            <span>
+              {language === 'my'
+                ? product.categoryLabel.my && /[\u1000-\u109F]/.test(product.categoryLabel.my)
+                  ? product.categoryLabel.my
+                  : translateCategoryNameToMyanmar(
+                      product.categoryLabel.en || product.categoryLabel.my
+                    )
+                : product.categoryLabel.en || product.categoryLabel.my}
+            </span>
             <span aria-hidden="true">·</span>
             <span>{product.shopName}</span>
             <span aria-hidden="true">·</span>
@@ -678,6 +696,11 @@ export function VideoStudioView({
               );
             })}
           </div>
+
+          <p className="mt-3 flex items-start gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+            <span>{t.studio.commercialStudioNotice}</span>
+          </p>
         </div>
       </div>
 
@@ -963,7 +986,8 @@ export function VideoStudioView({
                         }`}
                       >
                         {formatGrowthRate(metrics.revenueGrowthRate)}
-                        {productWithV2.validatedMetrics?.revenueGrowthRate.unit === 'UNVERIFIED' && (
+                        {(productWithV2.validatedMetrics?.revenueGrowthRate.unit === 'UNVERIFIED' ||
+                          commercialV2.demandScore.growthStatus === 'UNVERIFIED') && (
                           <span className="ml-1 font-sans text-[10px] font-medium text-amber-700 dark:text-amber-400">
                             ({t.studio.growthUnverifiedShort})
                           </span>
@@ -979,6 +1003,11 @@ export function VideoStudioView({
                     </div>
                     <div className="mt-0.5 text-sm font-mono-num font-semibold text-slate-900 dark:text-slate-100">
                       {metrics.creatorCount.toLocaleString()}
+                      {productWithV2.validatedMetrics?.creatorCount.unit === 'UNVERIFIED' && (
+                        <span className="ml-1 font-sans text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                          ({t.studio.growthUnverifiedShort})
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -997,6 +1026,12 @@ export function VideoStudioView({
                           ({metrics.reviewCount.toLocaleString()})
                         </span>
                       )}
+                      {productWithV2.validatedMetrics?.reviewCount.unit === 'UNVERIFIED' &&
+                        typeof metrics?.reviewCount === 'number' && (
+                          <span className="ml-1 font-sans text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                            ({t.studio.growthUnverifiedShort})
+                          </span>
+                        )}
                     </div>
                   </div>
                 )}
@@ -1134,7 +1169,7 @@ export function VideoStudioView({
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {analysis && !isAnalyzingProduct && (
               <button
                 type="button"
@@ -1308,8 +1343,8 @@ export function VideoStudioView({
             </div>
 
             {/* Real Kalodata Tabular Metrics Strip (Explicitly flags missing figures) */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800/90 bg-slate-50/35 dark:bg-slate-900/20">
-              <div className="p-3.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-slate-100 dark:bg-slate-800/90">
+              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
                   {t.studio.analysisMetricPrice}
                 </div>
@@ -1324,7 +1359,7 @@ export function VideoStudioView({
                 </div>
               </div>
 
-              <div className="p-3.5">
+              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
                   {t.studio.analysisMetricCommission}
                 </div>
@@ -1341,7 +1376,7 @@ export function VideoStudioView({
                 </div>
               </div>
 
-              <div className="p-3.5">
+              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
                   {t.studio.analysisMetricSales7d}
                 </div>
@@ -1356,7 +1391,7 @@ export function VideoStudioView({
                 </div>
               </div>
 
-              <div className="p-3.5">
+              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
                   {t.studio.analysisMetricRevenue7d}
                 </div>
@@ -1371,7 +1406,7 @@ export function VideoStudioView({
                 </div>
               </div>
 
-              <div className="p-3.5">
+              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
                   {t.studio.analysisMetricVideoRev7d}
                 </div>
@@ -1386,7 +1421,7 @@ export function VideoStudioView({
                 </div>
               </div>
 
-              <div className="p-3.5">
+              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
                   {t.studio.analysisMetricGrowth}
                 </div>
@@ -1654,7 +1689,7 @@ export function VideoStudioView({
             </div>
 
           {/* 01. Concept */}
-          <section id="sec-concept" className="space-y-3 scroll-mt-20">
+          <section id="sec-concept" className="space-y-3 scroll-mt-28 sm:scroll-mt-20">
             <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
               {t.studio.sectionConcept}
             </h2>
@@ -1677,7 +1712,7 @@ export function VideoStudioView({
           </section>
 
           {/* 02. Visual Hooks (0-3s) */}
-          <section id="sec-hooks" className="space-y-4 scroll-mt-20">
+          <section id="sec-hooks" className="space-y-4 scroll-mt-28 sm:scroll-mt-20">
             <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
               {t.studio.sectionHooks}
             </h2>
@@ -1730,7 +1765,7 @@ export function VideoStudioView({
           </section>
 
           {/* 03. Shot-by-Shot Silent Script */}
-          <section id="sec-script" className="space-y-4 scroll-mt-20">
+          <section id="sec-script" className="space-y-4 scroll-mt-28 sm:scroll-mt-20">
             <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
               {t.studio.sectionStoryboard}
             </h2>
@@ -1799,16 +1834,16 @@ export function VideoStudioView({
           </section>
 
           {/* 04. AI Video & Keyframe Image Prompts */}
-          <section id="sec-prompts" className="space-y-5 scroll-mt-20">
+          <section id="sec-prompts" className="space-y-5 scroll-mt-28 sm:scroll-mt-20">
             <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
               {t.studio.sectionPrompts}
             </h2>
 
             {/* Master Video Prompt (All-in-One 0-15s) */}
             {plan.masterVideoPrompt && (
-              <div className="p-6 rounded-xl bg-gradient-to-br from-teal-500/10 via-teal-500/5 to-transparent border border-teal-500/30 dark:border-teal-500/20 shadow-sm space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+              <div className="p-5 sm:p-6 rounded-xl bg-gradient-to-br from-teal-500/10 via-teal-500/5 to-transparent border border-teal-500/30 dark:border-teal-500/20 shadow-sm space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <h3 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
                       {t.studio.masterPromptTitle}
                     </h3>
@@ -1819,7 +1854,7 @@ export function VideoStudioView({
                   <button
                     type="button"
                     onClick={() => copyText('master_vprompt', plan.masterVideoPrompt!.en)}
-                    className="h-10 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 shrink-0 cursor-pointer shadow-xs"
+                    className="h-10 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 shrink-0 self-start cursor-pointer shadow-xs"
                   >
                     {copiedKey === 'master_vprompt' ? (
                       <Check className="w-4 h-4 text-white" />
@@ -1831,13 +1866,17 @@ export function VideoStudioView({
                 </div>
 
                 <div className="pt-3 border-t border-teal-500/20 space-y-2">
-                  <p className="text-xs font-mono text-slate-800 dark:text-slate-200 leading-relaxed select-all bg-white/70 dark:bg-[#0B1117]/80 p-4 rounded-lg border border-teal-500/20">
+                  <p className="text-xs font-mono text-slate-800 dark:text-slate-200 leading-relaxed break-words select-all bg-white/70 dark:bg-[#0B1117]/80 p-4 rounded-lg border border-teal-500/20">
                     {plan.masterVideoPrompt.en}
                   </p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    <span className="font-medium text-slate-700 dark:text-slate-300">အဓိပ္ပာယ်:</span>{' '}
-                    {plan.masterVideoPrompt.my}
-                  </p>
+                  {language === 'my' && plan.masterVideoPrompt.my && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      <span className="font-medium text-slate-700 dark:text-slate-300">
+                        {t.studio.meaningLabel}:
+                      </span>{' '}
+                      {plan.masterVideoPrompt.my}
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -1871,7 +1910,7 @@ export function VideoStudioView({
                           <span>{copiedKey === key ? t.studio.copied : t.studio.copy}</span>
                         </button>
                       </div>
-                      <p className="text-xs sm:text-sm font-mono text-slate-700 dark:text-slate-300 leading-relaxed select-all">
+                      <p className="text-xs sm:text-sm font-mono text-slate-700 dark:text-slate-300 leading-relaxed break-words select-all">
                         {item.prompt}
                       </p>
                     </div>
@@ -1910,7 +1949,7 @@ export function VideoStudioView({
                             <span>{copiedKey === key ? t.studio.copied : t.studio.copy}</span>
                           </button>
                         </div>
-                        <p className="text-xs font-mono text-slate-700 dark:text-slate-300 leading-relaxed select-all">
+                        <p className="text-xs font-mono text-slate-700 dark:text-slate-300 leading-relaxed break-words select-all">
                           {item.prompt}
                         </p>
                       </div>
@@ -1922,7 +1961,7 @@ export function VideoStudioView({
           </section>
 
           {/* 05. TikTok Thailand SEO */}
-          <section id="sec-seo" className="space-y-4 scroll-mt-20">
+          <section id="sec-seo" className="space-y-4 scroll-mt-28 sm:scroll-mt-20">
             <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
               {t.studio.sectionSeo}
             </h2>
@@ -2082,11 +2121,11 @@ export function VideoStudioView({
                 </div>
               </div>
 
-              <div className="mt-6 flex items-center justify-end gap-2.5">
+              <div className="mt-6 flex flex-wrap items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setConfirmMode(null)}
-                  className="h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium cursor-pointer"
+                  className="h-10 px-4 flex-1 sm:flex-none justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium inline-flex items-center cursor-pointer"
                 >
                   {t.studio.confirmCancelBtn}
                 </button>
@@ -2097,7 +2136,7 @@ export function VideoStudioView({
                     setConfirmMode(null);
                     onConfirmGenerate(isRegen);
                   }}
-                  className="h-10 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                  className="h-10 px-4 flex-1 sm:flex-none justify-center rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5 shrink-0" />
                   <span>{t.studio.confirmProceedBtn}</span>

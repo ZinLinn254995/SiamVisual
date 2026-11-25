@@ -65,12 +65,12 @@ export function TopBar({
       }`}
     >
       {/* Row 1: Brand (+ Desktop Nav) + Right Utility Controls */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 sm:h-15 flex items-center justify-between gap-2 sm:gap-6">
-        <div className="flex items-center gap-6 min-w-0">
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-15 flex items-center justify-between gap-1.5 sm:gap-6">
+        <div className="flex items-center gap-4 sm:gap-6 min-w-0">
           <button
             type="button"
             onClick={() => onNavigate('discover')}
-            className="font-display text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded-md px-1 -ml-1 cursor-pointer"
+            className="font-display text-[15px] sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded-md px-1 -ml-1 cursor-pointer"
           >
             SiamVisual
           </button>
@@ -135,12 +135,12 @@ export function TopBar({
         </div>
 
         {/* Utility Controls (guaranteed zero overlap on 320px+ mobile) */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={onToggleKalodataPanel}
             aria-expanded={isKalodataPanelOpen}
-            className={`h-9 px-2.5 sm:px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+            className={`h-9 px-2 sm:px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1 sm:gap-1.5 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
               isKalodataPanelOpen
                 ? 'border-teal-600 dark:border-teal-400 bg-teal-50/70 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200'
                 : kalodataStatus.connected
@@ -151,7 +151,7 @@ export function TopBar({
             {kalodataStatus.connected ? (
               <>
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="font-mono-num font-semibold">
+                <span className="font-mono-num font-semibold max-w-[78px] sm:max-w-none truncate">
                   {kalodataStatus.balance?.available !== null &&
                   kalodataStatus.balance?.available !== undefined
                     ? `${formatCompactCredits(kalodataStatus.balance.available)} ${t.nav.creditsShort}`
@@ -176,7 +176,7 @@ export function TopBar({
             type="button"
             onClick={onToggleLanguage}
             aria-label={language === 'my' ? 'Switch to English' : 'မြန်မာဘာသာသို့ ပြောင်းမယ်'}
-            className="h-9 px-2.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            className="h-9 px-2 sm:px-2.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             {language === 'my' ? 'EN' : 'မြန်မာ'}
           </button>
@@ -193,7 +193,7 @@ export function TopBar({
         </div>
       </div>
 
-      {/* Row 2 (Mobile Only): Clean Dedicated Tab Row so buttons NEVER overlap */}
+      {/* Row 2 (Mobile Only): Clean Dedicated Tab Row with 44px touch targets */}
       <nav
         aria-label="Mobile navigation"
         className="sm:hidden border-t border-slate-200/70 dark:border-slate-800/80 grid grid-cols-3"
@@ -201,7 +201,8 @@ export function TopBar({
         <button
           type="button"
           onClick={() => onNavigate('discover')}
-          className={`relative h-10 px-1 text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer ${
+          title={t.nav.discover}
+          className={`relative h-11 px-1.5 text-[11px] font-semibold flex items-center justify-center transition-colors cursor-pointer ${
             isDiscoverActive
               ? 'text-teal-700 dark:text-teal-400'
               : 'text-slate-500 dark:text-slate-400'
@@ -216,7 +217,8 @@ export function TopBar({
         <button
           type="button"
           onClick={() => onNavigate('search_history')}
-          className={`relative h-10 px-1 text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+          title={t.nav.searchHistory}
+          className={`relative h-11 px-1.5 text-[11px] font-semibold flex items-center justify-center gap-0.5 transition-colors cursor-pointer ${
             isSearchHistoryActive
               ? 'text-teal-700 dark:text-teal-400'
               : 'text-slate-500 dark:text-slate-400'
@@ -224,7 +226,7 @@ export function TopBar({
         >
           <span className="truncate">{t.nav.searchHistory}</span>
           {searchHistoryCount > 0 && (
-            <span className="font-mono-num text-[11px] opacity-75 shrink-0">
+            <span className="font-mono-num text-[10px] opacity-75 shrink-0">
               ({searchHistoryCount})
             </span>
           )}
@@ -236,7 +238,8 @@ export function TopBar({
         <button
           type="button"
           onClick={() => onNavigate('history')}
-          className={`relative h-10 px-1 text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+          title={t.nav.history}
+          className={`relative h-11 px-1.5 text-[11px] font-semibold flex items-center justify-center gap-0.5 transition-colors cursor-pointer ${
             isHistoryActive
               ? 'text-teal-700 dark:text-teal-400'
               : 'text-slate-500 dark:text-slate-400'
@@ -244,7 +247,7 @@ export function TopBar({
         >
           <span className="truncate">{t.nav.history}</span>
           {savedCount > 0 && (
-            <span className="font-mono-num text-[11px] opacity-75 shrink-0">({savedCount})</span>
+            <span className="font-mono-num text-[10px] opacity-75 shrink-0">({savedCount})</span>
           )}
           {isHistoryActive && (
             <span className="absolute inset-x-3 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
