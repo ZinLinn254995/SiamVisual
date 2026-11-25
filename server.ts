@@ -165,6 +165,14 @@ async function streamNdjsonAction<T>(
     const mapped = mapApiError(err);
     if (mapped.code === 'API_KEY_REQUIRED') {
       console.warn('[SiamVisual AI] GEMINI_API_KEY is not configured in Settings > Secrets.');
+    } else if (
+      mapped.code === 'AI_BUSY' ||
+      mapped.code === 'QUOTA_EXCEEDED' ||
+      mapped.code === 'AI_TIMEOUT'
+    ) {
+      console.warn(
+        `[SiamVisual AI Stream Notice] code=${mapped.code} status=${mapped.status} msg=${sanitizeKalodataErrorText(mapped.message)}`
+      );
     } else {
       console.error(
         `[SiamVisual AI Stream Error] code=${mapped.code} status=${mapped.status} msg=${sanitizeKalodataErrorText(mapped.message)}`

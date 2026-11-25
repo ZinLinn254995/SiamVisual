@@ -359,25 +359,24 @@ async function runGeminiEnrichmentAndRank(
   fallbackGroup: Exclude<CategoryKey, 'all'>,
   maxResults = 20
 ): Promise<{ products: ProductItem[]; partialFailure: boolean }> {
-  // Split into parallel chunks of up to 10 products so all 20 finish fast & reliably
+  // Process chunks sequentially to avoid concurrent burst calls that amplify 503/429 spikes
   const chunkSize = 10;
   const chunks: KalodataRawProduct[][] = [];
   for (let i = 0; i < batchForAi.length; i += chunkSize) {
     chunks.push(batchForAi.slice(i, i + chunkSize));
   }
 
-  const settled = await Promise.allSettled(chunks.map((chunk) => enrichChunkWithGemini(chunk)));
-
   const enriched: RawAiEnrichment[] = [];
   let failedChunks = 0;
   let firstError: unknown = null;
 
-  for (const result of settled) {
-    if (result.status === 'fulfilled') {
-      enriched.push(...result.value);
-    } else {
+  for (const chunk of chunks) {
+    try {
+      const result = await enrichChunkWithGemini(chunk);
+      enriched.push(...result);
+    } catch (err) {
       failedChunks += 1;
-      if (!firstError) firstError = result.reason;
+      if (!firstError) firstError = err;
     }
   }
 

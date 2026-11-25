@@ -22,10 +22,10 @@ export function getGeminiClient(): GoogleGenAI {
   return cachedClient;
 }
 
-// Prefer gemini-3.1-flash-lite (highest free-tier quota & lowest latency) with
-// gemini-4-hydrogen as automatic fallback if flash-lite hits temporary 503/429 spikes.
-export const GEMINI_MODEL = 'gemini-3.1-flash-lite';
-export const GEMINI_FALLBACK_MODEL = 'gemini-4-hydrogen';
+// Primary model per Gemini API guidance: gemini-4-hydrogen (fast, reliable free-tier default)
+// with gemini-3.1-flash-lite as automatic sibling fallback during transient 503/429 spikes.
+export const GEMINI_MODEL = 'gemini-4-hydrogen';
+export const GEMINI_FALLBACK_MODEL = 'gemini-3.1-flash-lite';
 
 // Adaptive in-memory model health tracker: when a model returns 503/429,
 // route straight to the healthier sibling first for 90s.
@@ -61,51 +61,79 @@ export function extractJsonText(raw: string): string {
   return trimmed;
 }
 
+function extractHttpStatus(err: unknown): number | null {
+  if (typeof err === 'object' && err !== null) {
+    const candidate = (err as { status?: unknown; statusCode?: unknown }).status ??
+      (err as { statusCode?: unknown }).statusCode;
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 function isNonRetryableGeminiError(err: unknown): boolean {
+  const status = extractHttpStatus(err);
+  if (status === 400 || status === 401 || status === 403 || status === 404) {
+    return true;
+  }
   const message = err instanceof Error ? err.message : String(err);
   return (
     message.includes('GEMINI_API_KEY_MISSING') ||
     message.includes('API_KEY_INVALID') ||
     message.includes('PERMISSION_DENIED') ||
     message.includes('NOT_FOUND') ||
-    message.includes('400') ||
-    message.includes('403') ||
-    message.includes('404')
+    /\b(400|401|403|404)\b/.test(message)
   );
 }
 
 function isRateLimitError(err: unknown): boolean {
+  const status = extractHttpStatus(err);
+  if (status === 429) return true;
   const message = err instanceof Error ? err.message : String(err);
-  return message.includes('429') || message.includes('RESOURCE_EXHAUSTED');
+  return /\b429\b/.test(message) || message.includes('RESOURCE_EXHAUSTED');
 }
 
 function isBusy503Error(err: unknown): boolean {
+  const status = extractHttpStatus(err);
+  if (status === 503 || status === 502 || status === 504) return true;
   const message = err instanceof Error ? err.message : String(err);
   return (
-    message.includes('503') ||
+    /\b(502|503|504)\b/.test(message) ||
     message.includes('UNAVAILABLE') ||
-    message.includes('high demand') ||
-    message.includes('overloaded')
+    message.toLowerCase().includes('high demand') ||
+    message.toLowerCase().includes('overloaded') ||
+    message.toLowerCase().includes('temporarily unavailable')
   );
 }
 
 function isTransientUpstreamError(err: unknown): boolean {
+  const status = extractHttpStatus(err);
+  if (status !== null && status >= 500) return true;
   const message = err instanceof Error ? err.message : String(err);
   return (
     isBusy503Error(err) ||
     isRateLimitError(err) ||
-    message.includes('500') ||
+    /\b500\b/.test(message) ||
     message.includes('INTERNAL') ||
+    message.includes('ECONNRESET') ||
+    message.includes('ETIMEDOUT') ||
+    message.includes('fetch failed') ||
     message.includes('_TIMEOUT') ||
     message.includes('_EMPTY_RESPONSE') ||
     message.includes('_INVALID_JSON')
   );
 }
 
+function jitteredDelayMs(baseMs: number): number {
+  if (baseMs <= 0) return 0;
+  return baseMs + Math.floor(Math.random() * 400);
+}
+
 export async function withRetry<T>(
   operation: () => Promise<T>,
-  retries = 1,
-  baseDelayMs = 800
+  retries = 2,
+  baseDelayMs = 900
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -117,7 +145,7 @@ export async function withRetry<T>(
         throw err;
       }
       if (attempt < retries) {
-        const delay = baseDelayMs * Math.pow(2, attempt);
+        const delay = jitteredDelayMs(baseDelayMs * Math.pow(2, attempt));
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
@@ -148,6 +176,7 @@ async function runSingleModelJson<T>(params: {
   config: GenerateContentConfig;
   timeoutMs: number;
   label: string;
+  onProgress?: () => void;
 }): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
@@ -157,13 +186,21 @@ async function runSingleModelJson<T>(params: {
   });
 
   const work = (async (): Promise<T> => {
-    const response = await params.ai.models.generateContent({
+    const stream = await params.ai.models.generateContentStream({
       model: params.model,
       contents: params.contents,
       config: buildConfigForModel(params.model, params.config),
     });
 
-    const combined = extractJsonText(response.text ?? '');
+    let fullText = '';
+    for await (const chunk of stream) {
+      if (chunk.text) {
+        fullText += chunk.text;
+        params.onProgress?.();
+      }
+    }
+
+    const combined = extractJsonText(fullText);
     if (!combined) {
       throw new Error(`${params.label}_EMPTY_RESPONSE`);
     }
@@ -200,10 +237,12 @@ async function runSingleModelJson<T>(params: {
 }
 
 /**
- * Sequential, rate-limit-safe Gemini structured JSON generation:
- * - Tries the healthiest model first (gemini-3.1-flash-lite with MINIMAL thinking by default).
- * - Only on transient 503/429/500, fails over sequentially to the sibling model
- *   (gemini-4-hydrogen) and then one spaced retry — never bursting parallel calls that trip RPM limits.
+ * Sequential, resilient streaming Gemini structured JSON generation:
+ * - Routes to the healthiest free-tier model first (gemini-4-hydrogen primary,
+ *   gemini-3.1-flash-lite sibling fallback).
+ * - On transient 503/429/500 spikes, alternates across both models with jittered
+ *   exponential backoff so brief high-demand spikes recover automatically without
+ *   parallel request bursts.
  */
 export async function generateStructuredJsonStream<T>(params: {
   contents: string;
@@ -214,14 +253,17 @@ export async function generateStructuredJsonStream<T>(params: {
   onProgress?: () => void;
 }): Promise<T> {
   const ai = getGeminiClient();
-  const perCallTimeoutMs = Math.min(params.timeoutMs ?? 35000, 35000);
+  const perCallTimeoutMs = Math.min(params.timeoutMs ?? 35000, 40000);
   const [firstModel, secondModel] = getOrderedModels();
 
-  // Strictly sequential 3-step schedule (max 1 call when healthy, max 3 spaced calls during 503 spikes)
+  // Strictly sequential 5-step alternating schedule with jittered exponential backoff
+  // (~15s total backoff window across both models to ride out transient 503 spikes).
   const schedule: Array<{ model: string; delayBeforeMs: number }> = [
     { model: firstModel, delayBeforeMs: 0 },
-    { model: secondModel, delayBeforeMs: 1200 },
-    { model: firstModel, delayBeforeMs: 3200 },
+    { model: secondModel, delayBeforeMs: 1000 },
+    { model: firstModel, delayBeforeMs: 2500 },
+    { model: secondModel, delayBeforeMs: 4500 },
+    { model: firstModel, delayBeforeMs: 7000 },
   ];
 
   const rateLimitedModels = new Set<string>();
@@ -232,7 +274,8 @@ export async function generateStructuredJsonStream<T>(params: {
       continue;
     }
     if (step.delayBeforeMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, step.delayBeforeMs));
+      params.onProgress?.();
+      await new Promise((resolve) => setTimeout(resolve, jitteredDelayMs(step.delayBeforeMs)));
     }
 
     try {
@@ -244,6 +287,7 @@ export async function generateStructuredJsonStream<T>(params: {
         config: params.config,
         timeoutMs: perCallTimeoutMs,
         label: params.label,
+        onProgress: params.onProgress,
       });
     } catch (err) {
       lastError = err;

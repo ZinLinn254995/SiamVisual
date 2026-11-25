@@ -172,14 +172,23 @@ function hasUnverifiedComparisonNote(metric: ValidatedMetric<number>): boolean {
   return Boolean(metric.note && /UNVERIFIED_COMPARISON_PERIOD/i.test(metric.note));
 }
 
+function hasPresentRawInput(rawInput: unknown): boolean {
+  if (rawInput === null || rawInput === undefined) return false;
+  if (typeof rawInput === 'string') return rawInput.trim().length > 0;
+  return true;
+}
+
 export function classifyMetricProvenance(
   metric: ValidatedMetric<number>
 ): MetricProvenanceCategory {
   if (metric.state === 'STALE') return 'stale';
   if (metric.state === 'INVALID') return 'invalid';
+  if (metric.state === 'MISSING') return 'missing';
+  if (metric.state === 'UNAVAILABLE' && !hasPresentRawInput(metric.rawInput)) {
+    return 'unavailable';
+  }
   if (metric.unit === 'UNVERIFIED') return 'unverified';
   if (metric.state === 'UNAVAILABLE') return 'unavailable';
-  if (metric.state === 'MISSING') return 'missing';
   if (hasUnverifiedComparisonNote(metric)) return 'unverified';
   if (metric.state === 'ZERO') return 'zero';
   if (metric.provenance === 'SYNTHETIC') return 'derived';

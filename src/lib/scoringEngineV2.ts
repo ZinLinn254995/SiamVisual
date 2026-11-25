@@ -1011,7 +1011,15 @@ export function scoreCompetitionDimension(
   const excludedMetrics: string[] = [];
   const notes: string[] = [];
 
-  const creatorUsable = isUsableScoringMetric(creatorMetric) && creatorMetric.unit === 'COUNT';
+  const UNVERIFIED_SEMANTIC_NOTE_RE =
+    /UNVERIFIED_(?:UNIT|SEMANTICS|SCOPE|CREATOR|REVIEW|RATING|COMPARISON_PERIOD|COMMISSION)/i;
+  const creatorHasUnverifiedNote = Boolean(
+    creatorMetric.note && UNVERIFIED_SEMANTIC_NOTE_RE.test(creatorMetric.note)
+  );
+  const creatorUsable =
+    isUsableScoringMetric(creatorMetric) &&
+    creatorMetric.unit === 'COUNT' &&
+    !creatorHasUnverifiedNote;
   const revUsable = isUsableScoringMetric(revMetric) && revMetric.unit === 'THB';
 
   if (!creatorUsable) {
@@ -1169,8 +1177,22 @@ export function scoreCustomerQualityDimension(
   const excludedMetrics: string[] = [];
   const notes: string[] = [];
 
-  const ratingUsable = isUsableScoringMetric(ratingMetric) && ratingMetric.unit === 'RATING_5';
-  const reviewUsable = isUsableScoringMetric(reviewMetric) && reviewMetric.unit === 'COUNT';
+  const UNVERIFIED_SEMANTIC_NOTE_RE =
+    /UNVERIFIED_(?:UNIT|SEMANTICS|SCOPE|CREATOR|REVIEW|RATING|COMPARISON_PERIOD|COMMISSION)/i;
+  const ratingHasUnverifiedNote = Boolean(
+    ratingMetric.note && UNVERIFIED_SEMANTIC_NOTE_RE.test(ratingMetric.note)
+  );
+  const reviewHasUnverifiedNote = Boolean(
+    reviewMetric.note && UNVERIFIED_SEMANTIC_NOTE_RE.test(reviewMetric.note)
+  );
+  const ratingUsable =
+    isUsableScoringMetric(ratingMetric) &&
+    ratingMetric.unit === 'RATING_5' &&
+    !ratingHasUnverifiedNote;
+  const reviewUsable =
+    isUsableScoringMetric(reviewMetric) &&
+    reviewMetric.unit === 'COUNT' &&
+    !reviewHasUnverifiedNote;
 
   if (!ratingUsable) {
     excludedMetrics.push(`rating (${ratingMetric.state}/${ratingMetric.unit})`);
@@ -1657,10 +1679,16 @@ export function evaluateProductCommercialV2(
     riskTags.push('SYNTHETIC_REVENUE');
   }
   if (
+    metrics.priceThb.state === 'STALE' ||
     metrics.revenueThb7d.state === 'STALE' ||
     metrics.salesVolume7d.state === 'STALE' ||
     metrics.commissionRate.state === 'STALE' ||
-    metrics.creatorCount.state === 'STALE'
+    metrics.videoRevenueThb7d.state === 'STALE' ||
+    metrics.liveRevenueThb7d.state === 'STALE' ||
+    metrics.revenueGrowthRate.state === 'STALE' ||
+    metrics.creatorCount.state === 'STALE' ||
+    metrics.rating.state === 'STALE' ||
+    metrics.reviewCount.state === 'STALE'
   ) {
     riskTags.push('STALE_DATA');
   }
