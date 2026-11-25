@@ -384,7 +384,7 @@ function inferVisualGroup(name: string): Exclude<CategoryKey, 'all'> {
 export function extractMetricsFromRawRow(
   row: Record<string, unknown>,
   sourceEndpoint: ProductMetricSourceEndpoint = 'unknown',
-  fetchedAt = new Date().toISOString()
+  fetchedAt: string | null = null
 ): {
   priceThb: number | null;
   commissionRate: number | null;
@@ -457,6 +457,9 @@ export function extractMetricsFromRawRow(
     rawVideoRevenue !== null && rawVideoRevenue >= 0 ? Math.round(rawVideoRevenue) : 0;
   const revenueGrowthRate = rawGrowthRate ?? 0;
 
+  const normalizedFetchedAt =
+    typeof fetchedAt === 'string' && fetchedAt.trim() ? fetchedAt.trim() : null;
+
   const kalodataMetrics: ProductKalodataMetrics = {
     salesVolume7d: rawSalesVol !== null && rawSalesVol >= 0 ? Math.round(rawSalesVol) : null,
     revenueThb7d:
@@ -483,11 +486,11 @@ export function extractMetricsFromRawRow(
     reviewCount:
       rawReviewCount !== null && rawReviewCount >= 0 ? Math.round(rawReviewCount) : null,
     dateRange: 'last7Day',
-    fetchedAt,
+    ...(normalizedFetchedAt ? { fetchedAt: normalizedFetchedAt } : {}),
   };
 
   const validatedMetrics = adaptRawKalodataRowToValidatedMetrics(row, {
-    fetchedAt,
+    fetchedAt: normalizedFetchedAt,
     dateRange: 'last7Day',
     sourceEndpoint,
   });
@@ -509,7 +512,7 @@ export function parseRawProductRow(
   row: Record<string, unknown>,
   fallbackId: string,
   sourceEndpoint: ProductMetricSourceEndpoint = 'unknown',
-  fetchedAt = new Date().toISOString()
+  fetchedAt: string | null = null
 ): KalodataRawProduct | null {
   const title = String(
     row.product_name ?? row.product_title ?? row.title ?? ''

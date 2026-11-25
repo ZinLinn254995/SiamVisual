@@ -20,6 +20,7 @@ import type {
 import {
   adaptProductItemToValidatedMetrics,
   isUsableScoringMetric,
+  validateMetricTimestamp,
 } from './metricFoundation.ts';
 import {
   evaluateProductCommercialV2,
@@ -366,7 +367,8 @@ interface HistoricalTrajectoryAnalysis {
 function analyzeHistoricalSnapshots(
   snapshots: HistoricalMetricSnapshot[] | undefined,
   minSnapshots: number,
-  minHoursSpan: number
+  minHoursSpan: number,
+  options?: { nowMs?: number; targetDateRange?: string | null }
 ): HistoricalTrajectoryAnalysis {
   if (!Array.isArray(snapshots) || snapshots.length < minSnapshots) {
     return {
@@ -381,19 +383,68 @@ function analyzeHistoricalSnapshots(
     };
   }
 
-  const validOrdered = snapshots
-    .map((snap) => ({
-      snap,
-      ms: Date.parse(snap.fetchedAt),
-    }))
-    .filter(
-      (entry) =>
-        Number.isFinite(entry.ms) &&
-        isUsableScoringMetric(entry.snap.revenueThb7d) &&
-        isUsableScoringMetric(entry.snap.creatorCount) &&
-        entry.snap.creatorCount.unit === 'COUNT'
-    )
+  const nowMs = options?.nowMs ?? Date.now();
+  const targetDateRange =
+    typeof options?.targetDateRange === 'string' && options.targetDateRange.trim()
+      ? options.targetDateRange.trim()
+      : null;
+
+  const isMetricTimestampSafe = (metric: ValidatedMetric<number> | undefined): boolean => {
+    if (!metric) return false;
+    if (!metric.fetchedAt) return true;
+    const check = validateMetricTimestamp(metric.fetchedAt, {
+      nowMs,
+      staleAfterMs: -1,
+    });
+    return check.valid && !check.future;
+  };
+
+  const validOrderedRaw = snapshots
+    .map((snap) => {
+      const tsCheck = validateMetricTimestamp(snap.fetchedAt, {
+        nowMs,
+        staleAfterMs: -1,
+      });
+      return {
+        snap,
+        ms: tsCheck.valid && !tsCheck.future && tsCheck.normalizedIso
+          ? Date.parse(tsCheck.normalizedIso)
+          : Number.NaN,
+      };
+    })
+    .filter((entry) => {
+      if (!Number.isFinite(entry.ms)) return false;
+      // Trust boundary: imported unverified backup snapshots must never qualify historical strategies
+      if (entry.snap.trustStatus === 'IMPORTED_UNVERIFIED') return false;
+      // Date range compatibility: do not compare incompatible observation windows
+      if (
+        targetDateRange &&
+        entry.snap.dateRange &&
+        entry.snap.dateRange.trim() &&
+        entry.snap.dateRange.trim() !== targetDateRange
+      ) {
+        return false;
+      }
+      if (!isUsableScoringMetric(entry.snap.revenueThb7d)) return false;
+      if (!isUsableScoringMetric(entry.snap.creatorCount)) return false;
+      if (entry.snap.creatorCount.unit !== 'COUNT') return false;
+      if (!isMetricTimestampSafe(entry.snap.revenueThb7d)) return false;
+      if (!isMetricTimestampSafe(entry.snap.creatorCount)) return false;
+      return true;
+    })
     .sort((a, b) => a.ms - b.ms);
+
+  // Deduplicate identical or near-duplicate snapshots (< 6h apart) so duplicate captures
+  // cannot inflate snapshot counts or fabricate longitudinal acceleration.
+  const MIN_DISTINCT_SNAPSHOT_GAP_MS = 6 * 3_600_000;
+  const validOrdered: typeof validOrderedRaw = [];
+  for (const entry of validOrderedRaw) {
+    const prev = validOrdered[validOrdered.length - 1];
+    if (prev && entry.ms - prev.ms < MIN_DISTINCT_SNAPSHOT_GAP_MS) {
+      continue;
+    }
+    validOrdered.push(entry);
+  }
 
   if (validOrdered.length < minSnapshots) {
     return {
@@ -404,7 +455,7 @@ function analyzeHistoricalSnapshots(
       creatorGrowthPct: null,
       accelerationPct: null,
       spreadPct: null,
-      reason: `Only ${validOrdered.length} verified snapshots with valid timestamps, revenue, and creatorCount; ${minSnapshots} required.`,
+      reason: `Only ${validOrdered.length} trusted verified snapshots with valid non-future timestamps, revenue, and creatorCount; ${minSnapshots} required.`,
     };
   }
 
@@ -1046,14 +1097,16 @@ function evaluateStrategy4FastRising(
   metrics: ProductValidatedMetrics,
   commercial: CommercialScoreV2Result,
   thresholds: StrategyThresholdsConfig,
-  snapshots?: HistoricalMetricSnapshot[]
+  snapshots?: HistoricalMetricSnapshot[],
+  nowMs?: number
 ): StrategyEvaluationResult {
   const profile = STRATEGY_PROFILES_V2.fast_rising_products;
   const cfg = thresholds.fastRising;
   const trajectory = analyzeHistoricalSnapshots(
     snapshots,
     cfg.minSnapshots,
-    cfg.minHoursBetweenSnapshots
+    cfg.minHoursBetweenSnapshots,
+    { nowMs, targetDateRange: metrics.dateRange }
   );
 
   if (!trajectory.available) {
@@ -1543,14 +1596,16 @@ function evaluateStrategy8TrendTiming(
   metrics: ProductValidatedMetrics,
   commercial: CommercialScoreV2Result,
   thresholds: StrategyThresholdsConfig,
-  snapshots?: HistoricalMetricSnapshot[]
+  snapshots?: HistoricalMetricSnapshot[],
+  nowMs?: number
 ): StrategyEvaluationResult {
   const profile = STRATEGY_PROFILES_V2.trend_timing_opportunity;
   const cfg = thresholds.trendTiming;
   const trajectory = analyzeHistoricalSnapshots(
     snapshots,
     cfg.minSnapshots,
-    cfg.minHoursSpan
+    cfg.minHoursSpan,
+    { nowMs, targetDateRange: metrics.dateRange }
   );
 
   if (!trajectory.available) {
@@ -1852,7 +1907,8 @@ export function evaluateProductStrategiesV2(
       metrics,
       commercial,
       thresholds,
-      options?.historicalSnapshots
+      options?.historicalSnapshots,
+      scoringConfig.nowMs
     ),
     profit_maximizer: evaluateStrategy5ProfitMaximizer(metrics, commercial, thresholds),
     video_proven_winners: evaluateStrategy6VideoProven(metrics, commercial, thresholds),
@@ -1861,7 +1917,8 @@ export function evaluateProductStrategiesV2(
       metrics,
       commercial,
       thresholds,
-      options?.historicalSnapshots
+      options?.historicalSnapshots,
+      scoringConfig.nowMs
     ),
   };
 

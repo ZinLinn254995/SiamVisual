@@ -159,6 +159,7 @@ export interface ValidateNumericMetricOptions {
   provenance?: MetricProvenance;
   fetchedAt?: string | null;
   dateRange?: string | null;
+  sourceEndpoint?: ProductMetricSourceEndpoint;
   allowZero?: boolean;
   allowNegative?: boolean;
   integerOnly?: boolean;
@@ -182,11 +183,18 @@ export function validateNumericMetric(
 ): ValidatedMetric<number> {
   const provenance: MetricProvenance = options.provenance ?? 'SOURCE';
   const dateRange = options.dateRange ?? null;
+  const sourceEndpointMeta = options.sourceEndpoint
+    ? { sourceEndpoint: options.sourceEndpoint }
+    : {};
   const tsCheck = validateMetricTimestamp(options.fetchedAt, {
     staleAfterMs: options.staleAfterMs,
     nowMs: options.nowMs,
   });
-  const normalizedFetchedAt = tsCheck.normalizedIso ?? options.fetchedAt ?? null;
+  const normalizedFetchedAt =
+    tsCheck.normalizedIso ??
+    (typeof options.fetchedAt === 'string' && options.fetchedAt.trim()
+      ? options.fetchedAt.trim()
+      : null);
 
   const parsed = parseStrictNumericInput(options.rawInput);
 
@@ -201,6 +209,7 @@ export function validateNumericMetric(
         fetchedAt: normalizedFetchedAt,
         dateRange,
         note: options.unavailableReason ?? options.note ?? 'Metric unavailable from upstream source.',
+        ...sourceEndpointMeta,
       };
     }
     return {
@@ -212,6 +221,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: options.note ?? 'Missing from payload.',
+      ...sourceEndpointMeta,
     };
   }
 
@@ -227,6 +237,7 @@ export function validateNumericMetric(
       note:
         options.note ??
         `Ambiguous range (${parsed.min}..${parsed.max}) cannot be normalized into a single scalar value.`,
+      ...sourceEndpointMeta,
     };
   }
 
@@ -240,6 +251,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: options.note ?? parsed.reason,
+      ...sourceEndpointMeta,
     };
   }
 
@@ -255,6 +267,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: options.note ?? `Negative value (${rawNum}) is invalid for this metric.`,
+      ...sourceEndpointMeta,
     };
   }
 
@@ -268,6 +281,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: options.note ?? 'Zero is not valid for this metric.',
+      ...sourceEndpointMeta,
     };
   }
 
@@ -281,6 +295,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: options.note ?? `Value (${rawNum}) is below minimum (${options.minValue}).`,
+      ...sourceEndpointMeta,
     };
   }
 
@@ -294,6 +309,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: options.note ?? `Value (${rawNum}) exceeds maximum (${options.maxValue}).`,
+      ...sourceEndpointMeta,
     };
   }
 
@@ -307,6 +323,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: options.unavailableReason,
+      ...sourceEndpointMeta,
     };
   }
 
@@ -327,6 +344,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: tsCheck.reason ?? 'Future metric timestamp is invalid.',
+      ...sourceEndpointMeta,
     };
   }
 
@@ -340,6 +358,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: tsCheck.reason ?? 'Invalid metric timestamp; treated as stale.',
+      ...sourceEndpointMeta,
     };
   }
 
@@ -353,6 +372,7 @@ export function validateNumericMetric(
       fetchedAt: normalizedFetchedAt,
       dateRange,
       note: tsCheck.reason ?? options.note ?? 'Metric data is stale.',
+      ...sourceEndpointMeta,
     };
   }
 
@@ -365,12 +385,14 @@ export function validateNumericMetric(
     fetchedAt: normalizedFetchedAt,
     dateRange,
     note: options.note ?? null,
+    ...sourceEndpointMeta,
   };
 }
 
 export interface MetricContext {
   fetchedAt?: string | null;
   dateRange?: string | null;
+  sourceEndpoint?: ProductMetricSourceEndpoint;
   staleAfterMs?: number;
   nowMs?: number;
 }
@@ -388,6 +410,7 @@ export function validatePriceThbMetric(
     provenance: 'SOURCE',
     fetchedAt: context?.fetchedAt,
     dateRange: context?.dateRange ?? null,
+    sourceEndpoint: context?.sourceEndpoint,
     allowZero: false,
     allowNegative: false,
     decimalPlaces: 2,
@@ -417,6 +440,7 @@ export function validateUnverifiedNumericMetric(
     provenance: 'SOURCE',
     fetchedAt: options.context?.fetchedAt,
     dateRange: options.context?.dateRange ?? null,
+    sourceEndpoint: options.context?.sourceEndpoint,
     allowZero: true,
     allowNegative: options.allowNegative ?? false,
     minValue: options.minValue,
@@ -450,6 +474,7 @@ export function validateCommissionRateMetric(
         provenance: 'SOURCE',
         fetchedAt: context?.fetchedAt,
         dateRange: context?.dateRange ?? null,
+        sourceEndpoint: context?.sourceEndpoint,
         allowZero: true,
         allowNegative: false,
         staleAfterMs: context?.staleAfterMs,
@@ -465,6 +490,7 @@ export function validateCommissionRateMetric(
         provenance: 'SOURCE',
         fetchedAt: context?.fetchedAt,
         dateRange: context?.dateRange ?? null,
+        sourceEndpoint: context?.sourceEndpoint,
         allowZero: true,
         allowNegative: false,
         minValue: 0,
@@ -494,6 +520,7 @@ export function validateCommissionRateMetric(
     provenance: 'SOURCE',
     fetchedAt: context?.fetchedAt,
     dateRange: context?.dateRange ?? null,
+    sourceEndpoint: context?.sourceEndpoint,
     allowZero: true,
     allowNegative: false,
     minValue: 0,
@@ -504,6 +531,20 @@ export function validateCommissionRateMetric(
   });
 }
 
+function resolveConservativeCombinedFetchedAt(
+  a: string | null | undefined,
+  b: string | null | undefined
+): string | null {
+  const aMs = a ? Date.parse(a) : Number.NaN;
+  const bMs = b ? Date.parse(b) : Number.NaN;
+  if (Number.isFinite(aMs) && Number.isFinite(bMs)) {
+    return aMs <= bMs ? new Date(aMs).toISOString() : new Date(bMs).toISOString();
+  }
+  if (Number.isFinite(aMs)) return new Date(aMs).toISOString();
+  if (Number.isFinite(bMs)) return new Date(bMs).toISOString();
+  return null;
+}
+
 /**
  * Computes synthetic gross commission payout in THB ONLY from verified-unit metrics.
  * Never enforces a synthetic minimum floor (e.g. 0.58 stays 0.58; 0 stays 0).
@@ -512,7 +553,10 @@ export function computeSyntheticCommissionThb(
   priceMetric: ValidatedMetric<number>,
   commissionPercentMetric: ValidatedMetric<number>
 ): ValidatedMetric<number> {
-  const fetchedAt = priceMetric.fetchedAt ?? commissionPercentMetric.fetchedAt ?? null;
+  const fetchedAt = resolveConservativeCombinedFetchedAt(
+    priceMetric.fetchedAt,
+    commissionPercentMetric.fetchedAt
+  );
   const dateRange = priceMetric.dateRange ?? commissionPercentMetric.dateRange ?? null;
 
   if (commissionPercentMetric.state === 'ZERO') {
@@ -750,16 +794,22 @@ function collectUnresolvedFields(metrics: Omit<ProductValidatedMetrics, 'unresol
 export function adaptRawKalodataRowToValidatedMetrics(
   row: Record<string, unknown>,
   options: {
-    fetchedAt: string;
+    fetchedAt?: string | null;
     dateRange: string;
     sourceEndpoint: ProductMetricSourceEndpoint;
     staleAfterMs?: number;
     nowMs?: number;
   }
 ): ProductValidatedMetrics {
+  const normalizedFetchedAt =
+    typeof options.fetchedAt === 'string' && options.fetchedAt.trim()
+      ? options.fetchedAt.trim()
+      : null;
+
   const ctx: MetricContext = {
-    fetchedAt: options.fetchedAt,
+    fetchedAt: normalizedFetchedAt,
     dateRange: options.dateRange,
+    sourceEndpoint: options.sourceEndpoint,
     staleAfterMs: options.staleAfterMs,
     nowMs: options.nowMs,
   };
@@ -777,6 +827,7 @@ export function adaptRawKalodataRowToValidatedMetrics(
     provenance: 'SOURCE',
     fetchedAt: ctx.fetchedAt,
     dateRange: ctx.dateRange,
+    sourceEndpoint: ctx.sourceEndpoint,
     allowZero: true,
     allowNegative: false,
     integerOnly: true,
@@ -793,6 +844,7 @@ export function adaptRawKalodataRowToValidatedMetrics(
     provenance: 'SOURCE',
     fetchedAt: ctx.fetchedAt,
     dateRange: ctx.dateRange,
+    sourceEndpoint: ctx.sourceEndpoint,
     allowZero: true,
     allowNegative: false,
     decimalPlaces: 2,
@@ -810,6 +862,7 @@ export function adaptRawKalodataRowToValidatedMetrics(
     provenance: 'SOURCE',
     fetchedAt: ctx.fetchedAt,
     dateRange: ctx.dateRange,
+    sourceEndpoint: ctx.sourceEndpoint,
     allowZero: true,
     allowNegative: false,
     decimalPlaces: 2,
@@ -827,6 +880,7 @@ export function adaptRawKalodataRowToValidatedMetrics(
     provenance: 'SOURCE',
     fetchedAt: ctx.fetchedAt,
     dateRange: ctx.dateRange,
+    sourceEndpoint: ctx.sourceEndpoint,
     allowZero: true,
     allowNegative: false,
     decimalPlaces: 2,
@@ -845,6 +899,7 @@ export function adaptRawKalodataRowToValidatedMetrics(
     provenance: 'SOURCE',
     fetchedAt: ctx.fetchedAt,
     dateRange: ctx.dateRange,
+    sourceEndpoint: ctx.sourceEndpoint,
     allowZero: true,
     allowNegative: false,
     decimalPlaces: 2,
@@ -861,6 +916,7 @@ export function adaptRawKalodataRowToValidatedMetrics(
     provenance: 'SOURCE',
     fetchedAt: ctx.fetchedAt,
     dateRange: ctx.dateRange,
+    sourceEndpoint: ctx.sourceEndpoint,
     allowZero: true,
     allowNegative: true,
     decimalPlaces: 2,
@@ -927,7 +983,7 @@ export function adaptRawKalodataRowToValidatedMetrics(
     creatorCount,
     rating,
     reviewCount,
-    fetchedAt: options.fetchedAt,
+    fetchedAt: normalizedFetchedAt,
     dateRange: options.dateRange,
     sourceEndpoint: options.sourceEndpoint,
   };
@@ -952,71 +1008,88 @@ export function adaptProductItemToValidatedMetrics(
   }
 
   const m = product.kalodataMetrics;
+  // Do NOT borrow deepInsights.fetchedAt (which may belong to /analysis or /comments) as a numeric metric timestamp.
   const inferredFetchedAt =
-    m?.fetchedAt ?? product.deepInsights?.fetchedAt ?? null;
+    typeof m?.fetchedAt === 'string' && m.fetchedAt.trim() ? m.fetchedAt.trim() : null;
   const dateRange = m?.dateRange ?? 'last7Day';
 
-  const ctx: MetricContext = {
-    fetchedAt: inferredFetchedAt,
-    dateRange,
-    staleAfterMs: options?.staleAfterMs,
-    nowMs: options?.nowMs,
+  const resolveLegacyFieldFetchedAt = (fieldKey: string): string | null => {
+    const perMetric = m?.metricTimestamps?.[fieldKey];
+    if (perMetric !== undefined) {
+      return typeof perMetric === 'string' && perMetric.trim() ? perMetric.trim() : null;
+    }
+    return inferredFetchedAt;
   };
 
-  const priceThb = validatePriceThbMetric(product.priceThb, ctx);
-  const commissionRate = validateCommissionRateMetric(product.commissionRate, ctx);
+  const makeFieldCtx = (fieldKey: string): MetricContext => ({
+    fetchedAt: resolveLegacyFieldFetchedAt(fieldKey),
+    dateRange,
+    sourceEndpoint: 'legacy_product',
+    staleAfterMs: options?.staleAfterMs,
+    nowMs: options?.nowMs,
+  });
+
+  const priceThb = validatePriceThbMetric(product.priceThb, makeFieldCtx('priceThb'));
+  const commissionRate = validateCommissionRateMetric(
+    product.commissionRate,
+    makeFieldCtx('commissionRate')
+  );
   const commissionThb = computeSyntheticCommissionThb(priceThb, commissionRate);
 
   const salesVolume7d = validateNumericMetric({
     rawInput: m?.salesVolume7d ?? null,
     unit: 'COUNT',
     provenance: 'SOURCE',
-    fetchedAt: ctx.fetchedAt,
-    dateRange: ctx.dateRange,
+    fetchedAt: resolveLegacyFieldFetchedAt('salesVolume7d'),
+    dateRange,
+    sourceEndpoint: 'legacy_product',
     allowZero: true,
     allowNegative: false,
     integerOnly: true,
-    staleAfterMs: ctx.staleAfterMs,
-    nowMs: ctx.nowMs,
+    staleAfterMs: options?.staleAfterMs,
+    nowMs: options?.nowMs,
   });
 
   const revenueThb7d = validateNumericMetric({
     rawInput: m?.revenueThb7d ?? null,
     unit: 'THB',
     provenance: 'SOURCE',
-    fetchedAt: ctx.fetchedAt,
-    dateRange: ctx.dateRange,
+    fetchedAt: resolveLegacyFieldFetchedAt('revenueThb7d'),
+    dateRange,
+    sourceEndpoint: 'legacy_product',
     allowZero: true,
     allowNegative: false,
     decimalPlaces: 2,
-    staleAfterMs: ctx.staleAfterMs,
-    nowMs: ctx.nowMs,
+    staleAfterMs: options?.staleAfterMs,
+    nowMs: options?.nowMs,
   });
 
   const videoRevenueThb7d = validateNumericMetric({
     rawInput: m?.videoRevenueThb7d ?? null,
     unit: 'THB',
     provenance: 'SOURCE',
-    fetchedAt: ctx.fetchedAt,
-    dateRange: ctx.dateRange,
+    fetchedAt: resolveLegacyFieldFetchedAt('videoRevenueThb7d'),
+    dateRange,
+    sourceEndpoint: 'legacy_product',
     allowZero: true,
     allowNegative: false,
     decimalPlaces: 2,
-    staleAfterMs: ctx.staleAfterMs,
-    nowMs: ctx.nowMs,
+    staleAfterMs: options?.staleAfterMs,
+    nowMs: options?.nowMs,
   });
 
   const liveRevenueThb7d = validateNumericMetric({
     rawInput: m?.liveRevenueThb7d ?? null,
     unit: 'THB',
     provenance: 'SOURCE',
-    fetchedAt: ctx.fetchedAt,
-    dateRange: ctx.dateRange,
+    fetchedAt: resolveLegacyFieldFetchedAt('liveRevenueThb7d'),
+    dateRange,
+    sourceEndpoint: 'legacy_product',
     allowZero: true,
     allowNegative: false,
     decimalPlaces: 2,
-    staleAfterMs: ctx.staleAfterMs,
-    nowMs: ctx.nowMs,
+    staleAfterMs: options?.staleAfterMs,
+    nowMs: options?.nowMs,
   });
 
   const shoppingMallRevenueThb7d =
@@ -1025,13 +1098,14 @@ export function adaptProductItemToValidatedMetrics(
           rawInput: m.shoppingMallRevenueThb7d,
           unit: 'THB',
           provenance: 'SOURCE',
-          fetchedAt: ctx.fetchedAt,
-          dateRange: ctx.dateRange,
+          fetchedAt: resolveLegacyFieldFetchedAt('shoppingMallRevenueThb7d'),
+          dateRange,
+          sourceEndpoint: 'legacy_product',
           allowZero: true,
           allowNegative: false,
           decimalPlaces: 2,
-          staleAfterMs: ctx.staleAfterMs,
-          nowMs: ctx.nowMs,
+          staleAfterMs: options?.staleAfterMs,
+          nowMs: options?.nowMs,
         })
       : undefined;
 
@@ -1039,13 +1113,14 @@ export function adaptProductItemToValidatedMetrics(
     rawInput: m?.revenueGrowthRate ?? null,
     unit: 'PERCENT',
     provenance: 'SOURCE',
-    fetchedAt: ctx.fetchedAt,
-    dateRange: ctx.dateRange,
+    fetchedAt: resolveLegacyFieldFetchedAt('revenueGrowthRate'),
+    dateRange,
+    sourceEndpoint: 'legacy_product',
     allowZero: true,
     allowNegative: true,
     decimalPlaces: 2,
-    staleAfterMs: ctx.staleAfterMs,
-    nowMs: ctx.nowMs,
+    staleAfterMs: options?.staleAfterMs,
+    nowMs: options?.nowMs,
     note:
       m?.revenueGrowthRate === undefined || m?.revenueGrowthRate === null
         ? 'Legacy product missing revenueGrowthRate.'
@@ -1056,7 +1131,7 @@ export function adaptProductItemToValidatedMetrics(
     allowNegative: false,
     unverifiedNote:
       'UNVERIFIED_CREATOR_DEFINITION: creator_number time-window and activity scope remain UNVERIFIED.',
-    context: ctx,
+    context: makeFieldCtx('creatorCount'),
   });
 
   const rating = validateUnverifiedNumericMetric(m?.rating ?? null, {
@@ -1068,14 +1143,14 @@ export function adaptProductItemToValidatedMetrics(
       m?.rating === undefined || m?.rating === null
         ? 'RATING_UNAVAILABLE_ON_ENDPOINT: tested Kalodata endpoints do not return product rating.'
         : 'UNVERIFIED_RATING_SEMANTICS: rating coverage and unrated sentinel remain UNVERIFIED.',
-    context: ctx,
+    context: makeFieldCtx('rating'),
   });
 
   const reviewCount = validateUnverifiedNumericMetric(m?.reviewCount ?? null, {
     allowNegative: false,
     unverifiedNote:
       'UNVERIFIED_REVIEW_COUNT: product_review_count time-window semantics remain UNVERIFIED.',
-    context: ctx,
+    context: makeFieldCtx('reviewCount'),
   });
 
   const base: Omit<ProductValidatedMetrics, 'unresolvedFields'> = {

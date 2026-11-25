@@ -26,6 +26,8 @@ export interface ValidatedMetric<T = number> {
   fetchedAt: string | null;
   dateRange: string | null;
   note: string | null;
+  /** Source endpoint that originally produced this individual metric observation. */
+  sourceEndpoint?: ProductMetricSourceEndpoint;
 }
 
 export type ProductMetricSourceEndpoint =
@@ -33,6 +35,38 @@ export type ProductMetricSourceEndpoint =
   | 'detail'
   | 'legacy_product'
   | 'unknown';
+
+export type SnapshotTrustStatus = 'LOCAL_OBSERVED' | 'IMPORTED_UNVERIFIED';
+
+export type ObservationMetricKey =
+  | 'revenueThb'
+  | 'salesVolume'
+  | 'videoRevenueThb'
+  | 'liveRevenueThb'
+  | 'shoppingMallRevenueThb'
+  | 'commissionRate'
+  | 'revenueGrowthRate'
+  | 'creatorCountVerified'
+  | 'creatorCountUnverifiedRaw';
+
+export interface ProductObservationMetricMeta {
+  /** Actual source observation timestamp for this specific metric, or null when unknown. Never fabricated. */
+  fetchedAt: string | null;
+  /** Distinguishes exact per-metric timestamp vs legacy snapshot-level fallback vs unknown. */
+  timestampPrecision: 'EXACT_METRIC' | 'SNAPSHOT_FALLBACK' | 'UNKNOWN';
+  sourceEndpoint: ProductMetricSourceEndpoint;
+  dateRange: string | null;
+}
+
+export interface SnapshotImportedAuditMetadata {
+  importedAt: string;
+  claimedTrustStatus?: string | null;
+  claimedSourceEndpoint?: ProductMetricSourceEndpoint | null;
+  claimedCreatorCountVerified?: number | boolean | null;
+  claimedRevenueGrowthVerified?: boolean | null;
+  originalProvenance?: string | null;
+  originalVerificationStatus?: string | null;
+}
 
 export interface ProductValidatedMetrics {
   priceThb: ValidatedMetric<number>;
@@ -62,9 +96,9 @@ export interface ProductSourceObservationValues {
   commissionRate: number | null;
   revenueGrowthRate: number | null;
   revenueGrowthVerified: boolean;
-  /** Strictly populated ONLY when creatorCount has verified COUNT semantics. Never populated for UNVERIFIED creator_number. */
+  /** Strictly populated ONLY when creatorCount has verified COUNT semantics. Never populated for UNVERIFIED creator_number or imported snapshots. */
   creatorCountVerified: number | null;
-  /** Diagnostic raw creator_number recorded ONLY when upstream semantics remain UNVERIFIED. Never fed into verified scoring or strategy gates. */
+  /** Diagnostic raw creator_number recorded ONLY when upstream semantics remain UNVERIFIED or downgraded from imported JSON. Never fed into verified scoring or strategy gates. */
   creatorCountUnverifiedRaw?: number | null;
 }
 
@@ -76,13 +110,20 @@ export interface ProductObservationSnapshot {
   observationDay: string;
   dateRange: string;
   sourceEndpoint: ProductMetricSourceEndpoint;
+  /** Trust boundary classification: locally observed vs imported untrusted backup reference. */
+  trustStatus: SnapshotTrustStatus;
   dataConfidenceScore: number | null;
   dataConfidenceLevel: 'HIGH' | 'MEDIUM' | 'LOW' | 'VERY_LOW' | null;
   observations: ProductSourceObservationValues;
+  /** Per-metric observation timestamps and provenance preserved independently across /rank and /detail merges. */
+  metricMeta?: Partial<Record<ObservationMetricKey, ProductObservationMetricMeta>>;
+  /** Preserved audit metadata for imported backup snapshots so original claims remain inspectable without granting verified trust. */
+  importedAudit?: SnapshotImportedAuditMetadata;
 }
 
 export interface SnapshotTrendDerivation {
   provenance: 'DERIVED';
+  trustScope: 'LOCAL_OBSERVED_ONLY' | 'INCLUDES_IMPORTED_UNVERIFIED';
   productId: string;
   dateRange: string;
   observationCount: number;

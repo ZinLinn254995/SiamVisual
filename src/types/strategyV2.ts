@@ -1,4 +1,4 @@
-import type { ValidatedMetric } from './metrics';
+import type { SnapshotTrustStatus, ValidatedMetric } from './metrics';
 import type {
   CommercialEligibilityStatus,
   CommercialScoreV2Result,
@@ -33,6 +33,7 @@ export type OpportunityClassification =
 export interface HistoricalMetricSnapshot {
   fetchedAt: string;
   dateRange?: string | null;
+  trustStatus?: SnapshotTrustStatus;
   revenueThb7d?: ValidatedMetric<number>;
   salesVolume7d?: ValidatedMetric<number>;
   creatorCount?: ValidatedMetric<number>;

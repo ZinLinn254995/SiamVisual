@@ -20,11 +20,19 @@ import {
   getToneClasses,
   summarizeProductProvenance,
 } from '../lib/productIntelligenceView.ts';
-import type { Language, ProductItem, ScoreGrade, StrategyEligibilityStatus } from '../types';
+import { buildProductEvidenceSummary } from '../lib/productEvidenceSummary.ts';
+import type {
+  Language,
+  ProductItem,
+  ProductObservationSnapshot,
+  ScoreGrade,
+  StrategyEligibilityStatus,
+} from '../types';
 import { getEffectiveScoreBreakdown, ScoreRing } from './ScoreRing';
 
 interface ScoreDetailDialogProps {
   product: ProductItem | null;
+  snapshots?: ProductObservationSnapshot[];
   language: Language;
   nowMs?: number;
   t: Translations;
@@ -68,12 +76,14 @@ function getStrategyStatusTone(status: StrategyEligibilityStatus): string {
 
 export function ScoreDetailContent({
   product: rawProduct,
+  snapshots,
   language,
   nowMs,
   t,
   onClose,
 }: {
   product: ProductItem;
+  snapshots?: ProductObservationSnapshot[];
   language: Language;
   nowMs?: number;
   t: Translations;
@@ -88,6 +98,13 @@ export function ScoreDetailContent({
   const validated = product.validatedMetrics!;
   const provenanceItems = getProductMetricProvenanceList(validated);
   const provenanceSummary = summarizeProductProvenance(validated);
+  const evidenceSummary = buildProductEvidenceSummary({
+    product,
+    validated,
+    commercialScore: commercial,
+    snapshots,
+    nowMs,
+  });
 
   const classification = strategyReport.opportunityClassification;
   const classTone = getToneClasses(getClassificationTone(classification));
@@ -319,6 +336,125 @@ export function ScoreDetailContent({
       </div>
 
       <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/90">
+        {/* Section 0: Structured Product-Level Evidence Breakdown (Facts / Derived / Unavailable / Heuristics) */}
+        <div className="p-4 sm:p-6 space-y-3 text-xs">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {t.v2.dialog.evidenceSummary.sectionTitle}
+            </h3>
+            <span
+              className={`font-semibold ${
+                evidenceSummary.qualificationStatus === 'QUALIFIED'
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : evidenceSummary.qualificationStatus === 'PRELIMINARY'
+                    ? 'text-teal-700 dark:text-teal-400'
+                    : evidenceSummary.qualificationStatus === 'NOT_MONETIZABLE'
+                      ? 'text-rose-700 dark:text-rose-400'
+                      : 'text-slate-600 dark:text-slate-400'
+              }`}
+            >
+              {t.v2.dialog.evidenceSummary.statusLabels[evidenceSummary.qualificationStatus]}
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-slate-800 dark:text-slate-100 font-medium leading-relaxed">
+              {evidenceSummary.whyDiscovered[language]}
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              {evidenceSummary.qualificationReason[language]}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            {/* Verified Facts (Source) */}
+            <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/25 space-y-2">
+              <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                {t.v2.dialog.evidenceSummary.factsTitle}
+              </div>
+              <dl className="space-y-1.5">
+                {evidenceSummary.verifiedFacts.map((item) => (
+                  <div key={item.id} className="space-y-0.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <dt className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {item.label[language]}
+                      </dt>
+                      <dd className="font-mono-num tabular-nums font-semibold text-slate-900 dark:text-slate-100 shrink-0">
+                        {item.value}
+                      </dd>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                      {item.detail[language]}
+                    </p>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            {/* Derived Calculations */}
+            <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/25 space-y-2">
+              <div className="text-[11px] font-semibold text-sky-700 dark:text-sky-400">
+                {t.v2.dialog.evidenceSummary.derivedTitle}
+              </div>
+              {evidenceSummary.derivedCalculations.length > 0 ? (
+                <dl className="space-y-1.5">
+                  {evidenceSummary.derivedCalculations.map((item) => (
+                    <div key={item.id} className="space-y-0.5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <dt className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {item.label[language]}
+                        </dt>
+                        <dd className="font-mono-num tabular-nums font-semibold text-slate-900 dark:text-slate-100 shrink-0">
+                          {item.value}
+                        </dd>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                        {item.detail[language]}
+                      </p>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">—</p>
+              )}
+            </div>
+          </div>
+
+          {/* Missing / Unverified Evidence */}
+          {evidenceSummary.unavailableEvidence.length > 0 && (
+            <div className="p-3 rounded-xl border border-amber-200/70 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 space-y-1.5">
+              <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                {t.v2.dialog.evidenceSummary.unavailableTitle}
+              </div>
+              <ul className="space-y-1 text-[11px] text-slate-700 dark:text-slate-300">
+                {evidenceSummary.unavailableEvidence.map((item) => (
+                  <li key={item.id} className="leading-snug">
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                      {item.label[language]} ({item.value}):
+                    </span>{' '}
+                    {item.detail[language]}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Creative Heuristics (Strictly Separated) */}
+          {evidenceSummary.heuristicSignals.length > 0 && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                {t.v2.dialog.evidenceSummary.heuristicsTitle}:
+              </span>{' '}
+              {evidenceSummary.heuristicSignals[0].detail[language]}
+            </div>
+          )}
+
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span>{evidenceSummary.nonGuaranteeNotice[language]}</span>
+          </p>
+        </div>
+
         {/* Section 1: Gate Decisions, Transparency Distinctions & Overall Summary */}
         <div className="p-4 sm:p-6 space-y-3 text-xs">
           <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -688,6 +824,7 @@ export function ScoreDetailContent({
 
 export function ScoreDetailDialog({
   product,
+  snapshots,
   language,
   nowMs,
   t,
@@ -734,6 +871,7 @@ export function ScoreDetailDialog({
           >
             <ScoreDetailContent
               product={product}
+              snapshots={snapshots}
               language={language}
               nowMs={nowMs}
               t={t}

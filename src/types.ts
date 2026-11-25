@@ -60,6 +60,8 @@ export interface ProductKalodataMetrics {
   reviewCount?: number | null;
   dateRange?: string;
   fetchedAt?: string;
+  /** Per-metric observation timestamps preserved when combining /rank and /detail responses (null = unknown). */
+  metricTimestamps?: Partial<Record<string, string | null>>;
 }
 
 export type ProductAnalysisDecision = 'strong_go' | 'test_carefully' | 'need_more_data';

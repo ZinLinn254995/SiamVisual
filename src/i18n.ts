@@ -512,6 +512,20 @@ export interface Translations {
       pillarVideo: string;
       pillarConfidence: string;
       nonGuaranteeDisclaimer: string;
+      evidenceSummary: {
+        sectionTitle: string;
+        whyDiscoveredLabel: string;
+        factsTitle: string;
+        derivedTitle: string;
+        unavailableTitle: string;
+        heuristicsTitle: string;
+        statusLabels: {
+          QUALIFIED: string;
+          PRELIMINARY: string;
+          NOT_MONETIZABLE: string;
+          INSUFFICIENT_DATA: string;
+        };
+      };
     };
     riskLabels: Record<string, string>;
     formatRiskTag: (tag: string) => string;
@@ -1203,6 +1217,20 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         pillarConfidence: 'Data Confidence — Verified ဖြစ်မှု၊ ပြည့်စုံမှုနှင့် Data လတ်ဆတ်မှု အဆင့်',
         nonGuaranteeDisclaimer:
           'Commercial Score မြင့်ခြင်း သို့မဟုတ် ယခင် Video ရောင်းအားရှိခြင်းသည် သင့် Affiliate Video အတွက် ရောင်းအားအာမခံချက် မဟုတ်ပါ။',
+        evidenceSummary: {
+          sectionTitle: 'ပစ္စည်းအလိုက် သက်သေခွဲခြမ်းစိတ်ဖြာမှု',
+          whyDiscoveredLabel: 'အဘယ်ကြောင့် ဖော်ပြထားသလဲ',
+          factsTitle: 'အတည်ပြုပြီး မူရင်းအချက်အလက်များ (Facts)',
+          derivedTitle: 'တွက်ချက်ထားသော တန်ဖိုးများ (Derived)',
+          unavailableTitle: 'မရရှိသေး / အတည်မပြုရသေးသော အချက်များ',
+          heuristicsTitle: 'ဗီဒီယိုဖန်တီးမှု ခန့်မှန်းချက် (Heuristic — ရောင်းအားသက်သေမဟုတ်)',
+          statusLabels: {
+            QUALIFIED: 'အပြည့်အစုံ အတည်ပြုပြီး',
+            PRELIMINARY: 'ကနဦးအဆင့် (Preliminary)',
+            NOT_MONETIZABLE: 'ကော်မရှင် 0% (ဝင်ငွေမရ)',
+            INSUFFICIENT_DATA: 'သက်သေမလုံလောက်သေး',
+          },
+        },
       },
       riskLabels: {
         EXTREME_COMPETITION: 'Extreme Competition',
@@ -1923,6 +1951,20 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         pillarConfidence: 'Data Confidence — metric completeness, source verification, and freshness',
         nonGuaranteeDisclaimer:
           'A high Commercial Score or strong past video revenue does not guarantee affiliate sales or conversion for your own videos.',
+        evidenceSummary: {
+          sectionTitle: 'Product Evidence Breakdown',
+          whyDiscoveredLabel: 'Why Discovered & Status',
+          factsTitle: 'Verified Facts (Source)',
+          derivedTitle: 'Derived Calculations',
+          unavailableTitle: 'Missing / Unverified Evidence',
+          heuristicsTitle: 'Creative Heuristics (Not Conversion Proof)',
+          statusLabels: {
+            QUALIFIED: 'Fully Qualified',
+            PRELIMINARY: 'Preliminary Candidate',
+            NOT_MONETIZABLE: 'Not Monetizable (0% Comm)',
+            INSUFFICIENT_DATA: 'Insufficient Evidence',
+          },
+        },
       },
       riskLabels: {
         EXTREME_COMPETITION: 'Extreme Competition',

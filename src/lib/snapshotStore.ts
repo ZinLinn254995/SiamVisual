@@ -1,22 +1,46 @@
 import type {
   HistoricalMetricSnapshot,
+  ObservationMetricKey,
   ProductItem,
   ProductMetricSourceEndpoint,
+  ProductObservationMetricMeta,
   ProductObservationSnapshot,
   ProductSourceObservationValues,
   ProductValidatedMetrics,
+  SnapshotImportedAuditMetadata,
   SnapshotTrendDerivation,
+  SnapshotTrustStatus,
   ValidatedMetric,
 } from '../types.ts';
 import {
   adaptProductItemToValidatedMetrics,
   isUsableScoringMetric,
   parseStrictFiniteNumber,
+  validateMetricTimestamp,
 } from './metricFoundation.ts';
 
 export const PRODUCT_SNAPSHOTS_STORAGE_KEY = 'siamvisual_product_snapshots_v1';
 export const MAX_SNAPSHOTS_PER_PRODUCT = 90;
 export const MAX_TRACKED_SNAPSHOT_PRODUCTS = 250;
+
+const ALLOWED_SOURCE_ENDPOINTS: readonly ProductMetricSourceEndpoint[] = [
+  'rank',
+  'detail',
+  'legacy_product',
+  'unknown',
+];
+
+const OBSERVATION_METRIC_KEYS: readonly ObservationMetricKey[] = [
+  'revenueThb',
+  'salesVolume',
+  'videoRevenueThb',
+  'liveRevenueThb',
+  'shoppingMallRevenueThb',
+  'commissionRate',
+  'revenueGrowthRate',
+  'creatorCountVerified',
+  'creatorCountUnverifiedRaw',
+];
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -28,6 +52,7 @@ export interface SnapshotAppendResult {
   added: boolean;
   updated: boolean;
   deduplicated: boolean;
+  rejectedReason?: string;
 }
 
 function getDefaultStorage(): StorageLike | null {
@@ -41,10 +66,29 @@ function getDefaultStorage(): StorageLike | null {
   return null;
 }
 
-function toUtcObservationDay(isoTimestamp: string): string | null {
-  const ms = Date.parse(isoTimestamp);
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms).toISOString().slice(0, 10);
+function normalizeEndpoint(value: unknown): ProductMetricSourceEndpoint {
+  if (
+    typeof value === 'string' &&
+    (ALLOWED_SOURCE_ENDPOINTS as readonly string[]).includes(value)
+  ) {
+    return value as ProductMetricSourceEndpoint;
+  }
+  return 'unknown';
+}
+
+function normalizeNonFutureTimestamp(
+  iso: unknown,
+  nowMs: number
+): { valid: boolean; normalizedIso: string | null; future: boolean } {
+  if (typeof iso !== 'string' || !iso.trim()) {
+    return { valid: false, normalizedIso: null, future: false };
+  }
+  const check = validateMetricTimestamp(iso, { nowMs, staleAfterMs: -1 });
+  return {
+    valid: check.valid && !check.future && Boolean(check.normalizedIso),
+    normalizedIso: check.normalizedIso,
+    future: check.future,
+  };
 }
 
 function isSourceObservedNumber(metric: ValidatedMetric<number> | undefined): boolean {
@@ -64,6 +108,155 @@ function hasUnverifiedNote(metric: ValidatedMetric<number> | undefined): boolean
 function normalizeFiniteOrNull(val: unknown): number | null {
   if (typeof val === 'number' && Number.isFinite(val)) return val;
   return null;
+}
+
+function normalizeNonNegativeFiniteOrNull(val: unknown): number | null {
+  if (typeof val === 'number' && Number.isFinite(val) && val >= 0) return val;
+  return null;
+}
+
+function normalizeCommissionRateOrNull(val: unknown): number | null {
+  if (typeof val === 'number' && Number.isFinite(val) && val >= 0 && val <= 100) {
+    return val;
+  }
+  return null;
+}
+
+function normalizeTrustStatusForLocal(raw: unknown): SnapshotTrustStatus {
+  return raw === 'IMPORTED_UNVERIFIED' ? 'IMPORTED_UNVERIFIED' : 'LOCAL_OBSERVED';
+}
+
+function isMetricCompatibleWithDateRange(
+  metricDateRange: string | null | undefined,
+  snapshotDateRange: string
+): boolean {
+  if (!metricDateRange || !metricDateRange.trim()) return true;
+  return metricDateRange.trim() === snapshotDateRange.trim();
+}
+
+function extractPerMetricMetaFromValidated(
+  metric: ValidatedMetric<number> | undefined,
+  fallbackEndpoint: ProductMetricSourceEndpoint,
+  snapshotDateRange: string,
+  nowMs: number
+): { valid: boolean; meta: ProductObservationMetricMeta } {
+  const endpoint = normalizeEndpoint(metric?.sourceEndpoint ?? fallbackEndpoint);
+  const dateRange = metric?.dateRange ?? snapshotDateRange;
+
+  if (!isMetricCompatibleWithDateRange(metric?.dateRange, snapshotDateRange)) {
+    return {
+      valid: false,
+      meta: {
+        fetchedAt: null,
+        timestampPrecision: 'UNKNOWN',
+        sourceEndpoint: endpoint,
+        dateRange,
+      },
+    };
+  }
+
+  if (!metric?.fetchedAt || !metric.fetchedAt.trim()) {
+    return {
+      valid: true,
+      meta: {
+        fetchedAt: null,
+        timestampPrecision: 'UNKNOWN',
+        sourceEndpoint: endpoint,
+        dateRange,
+      },
+    };
+  }
+
+  const tsCheck = normalizeNonFutureTimestamp(metric.fetchedAt, nowMs);
+  if (!tsCheck.valid || tsCheck.future || !tsCheck.normalizedIso) {
+    return {
+      valid: false,
+      meta: {
+        fetchedAt: null,
+        timestampPrecision: 'UNKNOWN',
+        sourceEndpoint: endpoint,
+        dateRange,
+      },
+    };
+  }
+
+  return {
+    valid: true,
+    meta: {
+      fetchedAt: tsCheck.normalizedIso,
+      timestampPrecision: 'EXACT_METRIC',
+      sourceEndpoint: endpoint,
+      dateRange,
+    },
+  };
+}
+
+function sanitizeMetricMetaEntry(
+  raw: unknown,
+  fallbackEndpoint: ProductMetricSourceEndpoint,
+  fallbackDateRange: string,
+  nowMs: number
+): ProductObservationMetricMeta | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const sourceEndpoint = normalizeEndpoint(obj.sourceEndpoint ?? fallbackEndpoint);
+  const dateRange =
+    typeof obj.dateRange === 'string' && obj.dateRange.trim()
+      ? obj.dateRange.trim()
+      : fallbackDateRange;
+
+  if (obj.fetchedAt === null || obj.fetchedAt === undefined || obj.fetchedAt === '') {
+    return {
+      fetchedAt: null,
+      timestampPrecision: 'UNKNOWN',
+      sourceEndpoint,
+      dateRange,
+    };
+  }
+
+  const tsCheck = normalizeNonFutureTimestamp(obj.fetchedAt, nowMs);
+  if (!tsCheck.valid || tsCheck.future || !tsCheck.normalizedIso) {
+    return {
+      fetchedAt: null,
+      timestampPrecision: 'UNKNOWN',
+      sourceEndpoint,
+      dateRange,
+    };
+  }
+
+  const precision: ProductObservationMetricMeta['timestampPrecision'] =
+    obj.timestampPrecision === 'EXACT_METRIC' ||
+    obj.timestampPrecision === 'SNAPSHOT_FALLBACK'
+      ? obj.timestampPrecision
+      : 'EXACT_METRIC';
+
+  return {
+    fetchedAt: tsCheck.normalizedIso,
+    timestampPrecision: precision,
+    sourceEndpoint,
+    dateRange,
+  };
+}
+
+function areMetricMetaEqual(
+  a?: Partial<Record<ObservationMetricKey, ProductObservationMetricMeta>>,
+  b?: Partial<Record<ObservationMetricKey, ProductObservationMetricMeta>>
+): boolean {
+  for (const key of OBSERVATION_METRIC_KEYS) {
+    const ma = a?.[key];
+    const mb = b?.[key];
+    if (!ma && !mb) continue;
+    if (!ma || !mb) return false;
+    if (
+      ma.fetchedAt !== mb.fetchedAt ||
+      ma.timestampPrecision !== mb.timestampPrecision ||
+      ma.sourceEndpoint !== mb.sourceEndpoint ||
+      ma.dateRange !== mb.dateRange
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function areObservationsEqual(
@@ -97,42 +290,194 @@ function countObservedFields(obs: ProductSourceObservationValues): number {
   return count;
 }
 
-function mergeSameDayObservationValues(
-  existing: ProductSourceObservationValues,
-  incoming: ProductSourceObservationValues
-): ProductSourceObservationValues {
-  // Never drop previously captured verified source observations on the same UTC day;
-  // fill gaps or accept richer same-day enrichment (e.g. /rank followed by /detail).
-  const mergedGrowthVerified =
-    incoming.revenueGrowthRate !== null && incoming.revenueGrowthVerified
-      ? true
-      : existing.revenueGrowthVerified;
-  const mergedGrowthRate =
-    incoming.revenueGrowthRate !== null && incoming.revenueGrowthVerified
-      ? incoming.revenueGrowthRate
-      : existing.revenueGrowthRate !== null
-        ? existing.revenueGrowthRate
-        : incoming.revenueGrowthRate;
+function shouldAdoptIncomingMetric(
+  currentVal: number | null | undefined,
+  incomingVal: number | null | undefined,
+  currentMeta: ProductObservationMetricMeta | undefined,
+  incomingMeta: ProductObservationMetricMeta | undefined,
+  currentObservedAt: string,
+  incomingObservedAt: string
+): boolean {
+  if (incomingVal === null || incomingVal === undefined) return false;
+  if (currentVal === null || currentVal === undefined) return true;
+
+  const curTs = currentMeta?.fetchedAt
+    ? Date.parse(currentMeta.fetchedAt)
+    : Date.parse(currentObservedAt);
+  const incTs = incomingMeta?.fetchedAt
+    ? Date.parse(incomingMeta.fetchedAt)
+    : Date.parse(incomingObservedAt);
+
+  if (Number.isFinite(incTs) && Number.isFinite(curTs)) {
+    if (incTs > curTs) return true;
+    if (incTs < curTs) return false;
+  }
+
+  // On equal timestamp, prefer /detail over /rank or unknown; otherwise preserve existing.
+  if (
+    currentMeta?.sourceEndpoint !== 'detail' &&
+    incomingMeta?.sourceEndpoint === 'detail'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function mergeSameDayObservationAndMeta(
+  current: ProductObservationSnapshot,
+  incoming: ProductObservationSnapshot,
+  isImportedTrust: boolean
+): {
+  observations: ProductSourceObservationValues;
+  metricMeta: Partial<Record<ObservationMetricKey, ProductObservationMetricMeta>>;
+} {
+  const curObs = current.observations;
+  const incObs = incoming.observations;
+  const curMetaMap = current.metricMeta ?? {};
+  const incMetaMap = incoming.metricMeta ?? {};
+  const nextMeta: Partial<Record<ObservationMetricKey, ProductObservationMetricMeta>> = {};
+
+  const pickNumeric = (
+    key: Exclude<ObservationMetricKey, 'revenueGrowthRate' | 'creatorCountVerified'>,
+    curVal: number | null | undefined,
+    incVal: number | null | undefined
+  ): number | null => {
+    const adopt = shouldAdoptIncomingMetric(
+      curVal,
+      incVal,
+      curMetaMap[key],
+      incMetaMap[key],
+      current.observedAt,
+      incoming.observedAt
+    );
+    const chosenVal = adopt ? incVal ?? null : curVal ?? null;
+    const chosenMeta = adopt ? incMetaMap[key] : curMetaMap[key];
+    if (chosenVal !== null && chosenMeta) {
+      nextMeta[key] = chosenMeta;
+    }
+    return chosenVal;
+  };
+
+  const revenueThb = pickNumeric('revenueThb', curObs.revenueThb, incObs.revenueThb);
+  const salesVolume = pickNumeric('salesVolume', curObs.salesVolume, incObs.salesVolume);
+  const videoRevenueThb = pickNumeric(
+    'videoRevenueThb',
+    curObs.videoRevenueThb,
+    incObs.videoRevenueThb
+  );
+  const liveRevenueThb = pickNumeric(
+    'liveRevenueThb',
+    curObs.liveRevenueThb,
+    incObs.liveRevenueThb
+  );
+  const shoppingMallRevenueThb = pickNumeric(
+    'shoppingMallRevenueThb',
+    curObs.shoppingMallRevenueThb,
+    incObs.shoppingMallRevenueThb
+  );
+  const commissionRate = pickNumeric(
+    'commissionRate',
+    curObs.commissionRate,
+    incObs.commissionRate
+  );
+  const creatorCountUnverifiedRaw = pickNumeric(
+    'creatorCountUnverifiedRaw',
+    curObs.creatorCountUnverifiedRaw ?? null,
+    incObs.creatorCountUnverifiedRaw ?? null
+  );
+
+  // Growth rate & verification status:
+  // Imported records NEVER gain revenueGrowthVerified=true.
+  // Local records NEVER downgrade a verified growth rate to an unverified one.
+  let revenueGrowthRate: number | null = curObs.revenueGrowthRate;
+  let revenueGrowthVerified: boolean = isImportedTrust
+    ? false
+    : curObs.revenueGrowthVerified && curObs.revenueGrowthRate !== null;
+  let growthMeta: ProductObservationMetricMeta | undefined = curMetaMap.revenueGrowthRate;
+
+  if (isImportedTrust) {
+    const adoptGrowth = shouldAdoptIncomingMetric(
+      curObs.revenueGrowthRate,
+      incObs.revenueGrowthRate,
+      curMetaMap.revenueGrowthRate,
+      incMetaMap.revenueGrowthRate,
+      current.observedAt,
+      incoming.observedAt
+    );
+    if (adoptGrowth) {
+      revenueGrowthRate = incObs.revenueGrowthRate;
+      growthMeta = incMetaMap.revenueGrowthRate;
+    }
+    revenueGrowthVerified = false;
+  } else if (incObs.revenueGrowthRate !== null) {
+    if (incObs.revenueGrowthVerified && !curObs.revenueGrowthVerified) {
+      revenueGrowthRate = incObs.revenueGrowthRate;
+      revenueGrowthVerified = true;
+      growthMeta = incMetaMap.revenueGrowthRate;
+    } else if (incObs.revenueGrowthVerified === curObs.revenueGrowthVerified) {
+      const adoptGrowth = shouldAdoptIncomingMetric(
+        curObs.revenueGrowthRate,
+        incObs.revenueGrowthRate,
+        curMetaMap.revenueGrowthRate,
+        incMetaMap.revenueGrowthRate,
+        current.observedAt,
+        incoming.observedAt
+      );
+      if (adoptGrowth) {
+        revenueGrowthRate = incObs.revenueGrowthRate;
+        revenueGrowthVerified = incObs.revenueGrowthVerified;
+        growthMeta = incMetaMap.revenueGrowthRate;
+      }
+    }
+  }
+  if (revenueGrowthRate !== null && growthMeta) {
+    nextMeta.revenueGrowthRate = growthMeta;
+  }
+
+  // Verified creatorCount: ALWAYS null on imported records.
+  let creatorCountVerified: number | null = null;
+  if (!isImportedTrust) {
+    const adoptCreator = shouldAdoptIncomingMetric(
+      curObs.creatorCountVerified,
+      incObs.creatorCountVerified,
+      curMetaMap.creatorCountVerified,
+      incMetaMap.creatorCountVerified,
+      current.observedAt,
+      incoming.observedAt
+    );
+    creatorCountVerified = adoptCreator
+      ? incObs.creatorCountVerified
+      : curObs.creatorCountVerified;
+    const chosenCreatorMeta = adoptCreator
+      ? incMetaMap.creatorCountVerified
+      : curMetaMap.creatorCountVerified;
+    if (creatorCountVerified !== null && chosenCreatorMeta) {
+      nextMeta.creatorCountVerified = chosenCreatorMeta;
+    }
+  }
 
   return {
-    revenueThb: incoming.revenueThb ?? existing.revenueThb,
-    salesVolume: incoming.salesVolume ?? existing.salesVolume,
-    videoRevenueThb: incoming.videoRevenueThb ?? existing.videoRevenueThb,
-    liveRevenueThb: incoming.liveRevenueThb ?? existing.liveRevenueThb,
-    shoppingMallRevenueThb:
-      incoming.shoppingMallRevenueThb ?? existing.shoppingMallRevenueThb,
-    commissionRate: incoming.commissionRate ?? existing.commissionRate,
-    revenueGrowthRate: mergedGrowthRate,
-    revenueGrowthVerified: mergedGrowthVerified,
-    creatorCountVerified: incoming.creatorCountVerified ?? existing.creatorCountVerified,
-    creatorCountUnverifiedRaw:
-      incoming.creatorCountUnverifiedRaw ?? existing.creatorCountUnverifiedRaw ?? null,
+    observations: {
+      revenueThb,
+      salesVolume,
+      videoRevenueThb,
+      liveRevenueThb,
+      shoppingMallRevenueThb,
+      commissionRate,
+      revenueGrowthRate,
+      revenueGrowthVerified,
+      creatorCountVerified,
+      creatorCountUnverifiedRaw,
+    },
+    metricMeta: nextMeta,
   };
 }
 
 /**
- * Extracts a strict, non-fabricated SOURCE observation snapshot from a ProductItem.
- * - Never fabricates missing metrics.
+ * Extracts a strict, non-fabricated LOCAL_OBSERVED snapshot from a ProductItem.
+ * - Preserves each metric's own fetchedAt, sourceEndpoint, and dateRange independently.
+ * - Never fabricates missing metrics or missing timestamps.
+ * - Rejects invalid or future timestamps.
  * - Never records SYNTHETIC revenue as a SOURCE observation.
  * - Never records UNVERIFIED creator_number as a verified creator count.
  */
@@ -142,46 +487,86 @@ export function createObservationSnapshotFromProduct(
 ): ProductObservationSnapshot | null {
   if (!product?.id || typeof product.id !== 'string') return null;
 
+  const nowMs = options?.nowMs ?? Date.now();
   const validated: ProductValidatedMetrics =
     product.validatedMetrics ??
-    adaptProductItemToValidatedMetrics(product, { nowMs: options?.nowMs });
-
-  const observedAt = validated.fetchedAt ?? product.kalodataMetrics?.fetchedAt ?? null;
-  if (!observedAt) return null;
-
-  const observationDay = toUtcObservationDay(observedAt);
-  if (!observationDay) return null;
+    adaptProductItemToValidatedMetrics(product, { nowMs });
 
   const dateRange =
     validated.dateRange ?? product.kalodataMetrics?.dateRange ?? 'last7Day';
+  const fallbackEndpoint = normalizeEndpoint(validated.sourceEndpoint);
 
-  const revenueThb = isSourceObservedNumber(validated.revenueThb7d)
-    ? validated.revenueThb7d.value
-    : null;
-  const salesVolume = isSourceObservedNumber(validated.salesVolume7d)
-    ? validated.salesVolume7d.value
-    : null;
-  const videoRevenueThb = isSourceObservedNumber(validated.videoRevenueThb7d)
-    ? validated.videoRevenueThb7d.value
-    : null;
-  const liveRevenueThb = isSourceObservedNumber(validated.liveRevenueThb7d)
-    ? validated.liveRevenueThb7d.value
-    : null;
-  const shoppingMallRevenueThb = isSourceObservedNumber(
-    validated.shoppingMallRevenueThb7d
-  )
-    ? validated.shoppingMallRevenueThb7d!.value
-    : null;
-  const commissionRate = isSourceObservedNumber(validated.commissionRate)
-    ? validated.commissionRate.value
-    : null;
+  // Reject explicitly future envelope timestamps immediately
+  const rawEnvelopeTs = validated.fetchedAt ?? product.kalodataMetrics?.fetchedAt ?? null;
+  let validEnvelopeIso: string | null = null;
+  if (rawEnvelopeTs !== null) {
+    const envCheck = normalizeNonFutureTimestamp(rawEnvelopeTs, nowMs);
+    if (envCheck.future || !envCheck.valid) {
+      return null;
+    }
+    validEnvelopeIso = envCheck.normalizedIso;
+  }
 
-  const growthIsSource = isSourceObservedNumber(validated.revenueGrowthRate);
-  const revenueGrowthRate = growthIsSource
-    ? validated.revenueGrowthRate.value
-    : null;
+  const metricMeta: Partial<Record<ObservationMetricKey, ProductObservationMetricMeta>> = {};
+  const validTimestampsMs: number[] = [];
+
+  if (validEnvelopeIso) {
+    validTimestampsMs.push(Date.parse(validEnvelopeIso));
+  }
+
+  const readSourceMetric = (
+    key: ObservationMetricKey,
+    metric: ValidatedMetric<number> | undefined,
+    validator: (val: number) => boolean
+  ): number | null => {
+    if (!isSourceObservedNumber(metric)) return null;
+    if (!validator(metric!.value!)) return null;
+
+    const metaRes = extractPerMetricMetaFromValidated(
+      metric,
+      fallbackEndpoint,
+      dateRange,
+      nowMs
+    );
+    if (!metaRes.valid) return null;
+
+    metricMeta[key] = metaRes.meta;
+    if (metaRes.meta.fetchedAt) {
+      validTimestampsMs.push(Date.parse(metaRes.meta.fetchedAt));
+    }
+    return metric!.value!;
+  };
+
+  const revenueThb = readSourceMetric('revenueThb', validated.revenueThb7d, (v) => v >= 0);
+  const salesVolume = readSourceMetric('salesVolume', validated.salesVolume7d, (v) => v >= 0);
+  const videoRevenueThb = readSourceMetric(
+    'videoRevenueThb',
+    validated.videoRevenueThb7d,
+    (v) => v >= 0
+  );
+  const liveRevenueThb = readSourceMetric(
+    'liveRevenueThb',
+    validated.liveRevenueThb7d,
+    (v) => v >= 0
+  );
+  const shoppingMallRevenueThb = readSourceMetric(
+    'shoppingMallRevenueThb',
+    validated.shoppingMallRevenueThb7d,
+    (v) => v >= 0
+  );
+  const commissionRate = readSourceMetric(
+    'commissionRate',
+    validated.commissionRate,
+    (v) => v >= 0 && v <= 100
+  );
+
+  const revenueGrowthRate = readSourceMetric(
+    'revenueGrowthRate',
+    validated.revenueGrowthRate,
+    () => true
+  );
   const revenueGrowthVerified =
-    growthIsSource &&
+    revenueGrowthRate !== null &&
     validated.revenueGrowthRate.unit === 'PERCENT' &&
     !hasUnverifiedNote(validated.revenueGrowthRate);
 
@@ -191,19 +576,35 @@ export function createObservationSnapshotFromProduct(
     isUsableScoringMetric(validated.creatorCount) &&
     !hasUnverifiedNote(validated.creatorCount);
 
-  const creatorCountVerified = creatorIsVerified
-    ? validated.creatorCount.value
-    : null;
-  const rawUnverifiedCreator =
-    !creatorIsVerified && validated.creatorCount.unit === 'UNVERIFIED'
-      ? parseStrictFiniteNumber(
-          validated.creatorCount.value ?? validated.creatorCount.rawInput
-        )
-      : null;
-  const creatorCountUnverifiedRaw =
-    rawUnverifiedCreator !== null && rawUnverifiedCreator >= 0
-      ? rawUnverifiedCreator
-      : null;
+  let creatorCountVerified: number | null = null;
+  let creatorCountUnverifiedRaw: number | null = null;
+
+  if (creatorIsVerified) {
+    creatorCountVerified = readSourceMetric(
+      'creatorCountVerified',
+      validated.creatorCount,
+      (v) => v >= 0
+    );
+  } else if (validated.creatorCount.unit === 'UNVERIFIED') {
+    const rawUnverifiedCreator = parseStrictFiniteNumber(
+      validated.creatorCount.value ?? validated.creatorCount.rawInput
+    );
+    if (rawUnverifiedCreator !== null && rawUnverifiedCreator >= 0) {
+      const metaRes = extractPerMetricMetaFromValidated(
+        validated.creatorCount,
+        fallbackEndpoint,
+        dateRange,
+        nowMs
+      );
+      if (metaRes.valid) {
+        creatorCountUnverifiedRaw = rawUnverifiedCreator;
+        metricMeta.creatorCountUnverifiedRaw = metaRes.meta;
+        if (metaRes.meta.fetchedAt) {
+          validTimestampsMs.push(Date.parse(metaRes.meta.fetchedAt));
+        }
+      }
+    }
+  }
 
   const observations: ProductSourceObservationValues = {
     revenueThb,
@@ -223,75 +624,137 @@ export function createObservationSnapshotFromProduct(
     return null;
   }
 
+  // Must have at least one valid non-future observation timestamp to anchor on UTC timeline
+  if (validTimestampsMs.length === 0) {
+    return null;
+  }
+
+  const latestObservedMs = Math.max(...validTimestampsMs);
+  const observedAt = new Date(latestObservedMs).toISOString();
+  const observationDay = observedAt.slice(0, 10);
+
   return {
     snapshotVersion: 1,
     productId: product.id,
     observedAt,
     observationDay,
     dateRange,
-    sourceEndpoint: validated.sourceEndpoint ?? 'unknown',
+    sourceEndpoint: fallbackEndpoint,
+    trustStatus: 'LOCAL_OBSERVED',
     dataConfidenceScore: product.commercialScoreV2?.dataConfidence.score ?? null,
     dataConfidenceLevel: product.commercialScoreV2?.dataConfidence.level ?? null,
     observations,
+    metricMeta,
   };
 }
 
 /**
- * Append-only daily snapshot recorder:
+ * Append-only daily snapshot recorder with strict trust-boundary protection:
+ * - Rejects invalid or future timestamps.
  * - Distinct observation days are NEVER overwritten; they accumulate chronologically.
- * - Same (dateRange, observationDay) entries are deduplicated cleanly:
- *   - Identical observations are skipped (deduplicated: true).
- *   - Same-day enrichment (e.g., /rank followed by /detail) merges newly observed fields
- *     without dropping existing verified fields.
+ * - IMPORTED_UNVERIFIED snapshots NEVER overwrite or modify LOCAL_OBSERVED snapshots.
+ * - Same-day same-trust merges preserve per-metric timestamps and source endpoints independently.
  */
 export function appendObservationSnapshot(
   existing: ProductObservationSnapshot[],
   incoming: ProductObservationSnapshot,
-  maxPerProduct = MAX_SNAPSHOTS_PER_PRODUCT
+  maxPerProduct = MAX_SNAPSHOTS_PER_PRODUCT,
+  options?: { nowMs?: number }
 ): SnapshotAppendResult {
+  const nowMs = options?.nowMs ?? Date.now();
+  const tsCheck = normalizeNonFutureTimestamp(incoming.observedAt, nowMs);
+  if (!tsCheck.valid || tsCheck.future || !tsCheck.normalizedIso) {
+    return {
+      snapshots: existing,
+      added: false,
+      updated: false,
+      deduplicated: false,
+      rejectedReason: tsCheck.future
+        ? 'Rejected snapshot with future observedAt timestamp.'
+        : 'Rejected snapshot with invalid observedAt timestamp.',
+    };
+  }
+
+  const normalizedIncoming: ProductObservationSnapshot = {
+    ...incoming,
+    observedAt: tsCheck.normalizedIso,
+    observationDay: tsCheck.normalizedIso.slice(0, 10),
+    trustStatus: normalizeTrustStatusForLocal(incoming.trustStatus),
+  };
+
   const sameBucketIndex = existing.findIndex(
     (entry) =>
-      entry.productId === incoming.productId &&
-      entry.dateRange === incoming.dateRange &&
-      entry.observationDay === incoming.observationDay
+      entry.productId === normalizedIncoming.productId &&
+      entry.dateRange === normalizedIncoming.dateRange &&
+      entry.observationDay === normalizedIncoming.observationDay
   );
 
   if (sameBucketIndex === -1) {
-    const next = [...existing, incoming]
+    const next = [...existing, normalizedIncoming]
       .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt))
       .slice(-Math.max(1, maxPerProduct));
     return { snapshots: next, added: true, updated: false, deduplicated: false };
   }
 
   const current = existing[sameBucketIndex];
-  const mergedObs = mergeSameDayObservationValues(
-    current.observations,
-    incoming.observations
-  );
+  const currentTrust = normalizeTrustStatusForLocal(current.trustStatus);
+  const incomingTrust = normalizedIncoming.trustStatus;
+
+  // TRUST BOUNDARY: Imported unverified records MUST NEVER overwrite or mutate local trusted records.
+  if (currentTrust === 'LOCAL_OBSERVED' && incomingTrust === 'IMPORTED_UNVERIFIED') {
+    return {
+      snapshots: existing,
+      added: false,
+      updated: false,
+      deduplicated: true,
+      rejectedReason: 'Imported unverified snapshot cannot overwrite trusted local observation.',
+    };
+  }
+
+  // Fresh trusted local observation cleanly supersedes an unverified imported reference on the same UTC day
+  // without copying any unverified imported fields into verified fields.
+  if (currentTrust === 'IMPORTED_UNVERIFIED' && incomingTrust === 'LOCAL_OBSERVED') {
+    const next = existing
+      .map((entry, idx) => (idx === sameBucketIndex ? normalizedIncoming : entry))
+      .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt))
+      .slice(-Math.max(1, maxPerProduct));
+    return { snapshots: next, added: false, updated: true, deduplicated: true };
+  }
+
+  const isImportedTrust = currentTrust === 'IMPORTED_UNVERIFIED';
+  const { observations: mergedObs, metricMeta: mergedMeta } =
+    mergeSameDayObservationAndMeta(current, normalizedIncoming, isImportedTrust);
 
   const observationsChanged = !areObservationsEqual(current.observations, mergedObs);
-  const incomingConfidence = incoming.dataConfidenceScore ?? -1;
+  const metaChanged = !areMetricMetaEqual(current.metricMeta, mergedMeta);
+  const incomingConfidence = normalizedIncoming.dataConfidenceScore ?? -1;
   const currentConfidence = current.dataConfidenceScore ?? -1;
   const confidenceImproved = incomingConfidence > currentConfidence;
   const endpointUpgraded =
-    current.sourceEndpoint !== 'detail' && incoming.sourceEndpoint === 'detail';
+    current.sourceEndpoint !== 'detail' && normalizedIncoming.sourceEndpoint === 'detail';
 
-  if (!observationsChanged && !confidenceImproved && !endpointUpgraded) {
+  if (!observationsChanged && !metaChanged && !confidenceImproved && !endpointUpgraded) {
     return { snapshots: existing, added: false, updated: false, deduplicated: true };
   }
 
   const mergedEntry: ProductObservationSnapshot = {
     ...current,
+    trustStatus: currentTrust,
     observedAt:
-      Date.parse(incoming.observedAt) >= Date.parse(current.observedAt)
-        ? incoming.observedAt
+      Date.parse(normalizedIncoming.observedAt) >= Date.parse(current.observedAt)
+        ? normalizedIncoming.observedAt
         : current.observedAt,
     sourceEndpoint: endpointUpgraded ? 'detail' : current.sourceEndpoint,
     dataConfidenceScore:
-      confidenceImproved ? incoming.dataConfidenceScore : current.dataConfidenceScore,
+      confidenceImproved
+        ? normalizedIncoming.dataConfidenceScore
+        : current.dataConfidenceScore,
     dataConfidenceLevel:
-      confidenceImproved ? incoming.dataConfidenceLevel : current.dataConfidenceLevel,
+      confidenceImproved
+        ? normalizedIncoming.dataConfidenceLevel
+        : current.dataConfidenceLevel,
     observations: mergedObs,
+    ...(Object.keys(mergedMeta).length > 0 ? { metricMeta: mergedMeta } : {}),
   };
 
   const next = existing
@@ -305,8 +768,9 @@ export function appendObservationSnapshot(
 function makeVerifiedSnapshotMetric(
   value: number,
   unit: ValidatedMetric<number>['unit'],
-  fetchedAt: string,
+  fetchedAt: string | null,
   dateRange: string,
+  sourceEndpoint: ProductMetricSourceEndpoint,
   note: string | null = null
 ): ValidatedMetric<number> {
   return {
@@ -318,80 +782,241 @@ function makeVerifiedSnapshotMetric(
     fetchedAt,
     dateRange,
     note,
+    sourceEndpoint,
+  };
+}
+
+function resolveMetricTimestampForStrategy(
+  record: ProductObservationSnapshot,
+  key: ObservationMetricKey,
+  targetDateRange: string,
+  nowMs: number
+): {
+  eligible: boolean;
+  fetchedAt: string | null;
+  sourceEndpoint: ProductMetricSourceEndpoint;
+  note: string | null;
+} {
+  const meta = record.metricMeta?.[key];
+  if (!meta) {
+    // Legacy pre-10.1 local snapshot without per-metric metadata: explicit documented fallback
+    return {
+      eligible: true,
+      fetchedAt: record.observedAt,
+      sourceEndpoint: record.sourceEndpoint,
+      note: 'SNAPSHOT_LEVEL_TIMESTAMP_FALLBACK',
+    };
+  }
+
+  if (!isMetricCompatibleWithDateRange(meta.dateRange, targetDateRange)) {
+    return {
+      eligible: false,
+      fetchedAt: null,
+      sourceEndpoint: meta.sourceEndpoint,
+      note: 'INCOMPATIBLE_DATE_RANGE',
+    };
+  }
+
+  if (meta.fetchedAt === null || meta.timestampPrecision === 'UNKNOWN') {
+    return {
+      eligible: true,
+      fetchedAt: null,
+      sourceEndpoint: meta.sourceEndpoint,
+      note: 'METRIC_TIMESTAMP_UNKNOWN',
+    };
+  }
+
+  const tsCheck = normalizeNonFutureTimestamp(meta.fetchedAt, nowMs);
+  if (!tsCheck.valid || tsCheck.future || !tsCheck.normalizedIso) {
+    return {
+      eligible: false,
+      fetchedAt: null,
+      sourceEndpoint: meta.sourceEndpoint,
+      note: 'INVALID_OR_FUTURE_METRIC_TIMESTAMP',
+    };
+  }
+
+  return {
+    eligible: true,
+    fetchedAt: tsCheck.normalizedIso,
+    sourceEndpoint: meta.sourceEndpoint,
+    note:
+      meta.timestampPrecision === 'SNAPSHOT_FALLBACK'
+        ? 'SNAPSHOT_LEVEL_TIMESTAMP_FALLBACK'
+        : null,
   };
 }
 
 /**
- * Converts persisted ProductObservationSnapshot records into HistoricalMetricSnapshot[]
- * for strategyEngineV2 (`fast_rising_products`, `trend_timing_opportunity`).
+ * Filters snapshots to chronologically ordered, deduplicated records matching dateRange,
+ * excluding invalid/future timestamps and (by default) excluding IMPORTED_UNVERIFIED records.
+ */
+function selectEligibleChronologicalSnapshots(
+  records: ProductObservationSnapshot[],
+  options?: {
+    dateRange?: string;
+    nowMs?: number;
+    includeImportedReference?: boolean;
+  }
+): ProductObservationSnapshot[] {
+  const targetDateRange = options?.dateRange ?? 'last7Day';
+  const nowMs = options?.nowMs ?? Date.now();
+  const includeImported = options?.includeImportedReference === true;
+
+  const byDay = new Map<string, ProductObservationSnapshot>();
+  const sorted = records
+    .filter((record) => {
+      if (!record || record.dateRange !== targetDateRange) return false;
+      const trust = normalizeTrustStatusForLocal(record.trustStatus);
+      if (!includeImported && trust !== 'LOCAL_OBSERVED') return false;
+      const tsCheck = normalizeNonFutureTimestamp(record.observedAt, nowMs);
+      return tsCheck.valid && !tsCheck.future && Boolean(tsCheck.normalizedIso);
+    })
+    .slice()
+    .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt));
+
+  for (const record of sorted) {
+    const normalizedIso = new Date(Date.parse(record.observedAt)).toISOString();
+    const dayKey = normalizedIso.slice(0, 10);
+    const existing = byDay.get(dayKey);
+    if (!existing) {
+      byDay.set(dayKey, record);
+    } else if (
+      normalizeTrustStatusForLocal(existing.trustStatus) === 'IMPORTED_UNVERIFIED' &&
+      normalizeTrustStatusForLocal(record.trustStatus) === 'LOCAL_OBSERVED'
+    ) {
+      byDay.set(dayKey, record);
+    } else if (
+      normalizeTrustStatusForLocal(existing.trustStatus) ===
+        normalizeTrustStatusForLocal(record.trustStatus) &&
+      Date.parse(record.observedAt) >= Date.parse(existing.observedAt)
+    ) {
+      byDay.set(dayKey, record);
+    }
+  }
+
+  return Array.from(byDay.values()).sort(
+    (a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt)
+  );
+}
+
+/**
+ * Converts trusted LOCAL_OBSERVED ProductObservationSnapshot records into
+ * HistoricalMetricSnapshot[] for strategyEngineV2 (`fast_rising_products`, `trend_timing_opportunity`).
  *
- * STRICT GUARDRAIL:
- * - Only genuinely verified SOURCE fields are emitted.
+ * STRICT GUARDRAILS:
+ * - Only LOCAL_OBSERVED records with valid non-future timestamps are emitted.
+ * - IMPORTED_UNVERIFIED backup references are NEVER emitted to historical strategy gates.
+ * - Per-metric fetchedAt and sourceEndpoint are preserved independently (never collapsed when distinct).
  * - Unverified `creatorCountUnverifiedRaw` is NEVER passed into `HistoricalMetricSnapshot.creatorCount`.
  * - Unverified `revenueGrowthRate` is NEVER passed into `HistoricalMetricSnapshot.revenueGrowthRate`.
  */
 export function toStrategyHistoricalSnapshots(
   records: ProductObservationSnapshot[],
-  options?: { dateRange?: string }
+  options?: { dateRange?: string; nowMs?: number }
 ): HistoricalMetricSnapshot[] {
   const targetDateRange = options?.dateRange ?? 'last7Day';
+  const nowMs = options?.nowMs ?? Date.now();
 
-  return records
-    .filter((record) => record.dateRange === targetDateRange)
-    .slice()
-    .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt))
-    .map((record) => {
-      const snapshot: HistoricalMetricSnapshot = {
-        fetchedAt: record.observedAt,
-        dateRange: record.dateRange,
-      };
+  const eligible = selectEligibleChronologicalSnapshots(records, {
+    dateRange: targetDateRange,
+    nowMs,
+    includeImportedReference: false,
+  });
 
-      if (record.observations.revenueThb !== null) {
+  return eligible.map((record) => {
+    const snapshot: HistoricalMetricSnapshot = {
+      fetchedAt: record.observedAt,
+      dateRange: record.dateRange,
+      trustStatus: 'LOCAL_OBSERVED',
+    };
+
+    if (record.observations.revenueThb !== null) {
+      const m = resolveMetricTimestampForStrategy(
+        record,
+        'revenueThb',
+        targetDateRange,
+        nowMs
+      );
+      if (m.eligible) {
         snapshot.revenueThb7d = makeVerifiedSnapshotMetric(
           record.observations.revenueThb,
           'THB',
-          record.observedAt,
-          record.dateRange
+          m.fetchedAt,
+          record.dateRange,
+          m.sourceEndpoint,
+          m.note
         );
       }
+    }
 
-      if (record.observations.salesVolume !== null) {
+    if (record.observations.salesVolume !== null) {
+      const m = resolveMetricTimestampForStrategy(
+        record,
+        'salesVolume',
+        targetDateRange,
+        nowMs
+      );
+      if (m.eligible) {
         snapshot.salesVolume7d = makeVerifiedSnapshotMetric(
           record.observations.salesVolume,
           'COUNT',
-          record.observedAt,
-          record.dateRange
+          m.fetchedAt,
+          record.dateRange,
+          m.sourceEndpoint,
+          m.note
         );
       }
+    }
 
-      if (record.observations.creatorCountVerified !== null) {
+    if (record.observations.creatorCountVerified !== null) {
+      const m = resolveMetricTimestampForStrategy(
+        record,
+        'creatorCountVerified',
+        targetDateRange,
+        nowMs
+      );
+      if (m.eligible) {
         snapshot.creatorCount = makeVerifiedSnapshotMetric(
           record.observations.creatorCountVerified,
           'COUNT',
-          record.observedAt,
-          record.dateRange
+          m.fetchedAt,
+          record.dateRange,
+          m.sourceEndpoint,
+          m.note
         );
       }
+    }
 
-      if (
-        record.observations.revenueGrowthRate !== null &&
-        record.observations.revenueGrowthVerified
-      ) {
+    if (
+      record.observations.revenueGrowthRate !== null &&
+      record.observations.revenueGrowthVerified
+    ) {
+      const m = resolveMetricTimestampForStrategy(
+        record,
+        'revenueGrowthRate',
+        targetDateRange,
+        nowMs
+      );
+      if (m.eligible) {
         snapshot.revenueGrowthRate = makeVerifiedSnapshotMetric(
           record.observations.revenueGrowthRate,
           'PERCENT',
-          record.observedAt,
-          record.dateRange
+          m.fetchedAt,
+          record.dateRange,
+          m.sourceEndpoint,
+          m.note
         );
       }
+    }
 
-      return snapshot;
-    });
+    return snapshot;
+  });
 }
 
 export function buildStrategySnapshotsMap(
   snapshotsByProductId: Record<string, ProductObservationSnapshot[]>,
-  options?: { dateRange?: string }
+  options?: { dateRange?: string; nowMs?: number }
 ): Record<string, HistoricalMetricSnapshot[]> {
   const out: Record<string, HistoricalMetricSnapshot[]> = {};
   for (const [productId, list] of Object.entries(snapshotsByProductId)) {
@@ -413,21 +1038,29 @@ function computePercentDelta(
 }
 
 /**
- * Computes strictly DERIVED multi-day trend deltas from stored SOURCE observations.
- * Returns null if fewer than 2 time-separated (>=12h) observations exist.
- * Never fabricates historical trends or modifies source records.
+ * Computes strictly DERIVED multi-day trend deltas from stored observations.
+ * - By default uses ONLY LOCAL_OBSERVED records with valid non-future timestamps.
+ * - Returns null if fewer than 2 time-separated (>=12h) distinct-day observations exist.
+ * - Never fabricates historical trends or modifies source records.
  */
 export function deriveSnapshotTrend(
   records: ProductObservationSnapshot[],
-  options?: { dateRange?: string; minSpanHours?: number }
+  options?: {
+    dateRange?: string;
+    minSpanHours?: number;
+    nowMs?: number;
+    includeImportedReference?: boolean;
+  }
 ): SnapshotTrendDerivation | null {
   const targetDateRange = options?.dateRange ?? 'last7Day';
   const minSpanHours = options?.minSpanHours ?? 12;
+  const includeImported = options?.includeImportedReference === true;
 
-  const filtered = records
-    .filter((record) => record.dateRange === targetDateRange)
-    .slice()
-    .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt));
+  const filtered = selectEligibleChronologicalSnapshots(records, {
+    dateRange: targetDateRange,
+    nowMs: options?.nowMs,
+    includeImportedReference: includeImported,
+  });
 
   if (filtered.length < 2) return null;
 
@@ -440,8 +1073,23 @@ export function deriveSnapshotTrend(
   const spanHours = (latestMs - earliestMs) / 3_600_000;
   if (spanHours < minSpanHours) return null;
 
+  const hasImportedInWindow = filtered.some(
+    (entry) => normalizeTrustStatusForLocal(entry.trustStatus) === 'IMPORTED_UNVERIFIED'
+  );
+  const verifiedCreatorDeltaPct =
+    normalizeTrustStatusForLocal(earliest.trustStatus) === 'LOCAL_OBSERVED' &&
+    normalizeTrustStatusForLocal(latest.trustStatus) === 'LOCAL_OBSERVED'
+      ? computePercentDelta(
+          earliest.observations.creatorCountVerified,
+          latest.observations.creatorCountVerified
+        )
+      : null;
+
   return {
     provenance: 'DERIVED',
+    trustScope: hasImportedInWindow
+      ? 'INCLUDES_IMPORTED_UNVERIFIED'
+      : 'LOCAL_OBSERVED_ONLY',
     productId: latest.productId,
     dateRange: targetDateRange,
     observationCount: filtered.length,
@@ -461,17 +1109,14 @@ export function deriveSnapshotTrend(
       earliest.observations.videoRevenueThb,
       latest.observations.videoRevenueThb
     ),
-    verifiedCreatorDeltaPct: computePercentDelta(
-      earliest.observations.creatorCountVerified,
-      latest.observations.creatorCountVerified
-    ),
+    verifiedCreatorDeltaPct,
   };
 }
 
 export function isValidProductObservationSnapshot(
   value: unknown
 ): value is ProductObservationSnapshot {
-  if (!value || typeof value !== 'object') return false;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const obj = value as Record<string, unknown>;
   if (obj.snapshotVersion !== 1) return false;
   if (typeof obj.productId !== 'string' || !obj.productId.trim()) return false;
@@ -482,29 +1127,214 @@ export function isValidProductObservationSnapshot(
     return false;
   }
   if (typeof obj.dateRange !== 'string' || !obj.dateRange.trim()) return false;
-  if (!obj.observations || typeof obj.observations !== 'object') return false;
+  if (!obj.observations || typeof obj.observations !== 'object' || Array.isArray(obj.observations)) {
+    return false;
+  }
   return true;
 }
 
-function sanitizeSnapshotRecord(raw: ProductObservationSnapshot): ProductObservationSnapshot {
-  const allowedEndpoints: ProductMetricSourceEndpoint[] = [
-    'rank',
-    'detail',
-    'legacy_product',
-    'unknown',
-  ];
-  const endpoint: ProductMetricSourceEndpoint = allowedEndpoints.includes(raw.sourceEndpoint)
-    ? raw.sourceEndpoint
-    : 'unknown';
+function sanitizeImportedAuditMetadata(
+  rawObj: Record<string, unknown>,
+  rawObs: Record<string, unknown>,
+  importedAt: string
+): SnapshotImportedAuditMetadata {
+  const existingAudit =
+    rawObj.importedAudit &&
+    typeof rawObj.importedAudit === 'object' &&
+    !Array.isArray(rawObj.importedAudit)
+      ? (rawObj.importedAudit as Record<string, unknown>)
+      : null;
 
-  const obs = raw.observations;
+  const rawClaimedCreator =
+    typeof rawObs.creatorCountVerified === 'boolean' ||
+    (typeof rawObs.creatorCountVerified === 'number' &&
+      Number.isFinite(rawObs.creatorCountVerified))
+      ? rawObs.creatorCountVerified
+      : existingAudit &&
+          (typeof existingAudit.claimedCreatorCountVerified === 'boolean' ||
+            typeof existingAudit.claimedCreatorCountVerified === 'number')
+        ? (existingAudit.claimedCreatorCountVerified as number | boolean)
+        : null;
+
+  const rawClaimedGrowth =
+    typeof rawObs.revenueGrowthVerified === 'boolean'
+      ? rawObs.revenueGrowthVerified
+      : typeof existingAudit?.claimedRevenueGrowthVerified === 'boolean'
+        ? (existingAudit.claimedRevenueGrowthVerified as boolean)
+        : null;
+
+  const claimedTrustStatus =
+    typeof rawObj.trustStatus === 'string'
+      ? rawObj.trustStatus
+      : typeof existingAudit?.claimedTrustStatus === 'string'
+        ? (existingAudit.claimedTrustStatus as string)
+        : null;
+
+  const claimedSourceEndpoint = normalizeEndpoint(
+    rawObj.sourceEndpoint ?? existingAudit?.claimedSourceEndpoint
+  );
+
+  const originalProvenance =
+    typeof rawObj.provenance === 'string'
+      ? rawObj.provenance
+      : typeof rawObs.provenance === 'string'
+        ? rawObs.provenance
+        : typeof existingAudit?.originalProvenance === 'string'
+          ? (existingAudit.originalProvenance as string)
+          : null;
+
+  const originalVerificationStatus =
+    typeof rawObj.verificationStatus === 'string'
+      ? rawObj.verificationStatus
+      : typeof rawObs.verificationStatus === 'string'
+        ? rawObs.verificationStatus
+        : typeof existingAudit?.originalVerificationStatus === 'string'
+          ? (existingAudit.originalVerificationStatus as string)
+          : null;
+
+  return {
+    importedAt,
+    claimedTrustStatus,
+    claimedSourceEndpoint,
+    claimedCreatorCountVerified: rawClaimedCreator,
+    claimedRevenueGrowthVerified: rawClaimedGrowth,
+    originalProvenance,
+    originalVerificationStatus,
+  };
+}
+
+function sanitizeSnapshotRecordInternal(
+  raw: ProductObservationSnapshot,
+  mode: 'local_storage' | 'untrusted_import',
+  options?: { nowMs?: number; importedAt?: string }
+): ProductObservationSnapshot | null {
+  const nowMs = options?.nowMs ?? Date.now();
+  const tsCheck = normalizeNonFutureTimestamp(raw.observedAt, nowMs);
+  if (!tsCheck.valid || tsCheck.future || !tsCheck.normalizedIso) {
+    return null;
+  }
+
+  const normalizedObservedAt = tsCheck.normalizedIso;
+  const normalizedDay = normalizedObservedAt.slice(0, 10);
+  const endpoint = normalizeEndpoint(raw.sourceEndpoint);
+  const rawObj = raw as unknown as Record<string, unknown>;
+  const rawObs = raw.observations as unknown as Record<string, unknown>;
+
+  const trustStatus: SnapshotTrustStatus =
+    mode === 'untrusted_import'
+      ? 'IMPORTED_UNVERIFIED'
+      : normalizeTrustStatusForLocal(raw.trustStatus);
+
+  const isUnverifiedTrust = trustStatus === 'IMPORTED_UNVERIFIED';
+
+  const revenueThb = normalizeNonNegativeFiniteOrNull(rawObs.revenueThb);
+  const salesVolume = normalizeNonNegativeFiniteOrNull(rawObs.salesVolume);
+  const videoRevenueThb = normalizeNonNegativeFiniteOrNull(rawObs.videoRevenueThb);
+  const liveRevenueThb = normalizeNonNegativeFiniteOrNull(rawObs.liveRevenueThb);
+  const shoppingMallRevenueThb = normalizeNonNegativeFiniteOrNull(
+    rawObs.shoppingMallRevenueThb
+  );
+  const commissionRate = normalizeCommissionRateOrNull(rawObs.commissionRate);
+  const revenueGrowthRate = normalizeFiniteOrNull(rawObs.revenueGrowthRate);
+
+  // CRITICAL TRUST BOUNDARY:
+  // Imported records NEVER gain verified status from client-controlled JSON flags.
+  const rawVerifiedCreatorNum = normalizeNonNegativeFiniteOrNull(
+    rawObs.creatorCountVerified
+  );
+  const rawUnverifiedCreatorNum = normalizeNonNegativeFiniteOrNull(
+    rawObs.creatorCountUnverifiedRaw
+  );
+
+  const creatorCountVerified = isUnverifiedTrust ? null : rawVerifiedCreatorNum;
+  const creatorCountUnverifiedRaw = isUnverifiedTrust
+    ? (rawUnverifiedCreatorNum ?? rawVerifiedCreatorNum)
+    : rawUnverifiedCreatorNum;
+  const revenueGrowthVerified = isUnverifiedTrust
+    ? false
+    : rawObs.revenueGrowthVerified === true && revenueGrowthRate !== null;
+
+  const observations: ProductSourceObservationValues = {
+    revenueThb,
+    salesVolume,
+    videoRevenueThb,
+    liveRevenueThb,
+    shoppingMallRevenueThb,
+    commissionRate,
+    revenueGrowthRate,
+    revenueGrowthVerified,
+    creatorCountVerified,
+    creatorCountUnverifiedRaw,
+  };
+
+  if (countObservedFields(observations) === 0 && creatorCountUnverifiedRaw === null) {
+    return null;
+  }
+
+  // Sanitize optional per-metric metadata
+  let sanitizedMetricMeta:
+    | Partial<Record<ObservationMetricKey, ProductObservationMetricMeta>>
+    | undefined;
+  if (rawObj.metricMeta && typeof rawObj.metricMeta === 'object' && !Array.isArray(rawObj.metricMeta)) {
+    const rawMetaObj = rawObj.metricMeta as Record<string, unknown>;
+    const cleanMeta: Partial<Record<ObservationMetricKey, ProductObservationMetricMeta>> = {};
+    for (const key of OBSERVATION_METRIC_KEYS) {
+      if (isUnverifiedTrust && key === 'creatorCountVerified') {
+        // Downgrade any imported creatorCountVerified metadata to creatorCountUnverifiedRaw reference
+        const downgraded = sanitizeMetricMetaEntry(
+          rawMetaObj.creatorCountVerified,
+          endpoint,
+          raw.dateRange.trim(),
+          nowMs
+        );
+        if (downgraded && !cleanMeta.creatorCountUnverifiedRaw) {
+          cleanMeta.creatorCountUnverifiedRaw = downgraded;
+        }
+        continue;
+      }
+      const entry = sanitizeMetricMetaEntry(
+        rawMetaObj[key],
+        endpoint,
+        raw.dateRange.trim(),
+        nowMs
+      );
+      if (entry) {
+        cleanMeta[key] = entry;
+      }
+    }
+    if (Object.keys(cleanMeta).length > 0) {
+      sanitizedMetricMeta = cleanMeta;
+    }
+  }
+
+  const importedAudit =
+    mode === 'untrusted_import'
+      ? sanitizeImportedAuditMetadata(
+          rawObj,
+          rawObs,
+          options?.importedAt ?? new Date(nowMs).toISOString()
+        )
+      : isUnverifiedTrust &&
+          rawObj.importedAudit &&
+          typeof rawObj.importedAudit === 'object' &&
+          !Array.isArray(rawObj.importedAudit)
+        ? sanitizeImportedAuditMetadata(
+            rawObj,
+            rawObs,
+            typeof (rawObj.importedAudit as Record<string, unknown>).importedAt === 'string'
+              ? ((rawObj.importedAudit as Record<string, unknown>).importedAt as string)
+              : new Date(nowMs).toISOString()
+          )
+        : undefined;
+
   return {
     snapshotVersion: 1,
     productId: raw.productId.trim(),
-    observedAt: raw.observedAt,
-    observationDay: raw.observationDay,
-    dateRange: raw.dateRange,
+    observedAt: normalizedObservedAt,
+    observationDay: normalizedDay,
+    dateRange: raw.dateRange.trim(),
     sourceEndpoint: endpoint,
+    trustStatus,
     dataConfidenceScore: normalizeFiniteOrNull(raw.dataConfidenceScore),
     dataConfidenceLevel:
       raw.dataConfidenceLevel === 'HIGH' ||
@@ -513,23 +1343,20 @@ function sanitizeSnapshotRecord(raw: ProductObservationSnapshot): ProductObserva
       raw.dataConfidenceLevel === 'VERY_LOW'
         ? raw.dataConfidenceLevel
         : null,
-    observations: {
-      revenueThb: normalizeFiniteOrNull(obs.revenueThb),
-      salesVolume: normalizeFiniteOrNull(obs.salesVolume),
-      videoRevenueThb: normalizeFiniteOrNull(obs.videoRevenueThb),
-      liveRevenueThb: normalizeFiniteOrNull(obs.liveRevenueThb),
-      shoppingMallRevenueThb: normalizeFiniteOrNull(obs.shoppingMallRevenueThb),
-      commissionRate: normalizeFiniteOrNull(obs.commissionRate),
-      revenueGrowthRate: normalizeFiniteOrNull(obs.revenueGrowthRate),
-      revenueGrowthVerified: Boolean(obs.revenueGrowthVerified),
-      creatorCountVerified: normalizeFiniteOrNull(obs.creatorCountVerified),
-      creatorCountUnverifiedRaw: normalizeFiniteOrNull(obs.creatorCountUnverifiedRaw),
-    },
+    observations,
+    ...(sanitizedMetricMeta ? { metricMeta: sanitizedMetricMeta } : {}),
+    ...(importedAudit ? { importedAudit } : {}),
   };
 }
 
+/**
+ * Sanitizes locally persisted snapshots from browser storage.
+ * Preserves legitimate LOCAL_OBSERVED records while enforcing IMPORTED_UNVERIFIED restrictions
+ * on previously imported records and rejecting invalid/future timestamps.
+ */
 export function sanitizeProductSnapshotsMap(
-  raw: unknown
+  raw: unknown,
+  options?: { nowMs?: number }
 ): Record<string, ProductObservationSnapshot[]> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const result: Record<string, ProductObservationSnapshot[]> = {};
@@ -539,7 +1366,49 @@ export function sanitizeProductSnapshotsMap(
     for (const item of list) {
       if (!isValidProductObservationSnapshot(item)) continue;
       if (item.productId !== productId) continue;
-      cleanList = appendObservationSnapshot(cleanList, sanitizeSnapshotRecord(item)).snapshots;
+      const sanitized = sanitizeSnapshotRecordInternal(item, 'local_storage', options);
+      if (!sanitized) continue;
+      cleanList = appendObservationSnapshot(
+        cleanList,
+        sanitized,
+        MAX_SNAPSHOTS_PER_PRODUCT,
+        options
+      ).snapshots;
+    }
+    if (cleanList.length > 0) {
+      result[productId] = cleanList;
+    }
+  }
+  return result;
+}
+
+/**
+ * Untrusted backup import sanitizer:
+ * - Marks EVERY imported snapshot IMPORTED_UNVERIFIED regardless of client-supplied flags.
+ * - Strips creatorCountVerified and revenueGrowthVerified from untrusted JSON while preserving
+ *   audit metadata and numeric reference values so users can inspect their restored history.
+ * - Rejects invalid or future timestamps.
+ */
+export function sanitizeImportedProductSnapshotsMap(
+  raw: unknown,
+  options?: { nowMs?: number; importedAt?: string }
+): Record<string, ProductObservationSnapshot[]> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const result: Record<string, ProductObservationSnapshot[]> = {};
+  for (const [productId, list] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(list)) continue;
+    let cleanList: ProductObservationSnapshot[] = [];
+    for (const item of list) {
+      if (!isValidProductObservationSnapshot(item)) continue;
+      if (item.productId !== productId) continue;
+      const sanitized = sanitizeSnapshotRecordInternal(item, 'untrusted_import', options);
+      if (!sanitized) continue;
+      cleanList = appendObservationSnapshot(
+        cleanList,
+        sanitized,
+        MAX_SNAPSHOTS_PER_PRODUCT,
+        options
+      ).snapshots;
     }
     if (cleanList.length > 0) {
       result[productId] = cleanList;
@@ -549,13 +1418,14 @@ export function sanitizeProductSnapshotsMap(
 }
 
 export function loadProductSnapshotsFromStorage(
-  storage: StorageLike | null = getDefaultStorage()
+  storage: StorageLike | null = getDefaultStorage(),
+  options?: { nowMs?: number }
 ): Record<string, ProductObservationSnapshot[]> {
   if (!storage) return {};
   try {
     const raw = storage.getItem(PRODUCT_SNAPSHOTS_STORAGE_KEY);
     if (!raw) return {};
-    return sanitizeProductSnapshotsMap(JSON.parse(raw));
+    return sanitizeProductSnapshotsMap(JSON.parse(raw), options);
   } catch {
     return {};
   }
@@ -598,7 +1468,7 @@ export function recordProductSnapshotsInStorage(
   deduplicatedCount: number;
 } {
   const storage = options?.storage !== undefined ? options.storage : getDefaultStorage();
-  const current = loadProductSnapshotsFromStorage(storage);
+  const current = loadProductSnapshotsFromStorage(storage, { nowMs: options?.nowMs });
   const next: Record<string, ProductObservationSnapshot[]> = { ...current };
 
   let addedCount = 0;
@@ -612,7 +1482,12 @@ export function recordProductSnapshotsInStorage(
     if (!snapshot) continue;
 
     const existingList = next[product.id] ?? [];
-    const result = appendObservationSnapshot(existingList, snapshot);
+    const result = appendObservationSnapshot(
+      existingList,
+      snapshot,
+      MAX_SNAPSHOTS_PER_PRODUCT,
+      { nowMs: options?.nowMs }
+    );
     next[product.id] = result.snapshots;
 
     if (result.added) addedCount += 1;
@@ -633,10 +1508,17 @@ export function recordProductSnapshotsInStorage(
   };
 }
 
+/**
+ * Merges restored backup snapshots into local storage with strict trust-boundary enforcement:
+ * - Re-sanitizes every imported record as IMPORTED_UNVERIFIED regardless of caller input.
+ * - Never overwrites or modifies existing trusted LOCAL_OBSERVED records.
+ * - Preserves restored imported snapshots as inspectable historical references.
+ */
 export function mergeRestoredProductSnapshots(
   current: Record<string, ProductObservationSnapshot[]>,
   imported: Record<string, ProductObservationSnapshot[]>,
-  storage: StorageLike | null = getDefaultStorage()
+  storage: StorageLike | null = getDefaultStorage(),
+  options?: { nowMs?: number; importedAt?: string }
 ): {
   merged: Record<string, ProductObservationSnapshot[]>;
   addedSnapshots: number;
@@ -649,8 +1531,19 @@ export function mergeRestoredProductSnapshots(
     let bucket = merged[productId] ?? [];
     for (const rawItem of importedList) {
       if (!isValidProductObservationSnapshot(rawItem)) continue;
-      const clean = sanitizeSnapshotRecord(rawItem);
-      const res = appendObservationSnapshot(bucket, clean);
+      if (rawItem.productId !== productId) continue;
+      const clean = sanitizeSnapshotRecordInternal(
+        rawItem,
+        'untrusted_import',
+        options
+      );
+      if (!clean) continue;
+      const res = appendObservationSnapshot(
+        bucket,
+        clean,
+        MAX_SNAPSHOTS_PER_PRODUCT,
+        options
+      );
       bucket = res.snapshots;
       if (res.added) addedSnapshots += 1;
     }

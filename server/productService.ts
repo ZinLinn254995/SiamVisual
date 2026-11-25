@@ -437,7 +437,7 @@ async function runGeminiEnrichmentAndRank(
         ? {
             deepInsights: {
               description: raw.description,
-              fetchedAt: new Date().toISOString(),
+              fetchedAt: raw.validatedMetrics.fetchedAt ?? new Date().toISOString(),
             },
           }
         : {}),

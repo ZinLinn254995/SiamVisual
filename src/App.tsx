@@ -346,8 +346,8 @@ export default function App() {
   >(() => loadProductSnapshotsFromStorage());
 
   const historicalSnapshotsByProductId = useMemo(
-    () => buildStrategySnapshotsMap(productSnapshots),
-    [productSnapshots]
+    () => buildStrategySnapshotsMap(productSnapshots, { nowMs: evaluationNowMs }),
+    [productSnapshots, evaluationNowMs]
   );
 
   // Home Search Results always initialize with the latest Recent History (0 cr)
@@ -2841,6 +2841,7 @@ export default function App() {
       {/* Minimalist Score Details Dialog */}
       <ScoreDetailDialog
         product={scoreDialogProduct}
+        snapshots={scoreDialogProduct ? productSnapshots[scoreDialogProduct.id] : undefined}
         language={language}
         nowMs={evaluationNowMs}
         t={t}
