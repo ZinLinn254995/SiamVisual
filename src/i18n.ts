@@ -1,4 +1,16 @@
-import type { Language, VisualStyle } from './types';
+import type {
+  CommercialEligibilityStatus,
+  ConfidenceLevel,
+  ConversionEvidenceLevel,
+  DominantConversionChannel,
+  Language,
+  OpportunityClassification,
+  StrategyEligibilityStatus,
+  StrategyId,
+  V2DimensionStatus,
+  VisualStyle,
+} from './types';
+import type { MetricFieldKey, MetricProvenanceCategory } from './lib/productIntelligenceView';
 
 export interface Translations {
   nav: {
@@ -39,6 +51,7 @@ export interface Translations {
     loadingSingleNote: string;
     cachedNote: string;
     refreshLiveBtn: string;
+    staleSnapshotNotice: string;
     aiFallbackNotice: string;
     retryAiBtn: string;
     retryingAiBtn: string;
@@ -203,6 +216,8 @@ export interface Translations {
     deepUsageLabel: string;
     deepDescLabel: string;
     deepUpgradedToast: string;
+    deepPartialWarning: (layers: string[]) => string;
+    growthUnverifiedShort: string;
     deepSelectOneHint: string;
     deepSavedTag: string;
     deepSavedStorageNote: string;
@@ -364,6 +379,131 @@ export interface Translations {
     limitExceededMaxSpend: (spent: number, est: number, max: number) => string;
     limitExceededReserve: (balance: number, est: number, reserve: number) => string;
   };
+  v2: {
+    engineBadge: string;
+    overallTabLabel: string;
+    overallTabShort: string;
+    overallDescription: string;
+    commercialScoreLabel: string;
+    commercialScoreShort: string;
+    strategyScoreLabel: string;
+    withheldLabel: string;
+    withheldZeroCommLabel: string;
+    dimensionsHeading: string;
+    dimensions: {
+      demand: { label: string; short: string; desc: string };
+      earning: { label: string; short: string; desc: string };
+      competition: { label: string; short: string; desc: string };
+      quality: { label: string; short: string; desc: string };
+    };
+    dimensionStatus: Record<V2DimensionStatus, string>;
+    classifications: Record<OpportunityClassification, string>;
+    commercialEligibility: Record<CommercialEligibilityStatus, string>;
+    strategyEligibility: Record<StrategyEligibilityStatus, string>;
+    confidenceLabel: string;
+    confidenceLevels: Record<ConfidenceLevel, string>;
+    confidenceBreakdown: {
+      completeness: string;
+      provenance: string;
+      freshness: string;
+      validity: string;
+      dimensionCoverage: string;
+    };
+    conversionLabel: string;
+    conversionLevels: Record<ConversionEvidenceLevel, string>;
+    conversionChannels: Record<DominantConversionChannel, string>;
+    conversionDisclaimerShort: string;
+    strategies: Record<
+      StrategyId,
+      {
+        name: string;
+        shortName: string;
+        desc: string;
+        minimumRule: string;
+        exclusionRule: string;
+      }
+    >;
+    strategyExplorer: {
+      title: string;
+      subtitle: string;
+      overallCountLabel: (n: number) => string;
+      qualifiedCountLabel: (n: number) => string;
+      excludedCountLabel: (n: number) => string;
+      showExcludedBtn: (n: number) => string;
+      hideExcludedBtn: string;
+      excludedSectionTitle: string;
+      excludedSectionSub: string;
+      noQualifiedTitle: string;
+      noQualifiedDesc: string;
+      historyUnavailableTitle: string;
+      historyUnavailableBadge: string;
+      historyUnavailableDesc: string;
+      historyUnavailableNote: string;
+      smallPoolWarning: (n: number) => string;
+      bestMatchLabel: string;
+      noStrategyQualified: string;
+      whyRankedBtn: string;
+      hideReasonsBtn: string;
+      whyRankedTitle: string;
+      cautionsTitle: string;
+      missingOrUnverifiedTitle: string;
+      failedRequirementsTitle: string;
+      viewFullBreakdownBtn: string;
+      requiresHistoryBadge: string;
+      primaryStrategyTag: string;
+    };
+    provenance: {
+      sectionTitle: string;
+      sectionSubtitle: string;
+      categories: Record<MetricProvenanceCategory, string>;
+      fields: Record<MetricFieldKey, string>;
+      unverifiedCoreBanner: (count: number) => string;
+      syntheticRevenueBanner: string;
+    };
+    dialog: {
+      v2Subtitle: string;
+      gateDecisionsTitle: string;
+      overallInsightsTitle: string;
+      dimensionSubmetrics: {
+        revenueScore: string;
+        salesScore: string;
+        absDemand: string;
+        growthRate: string;
+        payoutPerSale: string;
+        commissionRate: string;
+        creators: string;
+        rawRpc: string;
+        adjustedRpc: string;
+        bayesianRating: string;
+        rawRating: string;
+        reviews: string;
+      };
+      usedMetricsLabel: string;
+      excludedMetricsLabel: string;
+      conversionSectionTitle: string;
+      videoShareLabel: string;
+      liveShareLabel: string;
+      strategyMatrixTitle: string;
+      strategyMatrixSub: string;
+      studioVisualRefTitle: string;
+      studioVisualRefNotice: string;
+      v1SilentScoreLabel: string;
+    };
+    riskLabels: Record<string, string>;
+    formatRiskTag: (tag: string) => string;
+    metricsShort: {
+      creators: string;
+      adjRpc: string;
+      growth: string;
+      payout: string;
+      rating: string;
+      reviews: string;
+      videoShare: string;
+      liveRev: string;
+      unverified: string;
+      missing: string;
+    };
+  };
 }
 
 export const TRANSLATIONS: Record<Language, Translations> = {
@@ -398,9 +538,10 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         'ဒီ Link ထဲမှာ TikTok Shop Product ID မတွေ့ပါ — Product ID ပါသော Link အပြည့်အစုံ (သို့) ဂဏန်း ID ထည့်ပေးပါ။',
     },
     discover: {
-      resultsHeading: 'အကောင်းဆုံး ရွေးချယ်ထားသော ပစ္စည်းများ',
+      resultsHeading: 'Commercial Product Intelligence',
       singleResultHeading: 'Link မှ ရှာတွေ့သော ပစ္စည်း',
-      resultsSubtext: 'Kalodata ရောင်းအား၊ ကော်မရှင်နှင့် Silent Visual အမှတ်အလိုက် စီပေးထားပါသည်။',
+      resultsSubtext:
+        'Demand, Earning, Competition နှင့် Customer Quality ၄ ချက်ကို သီးခြားတွက်ချက်၍ Commercial Opportunity V2 အလိုက် စီပေးထားပါသည်။',
       singleResultSubtext: 'သင်ထည့်ထားသော Product Link မှ တိုက်ရိုက်ရယူထားသော အချက်အလက်ဖြစ်ပါသည်။',
       noResultsTitle: 'ကိုက်ညီသော ပစ္စည်းမတွေ့သေးပါ',
       noResultsDesc: 'အခြား Keyword၊ Category သို့မဟုတ် Product Link ဖြင့် ထပ်မံရှာဖွေကြည့်ပါ။',
@@ -409,6 +550,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       loadingSingleNote: 'သင်ထည့်ထားသော Link မှ Product အချက်အလက်ကို ရှာဖွေနေပါသည်...',
       cachedNote: 'Cache မှ ပြသထားသည် (0 cr)',
       refreshLiveBtn: 'Live ပြန်ဆွဲမယ် (~0.2 cr)',
+      staleSnapshotNotice: 'ဤရလဒ်သည် ၂၄ နာရီကျော်ကြာပြီဖြစ်၍ Stale ဖြစ်နေပါသည် — လက်ရှိဈေးကွက်အတွက် Live ပြန်ဆွဲပေးပါ။',
       aiFallbackNotice:
         'Kalodata ပစ္စည်းစာရင်း ရရှိပြီးပါပြီ (Credit မဆုံးရှုံးပါ) — AI ရှင်းပြချက် ခဏမအောင်မြင်၍ အခမဲ့ပြန်ထုတ်နိုင်ပါသည်။',
       retryAiBtn: 'AI ရှင်းပြချက် ပြန်ထုတ်မယ် (0 Kalodata cr)',
@@ -464,8 +606,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       openTikTokShort: 'TikTok Shop',
     },
     score: {
-      tooltipBtn: 'Score အသေးစိတ်ကြည့်ရန်',
-      dialogSubtitle: 'စကားမပြောဘဲ AI Visual ဖြင့် ရောင်းအားတက်နိုင်မှုကို အချက် ၄ ချက်ဖြင့် တွက်ချက်ထားပါသည်။',
+      tooltipBtn: 'Commercial Intelligence V2 အသေးစိတ်ကြည့်ရန်',
+      dialogSubtitle: 'Demand, Earning, Competition, Customer Quality, Confidence နှင့် 8-Strategy အခြေအနေများကို အသေးစိတ်စစ်ဆေးနိုင်ပါသည်။',
       metricVisualLabel: 'Visual ဖြင့် ဆွဲဆောင်နိုင်မှု',
       metricVisualDesc: 'စကားမပြောဘဲ မြင်ရုံဖြင့် ပစ္စည်းအသုံးဝင်ပုံကို ချက်ချင်းနားလည်နိုင်စွမ်း',
       metricAiLabel: 'AI Video ဖန်တီးရန် သင့်တော်မှု',
@@ -576,6 +718,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       deepUsageLabel: 'အသုံးပြုသည့် အခြေအနေများ',
       deepDescLabel: 'Seller ဖော်ပြချက်',
       deepUpgradedToast: 'Kalodata Deep Data ကို ရယူပြီး Browser Storage တွင် သိမ်းဆည်းပြီးပါပြီ။',
+      deepPartialWarning: (layers: string[]) =>
+        `အချို့ Kalodata Layer များ (${layers.join(', ')}) ယူမရပါ — ရရှိသမျှ Data များကို သိမ်းဆည်းထားပြီးဖြစ်သည်။`,
+      growthUnverifiedShort: 'Unit မစစ်ရသေး',
       deepSelectOneHint: 'ရယူလိုသော အချက်အနည်းဆုံး ၁ ခုကို ရွေးပါ။',
       deepSavedTag: 'သိမ်းပြီး',
       deepSavedStorageNote: 'Browser Storage တွင် အမြဲတမ်း သိမ်းဆည်းထားပြီးဖြစ်၍ ထပ်မံ Credit မကုန်တော့ပါ။',
@@ -747,6 +892,291 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       limitExceededReserve: (balance, est, reserve) =>
         `Minimum Reserve Limit ကြောင့် ရပ်ထားပါသည် — လက်ကျန် ${balance} မှ ~${est} နှုတ်ပါက ချန်ထားလိုသည့် ${reserve} cr အောက်ကျသွားပါမည်။`,
     },
+    v2: {
+      engineBadge: 'Intelligence V2',
+      overallTabLabel: 'Overall Commercial Ranking',
+      overallTabShort: 'Overall',
+      overallDescription:
+        'Demand, Earning, Competition နှင့် Customer Quality ၄ ချက်လုံးပေါင်း၍ ဟန်ချက်ညီသော အမြတ်အစွန်းအလားအလာအလိုက် စီပေးထားသည် (Visual Score မပါဝင်ပါ)။',
+      commercialScoreLabel: 'Commercial Score',
+      commercialScoreShort: 'Commercial',
+      strategyScoreLabel: 'Strategy Score',
+      withheldLabel: 'Withheld (Data မပြည့်)',
+      withheldZeroCommLabel: '0% (Not Monetizable)',
+      dimensionsHeading: 'Commercial Dimensions ၄ ချက်',
+      dimensions: {
+        demand: {
+          label: 'Demand (ဝယ်လိုအား)',
+          short: 'Demand',
+          desc: '7d စုစုပေါင်းဝင်ငွေ၊ ရောင်းအားပမာဏနှင့် Verified ဖြစ်သော Growth နှုန်း',
+        },
+        earning: {
+          label: 'Earning (အကျိုးအမြတ်)',
+          short: 'Earning',
+          desc: 'ကော်မရှင်ရာခိုင်နှုန်း၊ ၁ ခုရောင်းရလျှင်ရမည့် ဘတ်ငွေနှင့် Demand ပေါင်းစပ်ချက်',
+        },
+        competition: {
+          label: 'Competition (ပြိုင်ဆိုင်မှု)',
+          short: 'Competition',
+          desc: 'Creator အရေအတွက် နည်း/များနှင့် Laplace-smoothed Creator ၁ ဦးစီဝင်ငွေ (Adjusted RPC)',
+        },
+        quality: {
+          label: 'Customer Quality (အရည်အသွေး)',
+          short: 'Quality',
+          desc: 'Review အရေအတွက်ပေါ်မူတည်၍ Bayesian ချိန်ညှိထားသော Rating အထောက်အထား',
+        },
+      },
+      dimensionStatus: {
+        SCORED: 'Scored',
+        ZERO: 'Zero',
+        NOT_MONETIZABLE: 'Not Monetizable (0%)',
+        INSUFFICIENT: 'Data မပြည့်သေး',
+        INVALID: 'Invalid',
+      },
+      classifications: {
+        TOP_OPPORTUNITY: 'Top Opportunity',
+        STRONG_OPPORTUNITY: 'Strong Opportunity',
+        MODERATE_OPPORTUNITY: 'Moderate Opportunity',
+        WATCHLIST: 'Watchlist',
+        INSUFFICIENT_EVIDENCE: 'Data မပြည့်စုံသေး',
+        NOT_MONETIZABLE: 'Not Monetizable (0% Comm)',
+      },
+      commercialEligibility: {
+        ELIGIBLE: 'Eligible',
+        PARTIAL_EVIDENCE: 'Partial Evidence',
+        RESTRICTED_WEAK_DEMAND: 'Demand အားနည်း',
+        RESTRICTED_POOR_QUALITY: 'Quality အားနည်း',
+        NOT_MONETIZABLE: '0% Commission',
+        INSUFFICIENT_DATA: 'Insufficient Data',
+      },
+      strategyEligibility: {
+        QUALIFIED: 'Qualified',
+        PARTIAL_EVIDENCE: 'Partial Evidence',
+        INSUFFICIENT_DATA: 'Insufficient Data',
+        NOT_ELIGIBLE: 'Not Eligible',
+        DATA_UNAVAILABLE: 'Data Unavailable',
+      },
+      confidenceLabel: 'Data Confidence',
+      confidenceLevels: {
+        HIGH: 'High',
+        MEDIUM: 'Medium',
+        LOW: 'Low',
+        VERY_LOW: 'Very Low',
+      },
+      confidenceBreakdown: {
+        completeness: 'Completeness',
+        provenance: 'Source Provenance',
+        freshness: 'Freshness',
+        validity: 'Validity',
+        dimensionCoverage: 'Dimension Coverage',
+      },
+      conversionLabel: 'Conversion Evidence',
+      conversionLevels: {
+        STRONG: 'Strong Video/Live Evidence',
+        MODERATE: 'Moderate Evidence',
+        WEAK: 'Weak Evidence',
+        INSUFFICIENT: 'Insufficient Evidence',
+      },
+      conversionChannels: {
+        VIDEO: 'Video ဦးဆောင်',
+        LIVE: 'Live ဦးဆောင်',
+        BALANCED: 'Video + Live မျှတ',
+        UNKNOWN: 'မသိရှိသေး',
+      },
+      conversionDisclaimerShort: 'ယခင် Video/Live ရောင်းအားသည် အနာဂတ် Conversion ကို အာမမခံပါ',
+      strategies: {
+        early_market_opportunity: {
+          name: 'Early Market Opportunity',
+          shortName: 'Early Market',
+          desc: 'ဝယ်လိုအားကောင်း + Verified Growth တက်နေပြီး Creator မများသေးသော ပစ္စည်းများ',
+          minimumRule: 'Verified demand, growth (+10%+), <=60 creators, commission >0%, confidence >=60',
+          exclusionRule: '0% commission, negative growth, >60 creators, unverified growth/creators တို့ကို ဖယ်ထုတ်သည်',
+        },
+        underserved_demand: {
+          name: 'Underserved Demand',
+          shortName: 'Underserved',
+          desc: 'ဝယ်လိုအားမြင့်သော်လည်း Creator ပြိုင်ဆိုင်မှု နည်းသေးသော ပစ္စည်းများ',
+          minimumRule: 'Absolute demand >=50, competition >=45, earning >=35, confidence >=48 (growth မပါလည်းရ)',
+          exclusionRule: '0% commission, crowded creators, unverified creator count တို့ကို ဖယ်ထုတ်သည်',
+        },
+        creator_yield_opportunity: {
+          name: 'Creator Yield Opportunity',
+          shortName: 'Creator Yield',
+          desc: 'Creator တစ်ဦးချင်းစီရရှိသည့် Adjusted RPC မြင့်ပြီး ဝင်ငွေအကျိုးအမြတ်ကောင်းသော ပစ္စည်းများ',
+          minimumRule: 'Revenue >=฿20,000, adjusted RPC >=฿3,000, creators >=1, commission >0%, confidence >=55',
+          exclusionRule: 'Revenue နည်းပြီး creator ၁ ဦးတည်းဖြစ်နေမှုနှင့် 0-creator anomaly များကို ဖယ်ထုတ်သည်',
+        },
+        fast_rising_products: {
+          name: 'Fast Rising Products',
+          shortName: 'Fast Rising',
+          desc: 'အချိန်ကာလ Snapshot များအရ ဝယ်လိုအားတက်နှုန်းက Creator တိုးနှုန်းထက် မြန်နေသော ပစ္စည်းများ',
+          minimumRule: 'Verified historical snapshots >=2 (12h+ interval), demand growth >=15%',
+          exclusionRule: 'Historical snapshots မရှိပါက DATA_UNAVAILABLE ပြမည် (အတု Trend မတွက်ပါ)',
+        },
+        profit_maximizer: {
+          name: 'Profit Maximizer',
+          shortName: 'Profit Max',
+          desc: '၁ ခုရောင်းရလျှင်ရမည့် Affiliate Payout (฿) မြင့်ပြီး ဝယ်လိုအားလည်း ခိုင်မာသော ပစ္စည်းများ',
+          minimumRule: 'Payout >=฿20/sale, earning >=48, demand >=38, competition >=30, confidence >=55',
+          exclusionRule: 'Demand နည်းသော်လည်း ကော်မရှင် % မြင့်ဟန်ပြသည့် ပစ္စည်းများကို ဖယ်ထုတ်သည်',
+        },
+        video_proven_winners: {
+          name: 'Video Proven Winners',
+          shortName: 'Video Proven',
+          desc: 'Short Video မှ တကယ်ရောင်းအားဝင်ငွေ (฿25K+ & 25%+ share) ရှိပြီး ပြိုင်ဆိုင်မှု ထိန်းနိုင်သော ပစ္စည်းများ',
+          minimumRule: 'Video revenue >=฿25,000, video share >=25%, demand >=40, confidence >=52',
+          exclusionRule: 'Visual လှရုံဖြင့် Qualification မပေးပါ — verified video revenue ရှိမှသာ ရွေးသည်',
+        },
+        trust_based_winners: {
+          name: 'Trust-Based Winners',
+          shortName: 'Trust Winners',
+          desc: 'Review အရေအတွက် (30+) နှင့် Bayesian Rating (4.25+) မြင့်မား၍ ဝယ်သူယုံကြည်မှုခိုင်မာသော ပစ္စည်းများ',
+          minimumRule: 'Reviews >=30, Bayesian rating >=4.25, quality >=70, demand >=40, confidence >=58',
+          exclusionRule: 'Review နည်းသော (1–5 reviews) 5.0 အတု Rating များနှင့် rating unverified များကို ဖယ်ထုတ်သည်',
+        },
+        trend_timing_opportunity: {
+          name: 'Trend Timing Opportunity',
+          shortName: 'Trend Timing',
+          desc: 'Snapshot 3 ခု+ အတွင်း Demand Acceleration မှန်မှန်တက်နေပြီး ဝင်ရောက်ရန် အချိန်ကောင်းသော ပစ္စည်းများ',
+          minimumRule: 'Verified historical snapshots >=3 (24h+ span), accelerating demand > creator growth',
+          exclusionRule: 'Multi-snapshot history မရှိပါက DATA_UNAVAILABLE ပြမည် (အတု Trend မတွက်ပါ)',
+        },
+      },
+      strategyExplorer: {
+        title: 'Strategy Explorer',
+        subtitle: 'Overall Commercial သို့မဟုတ် Strategy ၈ မျိုးအနက် တစ်ခုကိုရွေး၍ ကိုက်ညီသောပစ္စည်းများကို ကြည့်ပါ',
+        overallCountLabel: (n: number) => `${n} products evaluated`,
+        qualifiedCountLabel: (n: number) => `${n} Qualified`,
+        excludedCountLabel: (n: number) => `${n} Excluded`,
+        showExcludedBtn: (n: number) => `Qualified မဖြစ်သေးသော ပစ္စည်း ${n} ခု ကြည့်မယ်`,
+        hideExcludedBtn: 'Excluded ပစ္စည်းများ ပိတ်မယ်',
+        excludedSectionTitle: 'Qualified မဖြစ်သေး / Data မပြည့်သေးသော ပစ္စည်းများ',
+        excludedSectionSub:
+          'အောက်ပါပစ္စည်းများသည် ဤ Strategy ၏ Criteria သို့မဟုတ် Verified Data Gate ကို မဖြတ်ကျော်နိုင်သေးပါ။',
+        noQualifiedTitle: 'ဤ Strategy နှင့် ကိုက်ညီသော Qualified ပစ္စည်း မတွေ့သေးပါ',
+        noQualifiedDesc:
+          'လက်ရှိပစ္စည်းများတွင် လိုအပ်သော Verified Metrics (ဥပမာ Phase 0 Unverified ဖြစ်နေသော Creator Count, Growth, Rating) မပြည့်စုံသေးခြင်း သို့မဟုတ် Gate မပြည့်မီခြင်းကြောင့် ဖြစ်နိုင်ပါသည်။',
+        historyUnavailableTitle: 'Historical Snapshot Data မရှိသေးပါ (DATA_UNAVAILABLE)',
+        historyUnavailableBadge: 'History Required',
+        historyUnavailableDesc:
+          'ဤ Strategy သည် အချိန်ကာလအလိုက် သိမ်းဆည်းထားသော Verified Historical Snapshots (အနည်းဆုံး 2–3 ကြိမ်) ရှိမှသာ Demand Velocity နှင့် Creator Saturation ကို တွက်ချက်နိုင်ပါမည်။',
+        historyUnavailableNote:
+          'SiamVisual သည် မရှိသော Trend များကို အတုလုပ်မတွက်ချက်ပါ — Snapshot History storage ချိတ်ဆက်ပြီးမှသာ ဤ Strategy တွင် Qualified ပစ္စည်းများ ပေါ်လာပါမည်။',
+        smallPoolWarning: (n: number) =>
+          `ပစ္စည်း ${n} ခုသာ ရှိသေးသော်လည်း Absolute Commercial Benchmarks ဖြင့် တည်ငြိမ်စွာ တွက်ချက်ထားပါသည်။`,
+        bestMatchLabel: 'အသင့်တော်ဆုံး Strategy',
+        noStrategyQualified: 'Qualified Strategy မရှိသေး',
+        whyRankedBtn: 'ဘာကြောင့် ဤအမှတ်ရသလဲ',
+        hideReasonsBtn: 'အကျဉ်းပိတ်မယ်',
+        whyRankedTitle: 'Ranking Reasons & Insights',
+        cautionsTitle: 'သတိပြုရန် / ကန့်သတ်ချက်များ',
+        missingOrUnverifiedTitle: 'Missing / Unverified Data',
+        failedRequirementsTitle: 'မပြည့်မီသေးသော Strategy Requirements',
+        viewFullBreakdownBtn: 'အပြည့်အစုံ Breakdown ကြည့်မယ်',
+        requiresHistoryBadge: 'History',
+        primaryStrategyTag: 'Primary',
+      },
+      provenance: {
+        sectionTitle: 'Metric Provenance & Phase 0 Verification Status',
+        sectionSubtitle:
+          'Field တစ်ခုချင်းစီသည် Verified Source၊ Derived (တွက်ချက်)၊ သို့မဟုတ် Phase 0 Unverified ဖြစ်ကြောင်း တိကျစွာ ခွဲခြားပြထားသည်။',
+        categories: {
+          verified_source: 'Verified Source',
+          derived: 'Derived (Synthetic)',
+          unverified: 'Unverified Unit/Scope',
+          missing: 'Missing',
+          zero: 'Verified Zero',
+          stale: 'Stale (>24h)',
+          invalid: 'Invalid',
+          unavailable: 'Unavailable',
+        },
+        fields: {
+          priceThb: 'Price (THB)',
+          commissionRate: 'Commission Rate',
+          commissionThb: 'Payout per Sale (THB)',
+          revenueThb7d: '7d Total Revenue',
+          salesVolume7d: '7d Units Sold',
+          videoRevenueThb7d: '7d Video Revenue',
+          liveRevenueThb7d: '7d Live Revenue',
+          revenueGrowthRate: 'Revenue Growth Rate',
+          creatorCount: 'Creator Count',
+          rating: 'Product Rating',
+          reviewCount: 'Review Count',
+        },
+        unverifiedCoreBanner: (count: number) =>
+          `Phase 0 Notice: Metric ${count} ခုသည် Upstream Unit/Definition Unverified ဖြစ်နေ၍ Strategy Qualification တွင် မသုံးထားပါ`,
+        syntheticRevenueBanner: 'Revenue ကို Price × Sales မှ Synthetic ခန့်မှန်းထားသည် (Confidence လျှော့ချထားသည်)',
+      },
+      dialog: {
+        v2Subtitle:
+          'Commercial Opportunity ကို Demand, Earning, Competition, Customer Quality ၄ ချက်ဖြင့် တွက်ချက်ထားပြီး Video Suitability ကို ဖယ်ထုတ်ထားပါသည်။',
+        gateDecisionsTitle: 'Gate Decisions & Classification Logic',
+        overallInsightsTitle: 'Key Strengths & Observations',
+        dimensionSubmetrics: {
+          revenueScore: 'Revenue Score',
+          salesScore: 'Sales Vol Score',
+          absDemand: 'Absolute Demand',
+          growthRate: 'Verified Growth',
+          payoutPerSale: 'Payout / Sale',
+          commissionRate: 'Commission %',
+          creators: 'Creators',
+          rawRpc: 'Raw RPC',
+          adjustedRpc: 'Adjusted RPC',
+          bayesianRating: 'Bayesian Rating',
+          rawRating: 'Raw Rating',
+          reviews: 'Reviews',
+        },
+        usedMetricsLabel: 'Used metrics',
+        excludedMetricsLabel: 'Excluded metrics',
+        conversionSectionTitle: 'Conversion Evidence (Separate from Commercial Score)',
+        videoShareLabel: 'Video Share',
+        liveShareLabel: 'Live Share',
+        strategyMatrixTitle: '8-Strategy Eligibility Matrix',
+        strategyMatrixSub: 'Strategy တစ်ခုချင်းစီ၏ Qualification, Strategy Score နှင့် မပြည့်မီသေးသော အချက်များ',
+        studioVisualRefTitle: 'Creative / Video Studio Reference (Commercial Score တွင် 0% ပါဝင်)',
+        studioVisualRefNotice:
+          'အောက်ပါ Visual cues များသည် Video ဖန်တီးမှုအတွက်သာ ဖြစ်ပြီး Commercial Opportunity Ranking တွင် လုံးဝ မပါဝင်ပါ။',
+        v1SilentScoreLabel: 'Studio Visual Reference Score (V1)',
+      },
+      riskLabels: {
+        EXTREME_COMPETITION: 'Extreme Competition',
+        HIGH_COMPETITION: 'High Competition',
+        ZERO_CREATORS_POSITIVE_REVENUE: '0 Creators w/ Revenue (Unexplained)',
+        ZERO_COMMISSION: '0% Commission',
+        NOT_MONETIZABLE: 'Not Monetizable',
+        MISSING_COMMISSION: 'Missing Commission',
+        MISSING_GROWTH: 'Missing Growth',
+        UNVERIFIED_GROWTH_UNIT: 'Growth Unit Unverified',
+        UNVERIFIED_CREATOR_DEFINITION: 'Creator Scope Unverified',
+        UNVERIFIED_RATING_SEMANTICS: 'Rating Scope Unverified',
+        UNVERIFIED_REVIEW_COUNT: 'Review Count Unverified',
+        LOW_REVIEW_SAMPLE: 'Low Review Sample',
+        POOR_CUSTOMER_QUALITY: 'Poor Customer Quality',
+        MISSING_CUSTOMER_QUALITY: 'Missing Quality Data',
+        MISSING_COMPETITION: 'Missing Competition Data',
+        MISSING_DEMAND: 'Missing Demand Data',
+        WEAK_DEMAND: 'Weak Demand',
+        NEGATIVE_GROWTH: 'Negative Growth',
+        STALE_DATA: 'Stale Data',
+        SYNTHETIC_REVENUE: 'Synthetic Revenue',
+        CONVERSION_DISCREPANCY: 'Channel Revenue Mismatch',
+        LOW_DATA_CONFIDENCE: 'Low Data Confidence',
+        LOW_PAYOUT: 'Low THB Payout',
+      },
+      formatRiskTag: (tag: string) => tag.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()),
+      metricsShort: {
+        creators: 'Creators',
+        adjRpc: 'Adj RPC',
+        growth: 'Growth',
+        payout: 'Payout',
+        rating: 'Bay. Rating',
+        reviews: 'Reviews',
+        videoShare: 'Video Share',
+        liveRev: 'Live Rev',
+        unverified: 'Unverified',
+        missing: 'Missing',
+      },
+    },
   },
   en: {
     nav: {
@@ -779,9 +1209,10 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         'No TikTok Shop Product ID found in that link. Please paste the full product link or numeric Product ID.',
     },
     discover: {
-      resultsHeading: 'Best Matches',
+      resultsHeading: 'Commercial Product Intelligence',
       singleResultHeading: 'Product from Link',
-      resultsSubtext: 'Ranked by Kalodata sales velocity, affiliate commission, and silent-visual score.',
+      resultsSubtext:
+        'Ranked by Product Intelligence V2 across Demand, Earning, Competition, and Customer Quality (visual suitability excluded).',
       singleResultSubtext: 'Fetched directly from Kalodata for your pasted product link.',
       noResultsTitle: 'No matching products found',
       noResultsDesc: 'Try another keyword, category selection, or product link.',
@@ -790,6 +1221,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       loadingSingleNote: 'Fetching product details from Kalodata...',
       cachedNote: 'Loaded from cache (0 cr)',
       refreshLiveBtn: 'Refresh Live (~0.2 cr)',
+      staleSnapshotNotice: 'Snapshot is >24h old (Stale) — run Live Refresh for current Thailand TikTok Shop data.',
       aiFallbackNotice:
         'Kalodata products loaded safely (no credits wasted) — AI summary timed out. Retry below for 0 Kalodata credits.',
       retryAiBtn: 'Retry AI Explanation (0 Kalodata cr)',
@@ -845,8 +1277,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       openTikTokShort: 'TikTok Shop',
     },
     score: {
-      tooltipBtn: 'View score breakdown',
-      dialogSubtitle: 'Silent-visual ad potential calculated across 4 core conversion factors.',
+      tooltipBtn: 'Inspect Commercial Intelligence V2 breakdown',
+      dialogSubtitle: 'Inspect all 4 commercial dimensions, data confidence, provenance, conversion evidence, and 8-strategy eligibility.',
       metricVisualLabel: 'Visual Demo Strength',
       metricVisualDesc: 'How immediately the product sells itself on screen with zero spoken words',
       metricAiLabel: 'AI Video Suitability',
@@ -957,6 +1389,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       deepUsageLabel: 'Usage Scenarios',
       deepDescLabel: 'Seller Description',
       deepUpgradedToast: 'Kalodata deep data fetched and saved to browser storage.',
+      deepPartialWarning: (layers: string[]) =>
+        `Some Kalodata layers failed (${layers.join(', ')}) — partial data was saved safely.`,
+      growthUnverifiedShort: 'Unverified unit',
       deepSelectOneHint: 'Select at least 1 option to fetch.',
       deepSavedTag: 'Saved',
       deepSavedStorageNote: 'Saved permanently in your browser storage — no need to fetch again.',
@@ -1127,6 +1562,291 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         `Blocked by Max Spend Limit: tracked spent (${spent}) + est. (~${est}) exceeds your ${max} cr limit. Raise limit or reset spent counter.`,
       limitExceededReserve: (balance, est, reserve) =>
         `Blocked by Minimum Balance Reserve: balance (${balance}) minus est. (~${est}) would drop below your ${reserve} cr reserve.`,
+    },
+    v2: {
+      engineBadge: 'Intelligence V2',
+      overallTabLabel: 'Overall Commercial Ranking',
+      overallTabShort: 'Overall',
+      overallDescription:
+        'Balanced commercial opportunity across Demand, Earning, Competition, and Customer Quality. Visual suitability carries 0% weight.',
+      commercialScoreLabel: 'Commercial Score',
+      commercialScoreShort: 'Commercial',
+      strategyScoreLabel: 'Strategy Score',
+      withheldLabel: 'Withheld (Insufficient Data)',
+      withheldZeroCommLabel: '0% (Not Monetizable)',
+      dimensionsHeading: '4 Commercial Dimensions',
+      dimensions: {
+        demand: {
+          label: 'Demand',
+          short: 'Demand',
+          desc: '7d revenue scale, sales volume, and verified growth velocity',
+        },
+        earning: {
+          label: 'Earning',
+          short: 'Earning',
+          desc: 'Affiliate commission rate, THB payout per sale, and demand realization',
+        },
+        competition: {
+          label: 'Competition',
+          short: 'Competition',
+          desc: 'Creator crowding density paired with Laplace-smoothed Adjusted RPC',
+        },
+        quality: {
+          label: 'Customer Quality',
+          short: 'Quality',
+          desc: 'Bayesian-adjusted rating weighted by verified review sample size',
+        },
+      },
+      dimensionStatus: {
+        SCORED: 'Scored',
+        ZERO: 'Zero',
+        NOT_MONETIZABLE: 'Not Monetizable (0%)',
+        INSUFFICIENT: 'Insufficient Data',
+        INVALID: 'Invalid',
+      },
+      classifications: {
+        TOP_OPPORTUNITY: 'Top Opportunity',
+        STRONG_OPPORTUNITY: 'Strong Opportunity',
+        MODERATE_OPPORTUNITY: 'Moderate Opportunity',
+        WATCHLIST: 'Watchlist',
+        INSUFFICIENT_EVIDENCE: 'Insufficient Evidence',
+        NOT_MONETIZABLE: 'Not Monetizable',
+      },
+      commercialEligibility: {
+        ELIGIBLE: 'Eligible',
+        PARTIAL_EVIDENCE: 'Partial Evidence',
+        RESTRICTED_WEAK_DEMAND: 'Weak Demand Gate',
+        RESTRICTED_POOR_QUALITY: 'Poor Quality Gate',
+        NOT_MONETIZABLE: '0% Commission',
+        INSUFFICIENT_DATA: 'Insufficient Data',
+      },
+      strategyEligibility: {
+        QUALIFIED: 'Qualified',
+        PARTIAL_EVIDENCE: 'Partial Evidence',
+        INSUFFICIENT_DATA: 'Insufficient Data',
+        NOT_ELIGIBLE: 'Not Eligible',
+        DATA_UNAVAILABLE: 'Data Unavailable',
+      },
+      confidenceLabel: 'Data Confidence',
+      confidenceLevels: {
+        HIGH: 'High',
+        MEDIUM: 'Medium',
+        LOW: 'Low',
+        VERY_LOW: 'Very Low',
+      },
+      confidenceBreakdown: {
+        completeness: 'Completeness',
+        provenance: 'Source Provenance',
+        freshness: 'Freshness',
+        validity: 'Validity',
+        dimensionCoverage: 'Dimension Coverage',
+      },
+      conversionLabel: 'Conversion Evidence',
+      conversionLevels: {
+        STRONG: 'Strong Evidence',
+        MODERATE: 'Moderate Evidence',
+        WEAK: 'Weak Evidence',
+        INSUFFICIENT: 'Insufficient Evidence',
+      },
+      conversionChannels: {
+        VIDEO: 'Video-led',
+        LIVE: 'Live-led',
+        BALANCED: 'Balanced',
+        UNKNOWN: 'Unknown',
+      },
+      conversionDisclaimerShort: 'Past video/live sales do not guarantee creator conversion',
+      strategies: {
+        early_market_opportunity: {
+          name: 'Early Market Opportunity',
+          shortName: 'Early Market',
+          desc: 'Strong demand with verified positive growth, low creator crowding, and solid affiliate payout.',
+          minimumRule: 'Verified demand, growth (+10%+), <=60 creators, commission >0%, confidence >=60',
+          exclusionRule: 'Excludes 0% commission, flat/negative growth, >60 creators, or unverified growth/creators',
+        },
+        underserved_demand: {
+          name: 'Underserved Demand',
+          shortName: 'Underserved',
+          desc: 'Strong demand with relatively low creator crowding and monetizable payout; works without growth data.',
+          minimumRule: 'Absolute demand >=50, competition >=45, earning >=35, confidence >=48',
+          exclusionRule: 'Excludes 0% commission, crowded markets, 0-creator anomalies, or unverified creators',
+        },
+        creator_yield_opportunity: {
+          name: 'Creator Yield Opportunity',
+          shortName: 'Creator Yield',
+          desc: 'High Laplace-smoothed revenue per creator (Adjusted RPC) backed by meaningful market demand.',
+          minimumRule: 'Revenue >=฿20,000, adjusted RPC >=฿3,000, creators >=1, commission >0%, confidence >=55',
+          exclusionRule: 'Excludes tiny low-revenue 1-creator listings, 0-creator listings, and 0% commission',
+        },
+        fast_rising_products: {
+          name: 'Fast Rising Products',
+          shortName: 'Fast Rising',
+          desc: 'Accelerating demand outpacing creator saturation across verified longitudinal snapshots.',
+          minimumRule: 'Requires >=2 time-separated verified snapshots (12h+) showing >=15% demand growth',
+          exclusionRule: 'Returns DATA_UNAVAILABLE when snapshot history is absent; never fabricates trends',
+        },
+        profit_maximizer: {
+          name: 'Profit Maximizer',
+          shortName: 'Profit Max',
+          desc: 'Attractive baht payout per sale paired with verified market demand and manageable competition.',
+          minimumRule: 'Payout >=฿20/sale, earning >=48, demand >=38, competition >=30, confidence >=55',
+          exclusionRule: 'Excludes high-commission % dead listings with weak demand or sub-฿20 payouts',
+        },
+        video_proven_winners: {
+          name: 'Video Proven Winners',
+          shortName: 'Video Proven',
+          desc: 'Substantial historical short-video revenue (฿25K+ & 25%+ share) with verified demand.',
+          minimumRule: 'Video revenue >=฿25,000, video share >=25%, demand >=40, confidence >=52',
+          exclusionRule: 'Never confuses visual suitability with sales proof or guarantees future conversion',
+        },
+        trust_based_winners: {
+          name: 'Trust-Based Winners',
+          shortName: 'Trust Winners',
+          desc: 'High Bayesian-adjusted customer rating supported by substantial review volume and solid demand.',
+          minimumRule: 'Reviews >=30, Bayesian rating >=4.25, quality >=70, demand >=40, confidence >=58',
+          exclusionRule: 'Excludes tiny-sample 5.0 ratings (<30 reviews), poor ratings, and unverified ratings',
+        },
+        trend_timing_opportunity: {
+          name: 'Trend Timing Opportunity',
+          shortName: 'Trend Timing',
+          desc: 'Sustained multi-snapshot demand acceleration outpacing creator entry at the right timing window.',
+          minimumRule: 'Requires >=3 verified snapshots (24h+ span) with positive demand-vs-creator spread',
+          exclusionRule: 'Returns DATA_UNAVAILABLE when multi-snapshot history is absent',
+        },
+      },
+      strategyExplorer: {
+        title: 'Strategy Explorer',
+        subtitle: 'Switch between Overall Commercial Ranking and all 8 specialized affiliate strategies',
+        overallCountLabel: (n: number) => `${n} products`,
+        qualifiedCountLabel: (n: number) => `${n} qualified`,
+        excludedCountLabel: (n: number) => `${n} excluded`,
+        showExcludedBtn: (n: number) => `Inspect ${n} non-qualifying candidates`,
+        hideExcludedBtn: 'Hide non-qualifying candidates',
+        excludedSectionTitle: 'Non-Qualifying / Unverified Candidates',
+        excludedSectionSub:
+          'These products did not pass the active strategy thresholds or required verified metric gates.',
+        noQualifiedTitle: 'No qualified products for this strategy yet',
+        noQualifiedDesc:
+          'None of the current products passed all thresholds and verified metric gates (note: Phase 0 unverified fields block strategies that require them).',
+        historyUnavailableTitle: 'Historical Snapshot Data Unavailable (DATA_UNAVAILABLE)',
+        historyUnavailableBadge: 'History Required',
+        historyUnavailableDesc:
+          'This strategy requires at least 2–3 verified historical snapshots separated in time to measure real demand acceleration vs creator saturation.',
+        historyUnavailableNote:
+          'SiamVisual never invents synthetic historical trends. Connect longitudinal snapshot storage to activate qualified rankings here.',
+        smallPoolWarning: (n: number) =>
+          `Small pool (${n} items): scores remain anchored to absolute Thailand market benchmarks without percentile distortion.`,
+        bestMatchLabel: 'Best Strategy Match',
+        noStrategyQualified: 'No Strategy Qualified',
+        whyRankedBtn: 'Why it ranks here',
+        hideReasonsBtn: 'Hide explanation',
+        whyRankedTitle: 'Ranking Reasons & Insights',
+        cautionsTitle: 'Cautions & Gate Constraints',
+        missingOrUnverifiedTitle: 'Missing / Unverified Evidence',
+        failedRequirementsTitle: 'Unmet Strategy Requirements',
+        viewFullBreakdownBtn: 'Full Breakdown',
+        requiresHistoryBadge: 'History',
+        primaryStrategyTag: 'Primary',
+      },
+      provenance: {
+        sectionTitle: 'Metric Provenance & Phase 0 Verification Status',
+        sectionSubtitle:
+          'Shows whether each field comes from a verified source, is derived, or remains unverified pending Phase 0 live API probing.',
+        categories: {
+          verified_source: 'Verified Source',
+          derived: 'Derived (Synthetic)',
+          unverified: 'Unverified Unit/Scope',
+          missing: 'Missing',
+          zero: 'Verified Zero',
+          stale: 'Stale (>24h)',
+          invalid: 'Invalid',
+          unavailable: 'Unavailable',
+        },
+        fields: {
+          priceThb: 'Price (THB)',
+          commissionRate: 'Commission Rate',
+          commissionThb: 'Payout per Sale (THB)',
+          revenueThb7d: '7d Total Revenue',
+          salesVolume7d: '7d Units Sold',
+          videoRevenueThb7d: '7d Video Revenue',
+          liveRevenueThb7d: '7d Live Revenue',
+          revenueGrowthRate: 'Revenue Growth Rate',
+          creatorCount: 'Creator Count',
+          rating: 'Product Rating',
+          reviewCount: 'Review Count',
+        },
+        unverifiedCoreBanner: (count: number) =>
+          `Phase 0 Guard: ${count} metric(s) have unverified upstream units/scope and are blocked from inflating strategy qualification`,
+        syntheticRevenueBanner: 'Revenue is synthetically estimated from price × sales (confidence penalized)',
+      },
+      dialog: {
+        v2Subtitle:
+          'Commercial Opportunity evaluates Demand, Earning, Competition, and Customer Quality independently. Visual suitability is excluded.',
+        gateDecisionsTitle: 'Gate Decisions & Eligibility',
+        overallInsightsTitle: 'Key Strengths & Observations',
+        dimensionSubmetrics: {
+          revenueScore: 'Revenue Score',
+          salesScore: 'Sales Vol Score',
+          absDemand: 'Absolute Demand',
+          growthRate: 'Verified Growth',
+          payoutPerSale: 'Payout / Sale',
+          commissionRate: 'Commission %',
+          creators: 'Creators',
+          rawRpc: 'Raw RPC',
+          adjustedRpc: 'Adjusted RPC',
+          bayesianRating: 'Bayesian Rating',
+          rawRating: 'Raw Rating',
+          reviews: 'Reviews',
+        },
+        usedMetricsLabel: 'Used metrics',
+        excludedMetricsLabel: 'Excluded metrics',
+        conversionSectionTitle: 'Conversion Evidence (Independent of Commercial Score)',
+        videoShareLabel: 'Video Share',
+        liveShareLabel: 'Live Share',
+        strategyMatrixTitle: '8-Strategy Eligibility Matrix',
+        strategyMatrixSub: 'Per-strategy eligibility status, strategy score, and exact requirement checks',
+        studioVisualRefTitle: 'Creative / Video Studio Reference (0% Weight in Commercial Score)',
+        studioVisualRefNotice:
+          'Visual cues below assist with video production only and do not contribute to Commercial Opportunity ranking.',
+        v1SilentScoreLabel: 'Studio Visual Reference (V1)',
+      },
+      riskLabels: {
+        EXTREME_COMPETITION: 'Extreme Competition',
+        HIGH_COMPETITION: 'High Competition',
+        ZERO_CREATORS_POSITIVE_REVENUE: '0 Creators w/ Revenue',
+        ZERO_COMMISSION: '0% Commission',
+        NOT_MONETIZABLE: 'Not Monetizable',
+        MISSING_COMMISSION: 'Missing Commission',
+        MISSING_GROWTH: 'Missing Growth',
+        UNVERIFIED_GROWTH_UNIT: 'Growth Unit Unverified',
+        UNVERIFIED_CREATOR_DEFINITION: 'Creator Scope Unverified',
+        UNVERIFIED_RATING_SEMANTICS: 'Rating Scope Unverified',
+        UNVERIFIED_REVIEW_COUNT: 'Review Count Unverified',
+        LOW_REVIEW_SAMPLE: 'Low Review Sample',
+        POOR_CUSTOMER_QUALITY: 'Poor Customer Quality',
+        MISSING_CUSTOMER_QUALITY: 'Missing Quality Data',
+        MISSING_COMPETITION: 'Missing Competition Data',
+        MISSING_DEMAND: 'Missing Demand Data',
+        WEAK_DEMAND: 'Weak Demand',
+        NEGATIVE_GROWTH: 'Negative Growth',
+        STALE_DATA: 'Stale Data',
+        SYNTHETIC_REVENUE: 'Synthetic Revenue',
+        CONVERSION_DISCREPANCY: 'Channel Revenue Mismatch',
+        LOW_DATA_CONFIDENCE: 'Low Data Confidence',
+        LOW_PAYOUT: 'Low THB Payout',
+      },
+      formatRiskTag: (tag: string) => tag.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()),
+      metricsShort: {
+        creators: 'Creators',
+        adjRpc: 'Adj RPC',
+        growth: 'Growth',
+        payout: 'Payout',
+        rating: 'Bay. Rating',
+        reviews: 'Reviews',
+        videoShare: 'Video Share',
+        liveRev: 'Live Rev',
+        unverified: 'Unverified',
+        missing: 'Missing',
+      },
     },
   },
 };

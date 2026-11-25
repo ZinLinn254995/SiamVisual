@@ -188,7 +188,7 @@ export function CompactFilterBar({
             ) : (
               <Search className="w-3.5 h-3.5 shrink-0" />
             )}
-            <span>
+            <span className="max-w-[104px] sm:max-w-none truncate">
               {isSearching
                 ? t.search.searchingButton
                 : isSingleLinkValid

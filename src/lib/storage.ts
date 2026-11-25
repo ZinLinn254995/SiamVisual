@@ -7,6 +7,7 @@ import type {
   ProductDeepInsights,
   ProductItem,
   ProductKalodataMetrics,
+  ProductValidatedMetrics,
   RecentSearchEntry,
   ResultGridCols,
   ResultListZoom,
@@ -20,6 +21,12 @@ import {
   isLegacyDefaultHomeLabel,
   localizeCategories,
 } from './categoryTranslations';
+import {
+  adaptProductItemToValidatedMetrics,
+  refreshProductValidatedMetricsFreshness,
+} from './metricFoundation';
+import { evaluateProductCommercialV2 } from './scoringEngineV2';
+import { evaluateProductStrategiesV2 } from './strategyEngineV2';
 
 const HISTORY_KEY = 'siamvisual_history_v1';
 const RECENT_SEARCHES_KEY = 'siamvisual_recent_searches_v1';
@@ -361,22 +368,60 @@ export function persistDeepInsightsCache(
   }
 }
 
+function parseTimestampMs(iso?: string | null): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function mergeKalodataMetrics(
   primary?: ProductKalodataMetrics,
   fallback?: ProductKalodataMetrics
 ): ProductKalodataMetrics | undefined {
   if (!primary && !fallback) return undefined;
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+
+  // Prefer a coherent snapshot when timestamps differ rather than mixing fields across periods
+  const primaryMs = parseTimestampMs(primary.fetchedAt);
+  const fallbackMs = parseTimestampMs(fallback.fetchedAt);
+  if (primaryMs !== null && fallbackMs !== null && primaryMs !== fallbackMs) {
+    return primaryMs >= fallbackMs ? primary : fallback;
+  }
+  if (primaryMs !== null && fallbackMs === null) {
+    return primary;
+  }
+  if (fallbackMs !== null && primaryMs === null) {
+    return fallback;
+  }
+
   return {
-    salesVolume7d: primary?.salesVolume7d ?? fallback?.salesVolume7d ?? null,
-    revenueThb7d: primary?.revenueThb7d ?? fallback?.revenueThb7d ?? null,
-    videoRevenueThb7d: primary?.videoRevenueThb7d ?? fallback?.videoRevenueThb7d ?? null,
-    liveRevenueThb7d: primary?.liveRevenueThb7d ?? fallback?.liveRevenueThb7d ?? null,
-    revenueGrowthRate: primary?.revenueGrowthRate ?? fallback?.revenueGrowthRate ?? null,
-    creatorCount: primary?.creatorCount ?? fallback?.creatorCount ?? null,
-    rating: primary?.rating ?? fallback?.rating ?? null,
-    reviewCount: primary?.reviewCount ?? fallback?.reviewCount ?? null,
-    dateRange: primary?.dateRange || fallback?.dateRange || 'last7Day',
+    salesVolume7d: primary.salesVolume7d ?? fallback.salesVolume7d ?? null,
+    revenueThb7d: primary.revenueThb7d ?? fallback.revenueThb7d ?? null,
+    videoRevenueThb7d: primary.videoRevenueThb7d ?? fallback.videoRevenueThb7d ?? null,
+    liveRevenueThb7d: primary.liveRevenueThb7d ?? fallback.liveRevenueThb7d ?? null,
+    revenueGrowthRate: primary.revenueGrowthRate ?? fallback.revenueGrowthRate ?? null,
+    creatorCount: primary.creatorCount ?? fallback.creatorCount ?? null,
+    rating: primary.rating ?? fallback.rating ?? null,
+    reviewCount: primary.reviewCount ?? fallback.reviewCount ?? null,
+    dateRange: primary.dateRange || fallback.dateRange || 'last7Day',
+    fetchedAt: primary.fetchedAt || fallback.fetchedAt,
   };
+}
+
+function selectFresherValidatedMetrics(
+  primary?: ProductValidatedMetrics,
+  fallback?: ProductValidatedMetrics
+): ProductValidatedMetrics | undefined {
+  if (!primary && !fallback) return undefined;
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+  const primaryMs = parseTimestampMs(primary.fetchedAt);
+  const fallbackMs = parseTimestampMs(fallback.fetchedAt);
+  if (primaryMs !== null && fallbackMs !== null) {
+    return primaryMs >= fallbackMs ? primary : fallback;
+  }
+  return primaryMs !== null ? primary : fallbackMs !== null ? fallback : primary;
 }
 
 export function saveDeepInsightForProduct(
@@ -384,6 +429,7 @@ export function saveDeepInsightForProduct(
   incoming: {
     deepInsights: ProductDeepInsights;
     kalodataMetrics?: ProductKalodataMetrics;
+    validatedMetrics?: ProductValidatedMetrics;
     shopName?: string;
     imageUrl?: string;
   }
@@ -420,6 +466,10 @@ export function saveDeepInsightForProduct(
   const record: SavedDeepInsightRecord = {
     deepInsights: mergedDeep,
     kalodataMetrics: mergeKalodataMetrics(incoming.kalodataMetrics, prev?.kalodataMetrics),
+    validatedMetrics: selectFresherValidatedMetrics(
+      incoming.validatedMetrics,
+      prev?.validatedMetrics
+    ),
     shopName: incoming.shopName || prev?.shopName,
     imageUrl: incoming.imageUrl || prev?.imageUrl,
     savedAt: new Date().toISOString(),
@@ -524,10 +574,17 @@ export function saveAiExplanationsForProducts(products: ProductItem[]): void {
   }
 }
 
-export function hydrateProductFromStorage(product: ProductItem): ProductItem {
+export function hydrateProductFromStorage(
+  product: ProductItem,
+  options?: { nowMs?: number }
+): ProductItem {
   const deepCache = loadDeepInsightsCache();
   const aiCache = loadAiExplanationsCache();
   const analysisCache = loadProductAnalysisCache();
+  const nowMs = options?.nowMs;
+  const scoringOpts = nowMs !== undefined ? { nowMs } : undefined;
+  const strategyOpts =
+    nowMs !== undefined ? { scoringConfig: { nowMs } } : undefined;
 
   let hydrated = product;
 
@@ -560,11 +617,27 @@ export function hydrateProductFromStorage(product: ProductItem): ProductItem {
       ),
       fetchedAt: product.deepInsights?.fetchedAt || savedDeep.deepInsights.fetchedAt,
     };
+    const selectedValidated = selectFresherValidatedMetrics(
+      hydrated.validatedMetrics,
+      savedDeep.validatedMetrics
+    );
+    const nextValidated =
+      selectedValidated && nowMs !== undefined
+        ? refreshProductValidatedMetricsFreshness(selectedValidated, { nowMs })
+        : selectedValidated;
+    const nextCommercialV2 = nextValidated
+      ? evaluateProductCommercialV2(nextValidated, scoringOpts)
+      : hydrated.commercialScoreV2;
     hydrated = {
       ...hydrated,
       shopName: savedDeep.shopName || hydrated.shopName,
       imageUrl: savedDeep.imageUrl || hydrated.imageUrl,
       kalodataMetrics: mergeKalodataMetrics(hydrated.kalodataMetrics, savedDeep.kalodataMetrics),
+      validatedMetrics: nextValidated,
+      commercialScoreV2: nextCommercialV2,
+      strategyIntelligenceV2: nextValidated
+        ? evaluateProductStrategiesV2(nextValidated, nextCommercialV2, strategyOpts)
+        : hydrated.strategyIntelligenceV2,
       deepInsights: mergedDeep,
     };
   }
@@ -579,7 +652,7 @@ export function hydrateProductFromStorage(product: ProductItem): ProductItem {
       category: savedAi.category,
       categoryLabel: savedAi.categoryLabel,
       visualTags: savedAi.visualTags,
-      scoreBreakdown: savedAi.scoreBreakdown ?? hydrated.scoreBreakdown,
+      scoreBreakdown: hydrated.scoreBreakdown ?? savedAi.scoreBreakdown,
       aiEnriched: true,
     };
   }
@@ -606,11 +679,45 @@ export function hydrateProductFromStorage(product: ProductItem): ProductItem {
     };
   }
 
+  // Ensure legacy products saved before V2 seamlessly upgrade with validated metrics, V2 scores, and strategy evaluations
+  const baseValidated =
+    hydrated.validatedMetrics ?? adaptProductItemToValidatedMetrics(hydrated, scoringOpts);
+  const refreshedValidated =
+    nowMs !== undefined
+      ? refreshProductValidatedMetricsFreshness(baseValidated, { nowMs })
+      : baseValidated;
+  const freshnessChanged = refreshedValidated !== hydrated.validatedMetrics;
+
+  if (
+    freshnessChanged ||
+    !hydrated.validatedMetrics ||
+    !hydrated.commercialScoreV2 ||
+    !hydrated.strategyIntelligenceV2
+  ) {
+    const nextCommercialV2 =
+      !freshnessChanged && hydrated.commercialScoreV2
+        ? hydrated.commercialScoreV2
+        : evaluateProductCommercialV2(refreshedValidated, scoringOpts);
+    const nextStrategyV2 =
+      !freshnessChanged && hydrated.strategyIntelligenceV2
+        ? hydrated.strategyIntelligenceV2
+        : evaluateProductStrategiesV2(refreshedValidated, nextCommercialV2, strategyOpts);
+    hydrated = {
+      ...hydrated,
+      validatedMetrics: refreshedValidated,
+      commercialScoreV2: nextCommercialV2,
+      strategyIntelligenceV2: nextStrategyV2,
+    };
+  }
+
   return hydrated;
 }
 
-export function hydrateProductsFromStorage(products: ProductItem[]): ProductItem[] {
-  return products.map(hydrateProductFromStorage);
+export function hydrateProductsFromStorage(
+  products: ProductItem[],
+  options?: { nowMs?: number }
+): ProductItem[] {
+  return products.map((product) => hydrateProductFromStorage(product, options));
 }
 
 export function exportHistoryBackup(

@@ -18,6 +18,7 @@ import { KalodataBar } from './components/KalodataBar';
 import { ProductCard } from './components/ProductCard';
 import { ScoreDetailDialog } from './components/ScoreDetailDialog';
 import { SearchHistoryView } from './components/SearchHistoryView';
+import { StrategyExplorerBar } from './components/StrategyExplorerBar';
 import { type ActiveTab, TopBar } from './components/TopBar';
 import { VideoStudioView } from './components/VideoStudioView';
 import { TRANSLATIONS } from './i18n';
@@ -27,6 +28,13 @@ import {
   localizeCategories,
   translateCategoryNameToMyanmar,
 } from './lib/categoryTranslations';
+import {
+  type ActiveStrategyView,
+  buildProductIntelligenceView,
+  sortProductsByV2Overall,
+} from './lib/productIntelligenceView';
+import { evaluateProductCommercialV2 } from './lib/scoringEngineV2';
+import { evaluateProductStrategiesV2 } from './lib/strategyEngineV2';
 import {
   clearAllRecentSearches,
   exportHistoryBackup,
@@ -77,6 +85,7 @@ import type {
   ProductEnrichOptions,
   ProductItem,
   ProductKalodataMetrics,
+  ProductValidatedMetrics,
   RecentSearchEntry,
   ResultGridCols,
   ResultListZoom,
@@ -319,13 +328,21 @@ export default function App() {
   const [zoomHudText, setZoomHudText] = useState<string | null>(null);
   const [zoomDirection, setZoomDirection] = useState<1 | -1 | 0>(0);
 
+  const [evaluationNowMs, setEvaluationNowMs] = useState<number>(() => Date.now());
+
   // Home Search Results always initialize with the latest Recent History (0 cr)
   const [hasSearched, setHasSearched] = useState<boolean>(() => Boolean(initialLatestSearch));
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductItem[]>(() =>
-    hydrateProductsFromStorage(initialLatestSearch?.products ?? [])
+    sortProductsByV2Overall(
+      hydrateProductsFromStorage(initialLatestSearch?.products ?? [], { nowMs: evaluationNowMs }),
+      { nowMs: evaluationNowMs }
+    )
   );
+  const [activeStrategyView, setActiveStrategyView] =
+    useState<ActiveStrategyView>('overall');
+  const [showExcludedCandidates, setShowExcludedCandidates] = useState<boolean>(false);
   const [lastSearchMode, setLastSearchMode] = useState<'rank' | 'single_link'>(
     () => initialLatestSearch?.mode ?? 'rank'
   );
@@ -480,6 +497,20 @@ export default function App() {
     updateTier();
     window.addEventListener('resize', updateTier, { passive: true });
     return () => window.removeEventListener('resize', updateTier);
+  }, []);
+
+  useEffect(() => {
+    const syncClock = () => {
+      if (document.visibilityState && document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      setEvaluationNowMs((prev) => (now - prev >= 60_000 ? now : prev));
+    };
+    window.addEventListener('focus', syncClock);
+    document.addEventListener('visibilitychange', syncClock);
+    return () => {
+      window.removeEventListener('focus', syncClock);
+      document.removeEventListener('visibilitychange', syncClock);
+    };
   }, []);
 
   useEffect(() => {
@@ -666,9 +697,16 @@ export default function App() {
   }
 
   function loadRecentEntryIntoHome(entry: RecentSearchEntry) {
-    const hydrated = hydrateProductsFromStorage(entry.products);
+    const nowMs = Date.now();
+    setEvaluationNowMs(nowMs);
+    const hydrated = sortProductsByV2Overall(
+      hydrateProductsFromStorage(entry.products, { nowMs }),
+      { nowMs }
+    );
     setProducts(hydrated);
     setSelectedCateIds([]);
+    setActiveStrategyView('overall');
+    setShowExcludedCandidates(false);
     setLastSearchMode(entry.mode);
     setLastSearchCreditsUsed(entry.creditsUsed);
     setRestoredFromBrowser(true);
@@ -684,12 +722,21 @@ export default function App() {
   }
 
   function handleRemoveRecentSearch(searchId: string) {
+    const nowMs = Date.now();
+    setEvaluationNowMs(nowMs);
     setRecentSearches((prev) => {
       const next = removeRecentSearch(prev, searchId);
       if (activeRecentId === searchId) {
         const nextLatest = next[0] ?? null;
         if (nextLatest) {
-          setProducts(hydrateProductsFromStorage(nextLatest.products));
+          setProducts(
+            sortProductsByV2Overall(
+              hydrateProductsFromStorage(nextLatest.products, { nowMs }),
+              { nowMs }
+            )
+          );
+          setActiveStrategyView('overall');
+          setShowExcludedCandidates(false);
           setLastSearchMode(nextLatest.mode);
           setLastSearchCreditsUsed(nextLatest.creditsUsed);
           setRestoredFromBrowser(true);
@@ -697,6 +744,8 @@ export default function App() {
           setActiveRecentId(nextLatest.id);
         } else {
           setProducts([]);
+          setActiveStrategyView('overall');
+          setShowExcludedCandidates(false);
           setHasSearched(false);
           setRestoredFromBrowser(false);
           setActiveRecentId(null);
@@ -914,6 +963,8 @@ export default function App() {
         throw new Error(data.error || 'Kalodata API search failed');
       }
 
+      const nowMs = Date.now();
+      setEvaluationNowMs(nowMs);
       const rawFetched = Array.isArray(data.products) ? data.products : [];
       // Persist any single-link Seller description into permanent Deep Insights cache too
       for (const item of rawFetched) {
@@ -925,8 +976,9 @@ export default function App() {
           });
         }
       }
-      const hydratedProducts = hydrateProductsFromStorage(rawFetched).sort(
-        (a, b) => (b.scoreBreakdown?.total ?? 0) - (a.scoreBreakdown?.total ?? 0)
+      const hydratedProducts = sortProductsByV2Overall(
+        hydrateProductsFromStorage(rawFetched, { nowMs }),
+        { nowMs }
       );
 
       const resolvedMode: 'rank' | 'single_link' =
@@ -934,6 +986,8 @@ export default function App() {
       const used = typeof data.creditsUsed === 'number' ? data.creditsUsed : null;
 
       setProducts(hydratedProducts);
+      setActiveStrategyView('overall');
+      setShowExcludedCandidates(false);
       setLastSearchMode(resolvedMode);
       setLastSearchCreditsUsed(used);
       setRestoredFromBrowser(false);
@@ -1050,8 +1104,10 @@ export default function App() {
       const data = await parseApiJson<{
         deepInsights?: ProductDeepInsights;
         kalodataMetrics?: ProductKalodataMetrics;
+        validatedMetrics?: ProductValidatedMetrics;
         shopName?: string;
         imageUrl?: string;
+        failedLayers?: Array<'details' | 'specs' | 'comments'>;
         creditsUsed?: number | null;
         balance?: KalodataCreditBalance | null;
         error?: string;
@@ -1074,19 +1130,34 @@ export default function App() {
       const spent = typeof data.creditsUsed === 'number' ? data.creditsUsed : est;
       recordSpentCredits(spent);
 
+      const nowMs = Date.now();
+      setEvaluationNowMs(nowMs);
+
       // Permanently save fetched Kalodata Deep Data & Metrics into browser localStorage (never auto-generates Video Ideas!)
       const savedRecord = saveDeepInsightForProduct(selectedProduct.id, {
         deepInsights: data.deepInsights,
         kalodataMetrics: data.kalodataMetrics,
+        validatedMetrics: data.validatedMetrics,
         shopName: data.shopName,
         imageUrl: data.imageUrl,
       });
 
+      const nextValidated = savedRecord.validatedMetrics ?? selectedProduct.validatedMetrics;
+      const nextCommercialV2 = nextValidated
+        ? evaluateProductCommercialV2(nextValidated, { nowMs })
+        : selectedProduct.commercialScoreV2;
       const upgradedProduct: ProductItem = {
         ...selectedProduct,
         shopName: savedRecord.shopName || selectedProduct.shopName,
         imageUrl: savedRecord.imageUrl || selectedProduct.imageUrl,
         kalodataMetrics: savedRecord.kalodataMetrics ?? selectedProduct.kalodataMetrics,
+        validatedMetrics: nextValidated,
+        commercialScoreV2: nextCommercialV2,
+        strategyIntelligenceV2: nextValidated
+          ? evaluateProductStrategiesV2(nextValidated, nextCommercialV2, {
+              scoringConfig: { nowMs },
+            })
+          : selectedProduct.strategyIntelligenceV2,
         deepInsights: savedRecord.deepInsights,
       };
 
@@ -1100,7 +1171,13 @@ export default function App() {
         return nextList;
       });
 
-      showToast(t.studio.deepUpgradedToast, 'neutral');
+      if (Array.isArray(data.failedLayers) && data.failedLayers.length > 0) {
+        const partialMsg = t.studio.deepPartialWarning(data.failedLayers);
+        setEnrichError(partialMsg);
+        showToast(partialMsg, 'error');
+      } else {
+        showToast(t.studio.deepUpgradedToast, 'neutral');
+      }
     } catch (err) {
       setEnrichError(err instanceof Error ? err.message : 'Unable to enrich product.');
     } finally {
@@ -1171,7 +1248,7 @@ export default function App() {
   }
 
   function handleToggleSaveProduct(product: ProductItem) {
-    const hydrated = hydrateProductFromStorage(product);
+    const hydrated = hydrateProductFromStorage(product, { nowMs: evaluationNowMs });
     const { next, saved } = toggleSavedProduct(history, hydrated);
     setHistory(next);
     showToast(saved ? t.card.savedProductToast : t.card.removedProductToast, 'neutral');
@@ -1179,7 +1256,7 @@ export default function App() {
 
   // Opens Video Studio cleanly — NEVER auto-generates Video Ideas!
   function handleSelectProduct(product: ProductItem) {
-    const hydrated = hydrateProductFromStorage(product);
+    const hydrated = hydrateProductFromStorage(product, { nowMs: evaluationNowMs });
     const defaultStyle: VisualStyle = 'cinematic';
     const existingSavedPlan = findSavedPlanFor(hydrated.id, defaultStyle);
 
@@ -1197,7 +1274,7 @@ export default function App() {
   }
 
   function handleOpenHistoryEntry(entry: SavedHistoryEntry) {
-    const hydrated = hydrateProductFromStorage(entry.product);
+    const hydrated = hydrateProductFromStorage(entry.product, { nowMs: evaluationNowMs });
     const nextStyle: VisualStyle = entry.plan?.style ?? 'cinematic';
     const nextPlan: VideoAdPlan | null = entry.plan ?? findSavedPlanFor(hydrated.id, nextStyle);
     setSelectedProduct(hydrated);
@@ -1336,6 +1413,30 @@ export default function App() {
       doesProductMatchSelectedCategories(product, selectedCateIds, categories)
     );
   }, [products, isCategoryFilterActive, selectedCateIds, categories]);
+
+  const intelligenceView = useMemo(
+    () =>
+      buildProductIntelligenceView(filteredProducts, activeStrategyView, {
+        nowMs: evaluationNowMs,
+      }),
+    [filteredProducts, activeStrategyView, evaluationNowMs]
+  );
+
+  const isRestoredDataStale = useMemo(() => {
+    if (!restoredFromBrowser || !activeRecentEntry) return false;
+    const searchedMs = Date.parse(activeRecentEntry.searchedAt);
+    const isSearchOlderThan24h =
+      Number.isFinite(searchedMs) && evaluationNowMs - searchedMs > 24 * 3_600_000;
+    const hasStaleRiskTag = intelligenceView.rankedEntries.some((entry) =>
+      entry.riskTags.includes('STALE_DATA')
+    );
+    return isSearchOlderThan24h || hasStaleRiskTag;
+  }, [restoredFromBrowser, activeRecentEntry, evaluationNowMs, intelligenceView.rankedEntries]);
+
+  function handleSelectStrategyView(next: ActiveStrategyView) {
+    setActiveStrategyView(next);
+    setShowExcludedCandidates(false);
+  }
 
   const categoryMatchCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1512,7 +1613,9 @@ export default function App() {
   const canPinchResults =
     activeTab === 'discover' &&
     !isSearching &&
-    (resultViewMode === 'list' ? filteredProducts.length > 0 : filteredProducts.length > 1);
+    (resultViewMode === 'list'
+      ? intelligenceView.rankedEntries.length > 0
+      : intelligenceView.rankedEntries.length > 1);
 
   // Android Gallery-style two-finger pinch-to-zoom + desktop trackpad pinch (Ctrl+Wheel) for BOTH Grid & List
   useEffect(() => {
@@ -2240,11 +2343,29 @@ export default function App() {
 
                           {restoredFromBrowser ? (
                             <>
-                              <span className="text-teal-700 dark:text-teal-400 font-medium">
-                                {isViewingOlderHistory
-                                  ? t.recent.viewingOlderNote
-                                  : t.recent.loadedFromStorageNote}
+                              <span
+                                className={`font-medium ${
+                                  isRestoredDataStale
+                                    ? 'text-amber-700 dark:text-amber-400'
+                                    : 'text-teal-700 dark:text-teal-400'
+                                }`}
+                              >
+                                {isRestoredDataStale
+                                  ? t.discover.staleSnapshotNotice
+                                  : isViewingOlderHistory
+                                    ? t.recent.viewingOlderNote
+                                    : t.recent.loadedFromStorageNote}
                               </span>
+                              {isRestoredDataStale && kalodataStatus.connected && (
+                                <button
+                                  type="button"
+                                  disabled={isSearching || Boolean(searchLimitWarning)}
+                                  onClick={() => runProductSearch()}
+                                  className="font-sans font-semibold text-amber-800 dark:text-amber-300 hover:underline whitespace-nowrap cursor-pointer disabled:opacity-50"
+                                >
+                                  {t.discover.refreshLiveBtn}
+                                </button>
+                              )}
                               {isViewingOlderHistory && recentSearches[0] ? (
                                 <button
                                   type="button"
@@ -2277,54 +2398,160 @@ export default function App() {
                       </div>
 
                       {filteredProducts.length > 0 ? (
-                        <div
-                          ref={resultsGridRef}
-                          style={
-                            canPinchResults
-                              ? { touchAction: 'pan-y', transformOrigin: 'center top' }
-                              : undefined
-                          }
-                        >
-                          <motion.div
-                            key={layoutTransitionKey}
-                            initial={{
-                              opacity: 0.35,
-                              scale:
-                                zoomDirection === 1
-                                  ? 0.94
-                                  : zoomDirection === -1
-                                    ? 1.06
-                                    : 0.985,
-                            }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-                            style={{ transformOrigin: 'center top', willChange: 'transform, opacity' }}
-                            className={
-                              resultViewMode === 'list'
-                                ? `flex flex-col ${activeListGapClass} ${
-                                    filteredProducts.length === 1 ? 'max-w-3xl mx-auto' : ''
-                                  }`
-                                : filteredProducts.length === 1
-                                  ? 'grid grid-cols-1 max-w-md mx-auto gap-6'
-                                  : activeGridLayoutClass
+                        <div>
+                          <StrategyExplorerBar
+                            viewModel={intelligenceView}
+                            activeView={activeStrategyView}
+                            showExcluded={showExcludedCandidates}
+                            t={t}
+                            onSelectView={handleSelectStrategyView}
+                            onToggleShowExcluded={() =>
+                              setShowExcludedCandidates((prev) => !prev)
                             }
-                          >
-                            {filteredProducts.map((product, index) => (
-                              <ProductCard
-                                key={product.id}
-                                product={product}
-                                index={index}
-                                language={language}
-                                isSaved={savedProductIds.has(product.id)}
-                                viewMode={resultViewMode}
-                                density={cardDensity}
-                                t={t}
-                                onSelect={handleSelectProduct}
-                                onToggleSave={handleToggleSaveProduct}
-                                onOpenScoreDetails={setScoreDialogProduct}
-                              />
-                            ))}
-                          </motion.div>
+                          />
+
+                          {intelligenceView.rankedEntries.length > 0 ? (
+                            <div
+                              ref={resultsGridRef}
+                              style={
+                                canPinchResults
+                                  ? { touchAction: 'pan-y', transformOrigin: 'center top' }
+                                  : undefined
+                              }
+                            >
+                              <motion.div
+                                key={`${layoutTransitionKey}-${activeStrategyView}`}
+                                initial={{
+                                  opacity: 0.35,
+                                  scale:
+                                    zoomDirection === 1
+                                      ? 0.94
+                                      : zoomDirection === -1
+                                        ? 1.06
+                                        : 0.985,
+                                }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+                                style={{
+                                  transformOrigin: 'center top',
+                                  willChange: 'transform, opacity',
+                                }}
+                                className={
+                                  resultViewMode === 'list'
+                                    ? `flex flex-col ${activeListGapClass} ${
+                                        intelligenceView.rankedEntries.length === 1
+                                          ? 'max-w-3xl mx-auto'
+                                          : ''
+                                      }`
+                                    : intelligenceView.rankedEntries.length === 1
+                                      ? 'grid grid-cols-1 max-w-md mx-auto gap-6'
+                                      : activeGridLayoutClass
+                                }
+                              >
+                                {intelligenceView.rankedEntries.map((entry, index) => (
+                                  <ProductCard
+                                    key={entry.product.id}
+                                    product={entry.product}
+                                    intelligenceItem={entry}
+                                    activeStrategyView={activeStrategyView}
+                                    index={index}
+                                    language={language}
+                                    isSaved={savedProductIds.has(entry.product.id)}
+                                    viewMode={resultViewMode}
+                                    density={cardDensity}
+                                    nowMs={evaluationNowMs}
+                                    t={t}
+                                    onSelect={handleSelectProduct}
+                                    onToggleSave={handleToggleSaveProduct}
+                                    onOpenScoreDetails={setScoreDialogProduct}
+                                  />
+                                ))}
+                              </motion.div>
+                            </div>
+                          ) : (
+                            <div className="py-10 px-6 max-w-2xl mx-auto text-center rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#131B24]">
+                              <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
+                                {intelligenceView.isHistoricalDataUnavailable
+                                  ? t.v2.strategyExplorer.historyUnavailableTitle
+                                  : t.v2.strategyExplorer.noQualifiedTitle}
+                              </h3>
+                              <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                                {intelligenceView.isHistoricalDataUnavailable
+                                  ? t.v2.strategyExplorer.historyUnavailableDesc
+                                  : t.v2.strategyExplorer.noQualifiedDesc}
+                              </p>
+                              <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
+                                {intelligenceView.excludedEntries.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setShowExcludedCandidates((prev) => !prev)
+                                    }
+                                    className="h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70 hover:border-slate-300 dark:hover:border-slate-600 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer"
+                                  >
+                                    {showExcludedCandidates
+                                      ? t.v2.strategyExplorer.hideExcludedBtn
+                                      : t.v2.strategyExplorer.showExcludedBtn(
+                                          intelligenceView.excludedEntries.length
+                                        )}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectStrategyView('overall')}
+                                  className="h-10 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer"
+                                >
+                                  {t.v2.overallTabLabel} ({intelligenceView.overallCount})
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Non-Qualifying Candidates Drawer / Section for Active Strategy */}
+                          {activeStrategyView !== 'overall' &&
+                            showExcludedCandidates &&
+                            intelligenceView.excludedEntries.length > 0 && (
+                              <div className="mt-8 pt-6 border-t border-slate-200/80 dark:border-slate-800">
+                                <div className="mb-4">
+                                  <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
+                                    {t.v2.strategyExplorer.excludedSectionTitle} (
+                                    {intelligenceView.excludedEntries.length})
+                                  </h3>
+                                  <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                                    {t.v2.strategyExplorer.excludedSectionSub}
+                                  </p>
+                                </div>
+
+                                <div
+                                  className={
+                                    resultViewMode === 'list'
+                                      ? `flex flex-col ${activeListGapClass}`
+                                      : activeGridLayoutClass
+                                  }
+                                >
+                                  {intelligenceView.excludedEntries.map(
+                                    (excluded, idx) => (
+                                      <ProductCard
+                                        key={`excluded-${excluded.product.id}`}
+                                        product={excluded.product}
+                                        intelligenceItem={excluded}
+                                        activeStrategyView={activeStrategyView}
+                                        index={idx}
+                                        language={language}
+                                        isSaved={savedProductIds.has(excluded.product.id)}
+                                        viewMode={resultViewMode}
+                                        density={cardDensity}
+                                        nowMs={evaluationNowMs}
+                                        t={t}
+                                        onSelect={handleSelectProduct}
+                                        onToggleSave={handleToggleSaveProduct}
+                                        onOpenScoreDetails={setScoreDialogProduct}
+                                      />
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            )}
                         </div>
                       ) : (
                         <div className="py-12 px-6 max-w-lg mx-auto text-center rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#131B24]">
@@ -2417,6 +2644,7 @@ export default function App() {
                 error={planError}
                 cameFromHistory={cameFromHistory}
                 language={language}
+                nowMs={evaluationNowMs}
                 kalodataStatus={kalodataStatus}
                 kalodataLimits={kalodataLimits}
                 t={t}
@@ -2442,6 +2670,7 @@ export default function App() {
               <HistoryView
                 entries={history}
                 language={language}
+                nowMs={evaluationNowMs}
                 t={t}
                 onOpenEntry={handleOpenHistoryEntry}
                 onDeleteEntry={(entryId) => setHistory((prev) => removeHistoryEntry(prev, entryId))}
@@ -2458,6 +2687,7 @@ export default function App() {
       <ScoreDetailDialog
         product={scoreDialogProduct}
         language={language}
+        nowMs={evaluationNowMs}
         t={t}
         onClose={() => setScoreDialogProduct(null)}
       />

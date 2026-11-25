@@ -26,11 +26,18 @@ import type {
   ProductAiAnalysis,
   ProductEnrichOptions,
   ProductItem,
+  ScoreGrade,
   VideoAdPlan,
   VisualStyle,
 } from '../types';
+import {
+  ensureProductV2Intelligence,
+  getClassificationTone,
+  getDimensionBarClass,
+  getToneClasses,
+} from '../lib/productIntelligenceView.ts';
 import { AiChatPromptCard } from './AiChatPromptCard';
-import { getEffectiveScoreBreakdown, getScoreTone, ScoreRing } from './ScoreRing';
+import { ScoreRing } from './ScoreRing';
 
 interface VideoStudioViewProps {
   product: ProductItem;
@@ -46,6 +53,7 @@ interface VideoStudioViewProps {
   error: string | null;
   cameFromHistory: boolean;
   language: Language;
+  nowMs?: number;
   kalodataStatus: KalodataStatus;
   kalodataLimits: KalodataLimitSettings;
   t: Translations;
@@ -89,6 +97,7 @@ export function VideoStudioView({
   error,
   cameFromHistory,
   language,
+  nowMs,
   kalodataStatus,
   kalodataLimits,
   t,
@@ -193,9 +202,30 @@ export function VideoStudioView({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [confirmMode]);
 
-  const score = getEffectiveScoreBreakdown(product);
-  const scoreTone = getScoreTone(score.grade);
-  const isAiExplained = product.aiEnriched === true && Boolean(product.clearTitle[language]);
+  const productWithV2 = useMemo(
+    () =>
+      ensureProductV2Intelligence(
+        product,
+        nowMs !== undefined ? { nowMs } : undefined
+      ),
+    [product, nowMs]
+  );
+  const commercialV2 = productWithV2.commercialScoreV2!;
+  const strategyV2 = productWithV2.strategyIntelligenceV2!;
+  const v2Score = commercialV2.commercialOpportunityScore;
+  const v2Grade: ScoreGrade =
+    v2Score === null
+      ? 'low'
+      : v2Score >= 75
+        ? 'top'
+        : v2Score >= 58
+          ? 'strong'
+          : v2Score >= 40
+            ? 'fair'
+            : 'low';
+  const v2ClassTone = getToneClasses(
+    getClassificationTone(strategyV2.opportunityClassification)
+  );
 
   const enrichEstimatedCost = useMemo(() => {
     const sum =
@@ -363,7 +393,11 @@ export function VideoStudioView({
       lines.push(`7d Live Revenue: ฿${Math.round(metrics.liveRevenueThb7d).toLocaleString()}`);
     }
     if (typeof metrics?.revenueGrowthRate === 'number') {
-      lines.push(`7d Growth Rate: ${formatGrowthRate(metrics.revenueGrowthRate)}`);
+      const unverifiedTag =
+        productWithV2.validatedMetrics?.revenueGrowthRate.unit === 'UNVERIFIED'
+          ? ` (${t.studio.growthUnverifiedShort})`
+          : '';
+      lines.push(`7d Growth Rate: ${formatGrowthRate(metrics.revenueGrowthRate)}${unverifiedTag}`);
     }
     if (typeof metrics?.creatorCount === 'number') {
       lines.push(`Active Creators: ${metrics.creatorCount.toLocaleString()}`);
@@ -495,30 +529,32 @@ export function VideoStudioView({
 
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <span className={`font-medium ${scoreTone.labelClass}`}>
-              {t.score.grades[score.grade]}
+            <span className={`font-semibold ${v2ClassTone.text}`}>
+              {t.v2.classifications[strategyV2.opportunityClassification]}
             </span>
             <span aria-hidden="true">·</span>
             <span>{product.categoryLabel[language]}</span>
             <span aria-hidden="true">·</span>
             <span>{product.shopName}</span>
             <span aria-hidden="true">·</span>
-            <span className="text-teal-700 dark:text-teal-400 font-medium">
-              {t.studio.noSpeechNote}
+            <span className="font-mono-num tabular-nums text-slate-600 dark:text-slate-300">
+              {t.v2.confidenceLabel}: {Math.round(commercialV2.dataConfidence.score)}/100
             </span>
           </div>
 
           <div className="mt-2 flow-root">
             <button
               type="button"
-              onClick={() => onOpenScoreDetails(product)}
-              title={`${t.score.grades[score.grade]} (${score.total}/100) — ${t.score.tooltipBtn}`}
-              aria-label={`${t.score.tooltipBtn}: ${score.total}/100`}
+              onClick={() => onOpenScoreDetails(productWithV2)}
+              title={`${t.v2.classifications[strategyV2.opportunityClassification]} (${
+                v2Score ?? '—'
+              }/100) — ${t.score.tooltipBtn}`}
+              aria-label={`${t.score.tooltipBtn}: ${v2Score ?? 'Withheld'}`}
               className="float-left mr-3 mt-[3px] inline-flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:scale-[1.04] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <ScoreRing
-                score={score.total}
-                grade={score.grade}
+                score={v2Score}
+                grade={v2Grade}
                 size={56}
                 strokeWidth={4}
                 className="w-[50px] h-[50px] sm:w-[58px] sm:h-[58px]"
@@ -599,6 +635,48 @@ export function VideoStudioView({
                   : '—'}
               </span>
             </div>
+          </div>
+
+          {/* 4 Independent Commercial Dimensions Summary Row */}
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            {(
+              [
+                [
+                  t.v2.dimensions.demand.short,
+                  commercialV2.demandScore.score,
+                  commercialV2.demandScore.status,
+                ],
+                [
+                  t.v2.dimensions.earning.short,
+                  commercialV2.earningScore.score,
+                  commercialV2.earningScore.status,
+                ],
+                [
+                  t.v2.dimensions.competition.short,
+                  commercialV2.competitionScore.score,
+                  commercialV2.competitionScore.status,
+                ],
+                [
+                  t.v2.dimensions.quality.short,
+                  commercialV2.customerQualityScore.score,
+                  commercialV2.customerQualityScore.status,
+                ],
+              ] as const
+            ).map(([label, dimScore, dimStatus]) => {
+              const tone = getDimensionBarClass(dimScore, dimStatus);
+              return (
+                <div key={label} className="min-w-0">
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">{label}</div>
+                  <div className={`mt-0.5 font-mono-num tabular-nums font-semibold ${tone.textClass}`}>
+                    {dimScore !== null
+                      ? `${Math.round(dimScore)}/100`
+                      : dimStatus === 'NOT_MONETIZABLE'
+                        ? '0% Comm'
+                        : t.v2.dimensionStatus[dimStatus]}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -885,6 +963,11 @@ export function VideoStudioView({
                         }`}
                       >
                         {formatGrowthRate(metrics.revenueGrowthRate)}
+                        {productWithV2.validatedMetrics?.revenueGrowthRate.unit === 'UNVERIFIED' && (
+                          <span className="ml-1 font-sans text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                            ({t.studio.growthUnverifiedShort})
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1947,7 +2030,7 @@ export function VideoStudioView({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 8 }}
               transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-              className="relative z-10 w-full max-w-md rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 shadow-xl p-5 sm:p-6"
+              className="relative z-10 w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 shadow-xl p-5 sm:p-6"
             >
               <div className="flex items-start justify-between gap-3">
                 <h3

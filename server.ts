@@ -19,6 +19,7 @@ import {
   generateSilentVideoPlan,
   searchSilentVisualProducts,
 } from './server/productService.ts';
+import { sanitizeProductPayloadForAi } from './server/productSanitizer.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -372,82 +373,7 @@ async function startServer() {
         return;
       }
 
-      const rawDeep = product.deepInsights;
-      const safeDeepInsights =
-        rawDeep && typeof rawDeep === 'object'
-          ? {
-              description:
-                typeof rawDeep.description === 'string'
-                  ? rawDeep.description.slice(0, 700)
-                  : undefined,
-              highlights: Array.isArray(rawDeep.highlights)
-                ? rawDeep.highlights.map((h) => String(h).slice(0, 120)).slice(0, 8)
-                : undefined,
-              painPoints: Array.isArray(rawDeep.painPoints)
-                ? rawDeep.painPoints.map((p) => String(p).slice(0, 200)).slice(0, 6)
-                : undefined,
-              usageScenarios: Array.isArray(rawDeep.usageScenarios)
-                ? rawDeep.usageScenarios.map((u) => String(u).slice(0, 200)).slice(0, 6)
-                : undefined,
-              fetchedAt: String(rawDeep.fetchedAt || new Date().toISOString()),
-            }
-          : undefined;
-
-      const rawM = product.kalodataMetrics;
-      const safeFinite = (v: unknown): number | null =>
-        typeof v === 'number' && Number.isFinite(v) ? v : null;
-
-      const safeMetrics =
-        rawM && typeof rawM === 'object'
-          ? {
-              salesVolume7d: safeFinite(rawM.salesVolume7d),
-              revenueThb7d: safeFinite(rawM.revenueThb7d),
-              videoRevenueThb7d: safeFinite(rawM.videoRevenueThb7d),
-              liveRevenueThb7d: safeFinite(rawM.liveRevenueThb7d),
-              revenueGrowthRate: safeFinite(rawM.revenueGrowthRate),
-              creatorCount: safeFinite(rawM.creatorCount),
-              rating: safeFinite(rawM.rating),
-              reviewCount: safeFinite(rawM.reviewCount),
-              dateRange: typeof rawM.dateRange === 'string' ? rawM.dateRange.slice(0, 32) : 'last7Day',
-            }
-          : undefined;
-
-      const safeProduct: ProductItem = {
-        ...product,
-        id: String(product.id || 'product').slice(0, 80),
-        thaiTitle: product.thaiTitle.trim().slice(0, 280),
-        clearTitle: {
-          my: String(product.clearTitle?.my || product.thaiTitle).slice(0, 220),
-          en: String(product.clearTitle?.en || product.thaiTitle).slice(0, 220),
-        },
-        whatItIs: {
-          my: String(product.whatItIs?.my || '').slice(0, 600),
-          en: String(product.whatItIs?.en || '').slice(0, 600),
-        },
-        whySilentWorks: {
-          my: String(product.whySilentWorks?.my || '').slice(0, 400),
-          en: String(product.whySilentWorks?.en || '').slice(0, 400),
-        },
-        categoryLabel: {
-          my: String(product.categoryLabel?.my || '').slice(0, 80),
-          en: String(product.categoryLabel?.en || product.category || 'General').slice(0, 80),
-        },
-        shopName: String(product.shopName || 'TikTok Shop TH').slice(0, 120),
-        priceThb:
-          typeof product.priceThb === 'number' && Number.isFinite(product.priceThb)
-            ? Math.max(1, Math.min(1000000, Math.round(product.priceThb)))
-            : null,
-        commissionRate:
-          typeof product.commissionRate === 'number' && Number.isFinite(product.commissionRate)
-            ? Math.max(0.1, Math.min(60, product.commissionRate))
-            : null,
-        commissionThb:
-          typeof product.commissionThb === 'number' && Number.isFinite(product.commissionThb)
-            ? Math.max(1, Math.min(200000, Math.round(product.commissionThb)))
-            : null,
-        kalodataMetrics: safeMetrics,
-        deepInsights: safeDeepInsights,
-      };
+      const safeProduct = sanitizeProductPayloadForAi(product, { forVideoPlan: false });
 
       await streamNdjsonAction(req, res, async (onProgress) => {
         const analysis = await analyzeProductWithAi(safeProduct, onProgress);
@@ -484,58 +410,7 @@ async function startServer() {
         return;
       }
 
-      const rawDeep = product.deepInsights;
-      const safeDeepInsights =
-        rawDeep && typeof rawDeep === 'object'
-          ? {
-              description:
-                typeof rawDeep.description === 'string'
-                  ? rawDeep.description.slice(0, 700)
-                  : undefined,
-              highlights: Array.isArray(rawDeep.highlights)
-                ? rawDeep.highlights.map((h) => String(h).slice(0, 100)).slice(0, 8)
-                : undefined,
-              painPoints: Array.isArray(rawDeep.painPoints)
-                ? rawDeep.painPoints.map((p) => String(p).slice(0, 180)).slice(0, 6)
-                : undefined,
-              usageScenarios: Array.isArray(rawDeep.usageScenarios)
-                ? rawDeep.usageScenarios.map((u) => String(u).slice(0, 180)).slice(0, 6)
-                : undefined,
-              fetchedAt: String(rawDeep.fetchedAt || new Date().toISOString()),
-            }
-          : undefined;
-
-      const safeProduct: ProductItem = {
-        ...product,
-        id: String(product.id || 'product').slice(0, 80),
-        thaiTitle: product.thaiTitle.trim().slice(0, 260),
-        clearTitle: {
-          my: String(product.clearTitle.my || product.clearTitle.en).slice(0, 200),
-          en: String(product.clearTitle.en).slice(0, 200),
-        },
-        whatItIs: {
-          my: String(product.whatItIs?.my || '').slice(0, 600),
-          en: String(product.whatItIs?.en || '').slice(0, 600),
-        },
-        whySilentWorks: {
-          my: String(product.whySilentWorks?.my || '').slice(0, 400),
-          en: String(product.whySilentWorks?.en || '').slice(0, 400),
-        },
-        shopName: String(product.shopName || 'TikTok Shop TH').slice(0, 120),
-        priceThb:
-          typeof product.priceThb === 'number' && Number.isFinite(product.priceThb)
-            ? Math.max(1, Math.min(1000000, Math.round(product.priceThb)))
-            : null,
-        commissionRate:
-          typeof product.commissionRate === 'number' && Number.isFinite(product.commissionRate)
-            ? Math.max(0.1, Math.min(60, product.commissionRate))
-            : null,
-        commissionThb:
-          typeof product.commissionThb === 'number' && Number.isFinite(product.commissionThb)
-            ? Math.max(1, Math.min(200000, Math.round(product.commissionThb)))
-            : null,
-        deepInsights: safeDeepInsights,
-      };
+      const safeProduct = sanitizeProductPayloadForAi(product, { forVideoPlan: true });
 
       await streamNdjsonAction(req, res, async (onProgress) => {
         const plan = await generateSilentVideoPlan(safeProduct, style, onProgress);

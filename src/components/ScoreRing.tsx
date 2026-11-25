@@ -112,8 +112,27 @@ export function getScoreTone(grade: ScoreGrade): ScoreTone {
   }
 }
 
+export function getV2ScoreTone(
+  score: number | null,
+  gradeOverride?: ScoreGrade
+): ScoreTone {
+  if (score === null) {
+    return {
+      stroke: '#94A3B8',
+      textClass: 'text-slate-500 dark:text-slate-400',
+      labelClass: 'text-slate-600 dark:text-slate-400',
+      barClass: 'bg-slate-400 dark:bg-slate-600',
+      trackClass: 'stroke-slate-200/80 dark:stroke-slate-800',
+    };
+  }
+  const resolvedGrade: ScoreGrade =
+    gradeOverride ??
+    (score >= 75 ? 'top' : score >= 58 ? 'strong' : score >= 40 ? 'fair' : 'low');
+  return getScoreTone(resolvedGrade);
+}
+
 interface ScoreRingProps {
-  score: number;
+  score: number | null;
   grade: ScoreGrade;
   size?: number;
   strokeWidth?: number;
@@ -127,11 +146,12 @@ export function ScoreRing({
   strokeWidth = 3.5,
   className,
 }: ScoreRingProps) {
-  const safeScore = Math.max(0, Math.min(100, Math.round(score)));
+  const isWithheld = score === null || !Number.isFinite(score);
+  const safeScore = isWithheld ? 0 : Math.max(0, Math.min(100, Math.round(score)));
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - safeScore / 100);
-  const tone = getScoreTone(grade);
+  const dashOffset = isWithheld ? circumference : circumference * (1 - safeScore / 100);
+  const tone = isWithheld ? getV2ScoreTone(null) : getScoreTone(grade);
   const textSizeClass =
     size >= 60
       ? 'text-xl'
@@ -157,25 +177,28 @@ export function ScoreRing({
           r={radius}
           fill="none"
           strokeWidth={strokeWidth}
+          strokeDasharray={isWithheld ? '3 3' : undefined}
           className={tone.trackClass}
         />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={tone.stroke}
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={dashOffset}
-          className="transition-[stroke-dashoffset] duration-300 ease-out"
-        />
+        {!isWithheld && (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={tone.stroke}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={dashOffset}
+            className="transition-[stroke-dashoffset] duration-300 ease-out"
+          />
+        )}
       </svg>
       <span
         className={`absolute font-mono-num font-bold leading-none ${tone.textClass} ${textSizeClass}`}
       >
-        {safeScore}
+        {isWithheld ? '—' : safeScore}
       </span>
     </div>
   );

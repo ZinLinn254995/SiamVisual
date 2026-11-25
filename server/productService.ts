@@ -12,6 +12,10 @@ import {
   inferSpecificProductCategory,
   translateCategoryNameToMyanmar,
 } from '../src/lib/categoryTranslations.ts';
+import { adaptProductItemToValidatedMetrics } from '../src/lib/metricFoundation.ts';
+import { sortProductsByV2Overall } from '../src/lib/productIntelligenceView.ts';
+import { evaluateProductCommercialV2 } from '../src/lib/scoringEngineV2.ts';
+import { evaluateProductStrategiesV2 } from '../src/lib/strategyEngineV2.ts';
 import {
   generateStructuredJsonStream,
   sanitizeExternalUrl,
@@ -238,7 +242,9 @@ function buildScoredKalodataItem(
   const commissionRate = raw.commissionRate;
   const commissionThb =
     priceThb !== null && commissionRate !== null
-      ? Math.max(1, Math.round((priceThb * commissionRate) / 100))
+      ? commissionRate === 0
+        ? 0
+        : Math.round(priceThb * commissionRate) / 100
       : null;
 
   const imageUrl = sanitizeExternalUrl(raw.imageUrl);
@@ -254,6 +260,8 @@ function buildScoredKalodataItem(
     revenueGrowthRate: raw.revenueGrowthRate,
     hasImage: Boolean(imageUrl),
   });
+
+  const commercialV2 = evaluateProductCommercialV2(raw.validatedMetrics);
 
   return {
     id: raw.id,
@@ -283,6 +291,9 @@ function buildScoredKalodataItem(
     aiEnriched: false,
     scoreBreakdown,
     kalodataMetrics: raw.kalodataMetrics,
+    validatedMetrics: raw.validatedMetrics,
+    commercialScoreV2: commercialV2,
+    strategyIntelligenceV2: evaluateProductStrategiesV2(raw.validatedMetrics, commercialV2),
     ...(raw.description
       ? {
           deepInsights: {
@@ -384,7 +395,9 @@ async function runGeminiEnrichmentAndRank(
     const commissionRate = raw.commissionRate;
     const commissionThb =
       priceThb !== null && commissionRate !== null
-        ? Math.max(1, Math.round((priceThb * commissionRate) / 100))
+        ? commissionRate === 0
+          ? 0
+          : Math.round(priceThb * commissionRate) / 100
         : null;
 
     const product: ProductItem = {
@@ -413,6 +426,12 @@ async function runGeminiEnrichmentAndRank(
       visualTags: Array.isArray(info?.visualTags) ? info.visualTags.slice(0, 3) : [],
       aiEnriched: Boolean(info),
       kalodataMetrics: raw.kalodataMetrics,
+      validatedMetrics: raw.validatedMetrics,
+      commercialScoreV2: evaluateProductCommercialV2(raw.validatedMetrics),
+      strategyIntelligenceV2: evaluateProductStrategiesV2(
+        raw.validatedMetrics,
+        evaluateProductCommercialV2(raw.validatedMetrics)
+      ),
       ...(raw.description
         ? {
             deepInsights: {
@@ -525,10 +544,11 @@ export async function searchSilentVisualProducts(params: {
       : undefined;
 
   // Instant Score Engine on all 20 Kalodata products (NO auto-AI call — user runs Studio AI Analysis manually!)
-  const scoredProducts = kalodataProducts
-    .slice(0, 20)
-    .map((raw) => buildScoredKalodataItem(raw, fallbackGroup, singleSearchedCateMeta))
-    .sort((a, b) => (b.scoreBreakdown?.total ?? 0) - (a.scoreBreakdown?.total ?? 0));
+  const scoredProducts = sortProductsByV2Overall(
+    kalodataProducts
+      .slice(0, 20)
+      .map((raw) => buildScoredKalodataItem(raw, fallbackGroup, singleSearchedCateMeta))
+  );
 
   return {
     products: scoredProducts,
@@ -555,6 +575,7 @@ export async function explainExistingProducts(
     videoRevenueThb7d: p.kalodataMetrics?.videoRevenueThb7d ?? 0,
     revenueGrowthRate: p.kalodataMetrics?.revenueGrowthRate ?? 0,
     kalodataMetrics: p.kalodataMetrics ?? {},
+    validatedMetrics: p.validatedMetrics ?? adaptProductItemToValidatedMetrics(p),
     categoryHint: p.category,
     imageUrl: p.imageUrl,
     productUrl: p.productUrl,
@@ -568,7 +589,7 @@ export async function explainExistingProducts(
     rawBatch.length
   );
 
-  // Preserve any existing full deepInsights, kalodataMetrics, and aiAnalysis
+  // Preserve any existing full deepInsights, kalodataMetrics, validatedMetrics, and aiAnalysis
   return result.products.map((item) => {
     const prev = existingMap.get(item.id);
     if (!prev) return item;
@@ -576,6 +597,18 @@ export async function explainExistingProducts(
       ...item,
       kalodataCategoryId: prev.kalodataCategoryId ?? item.kalodataCategoryId,
       kalodataMetrics: prev.kalodataMetrics ?? item.kalodataMetrics,
+      validatedMetrics: prev.validatedMetrics ?? item.validatedMetrics,
+      commercialScoreV2:
+        prev.commercialScoreV2 ??
+        item.commercialScoreV2 ??
+        evaluateProductCommercialV2(prev.validatedMetrics ?? item.validatedMetrics ?? prev),
+      strategyIntelligenceV2:
+        prev.strategyIntelligenceV2 ??
+        item.strategyIntelligenceV2 ??
+        evaluateProductStrategiesV2(
+          prev.validatedMetrics ?? item.validatedMetrics ?? prev,
+          prev.commercialScoreV2 ?? item.commercialScoreV2
+        ),
       deepInsights: prev.deepInsights ?? item.deepInsights,
       aiAnalysis: prev.aiAnalysis,
     };

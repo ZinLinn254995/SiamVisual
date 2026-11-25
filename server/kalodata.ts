@@ -7,8 +7,14 @@ import type {
   ProductDeepInsights,
   ProductEnrichOptions,
   ProductKalodataMetrics,
+  ProductMetricSourceEndpoint,
+  ProductValidatedMetrics,
 } from '../src/types.ts';
 import { translateCategoryNameToMyanmar } from '../src/lib/categoryTranslations.ts';
+import {
+  adaptRawKalodataRowToValidatedMetrics,
+  parseStrictFiniteNumber,
+} from '../src/lib/metricFoundation.ts';
 import { sanitizeExternalUrl } from './gemini.ts';
 
 export interface KalodataRawProduct {
@@ -22,6 +28,7 @@ export interface KalodataRawProduct {
   videoRevenueThb7d: number;
   revenueGrowthRate: number;
   kalodataMetrics: ProductKalodataMetrics;
+  validatedMetrics: ProductValidatedMetrics;
   categoryHint: string;
   rawCategoryId?: string;
   imageUrl?: string;
@@ -40,8 +47,10 @@ export interface KalodataSearchResponse {
 export interface KalodataSingleEnrichResponse {
   deepInsights: ProductDeepInsights;
   kalodataMetrics?: ProductKalodataMetrics;
+  validatedMetrics?: ProductValidatedMetrics;
   shopName?: string;
   imageUrl?: string;
+  failedLayers?: Array<'details' | 'specs' | 'comments'>;
   creditsUsed: number | null;
   balance: KalodataCreditBalance | null;
 }
@@ -269,14 +278,7 @@ export function getCachedKalodataStatus(): KalodataStatus {
 }
 
 function parseFiniteNumber(val: unknown): number | null {
-  if (typeof val === 'number' && Number.isFinite(val)) return val;
-  if (typeof val === 'string') {
-    const cleaned = val.replace(/[^0-9.-]/g, '');
-    if (!cleaned) return null;
-    const parsed = Number.parseFloat(cleaned);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
+  return parseStrictFiniteNumber(val);
 }
 
 function parsePositiveOrNull(val: unknown): number | null {
@@ -284,9 +286,9 @@ function parsePositiveOrNull(val: unknown): number | null {
   return num !== null && num > 0 ? num : null;
 }
 
-function parsePositiveNumber(val: unknown, fallback = 0): number {
+function parseNonNegativeOrNull(val: unknown): number | null {
   const num = parseFiniteNumber(val);
-  return num !== null && num >= 0 ? num : fallback;
+  return num !== null && num >= 0 ? num : null;
 }
 
 function flattenRichText(value: unknown): string {
@@ -331,17 +333,21 @@ function inferVisualGroup(name: string): Exclude<CategoryKey, 'all'> {
   return 'home';
 }
 
-function parseRawProductRow(
+export function extractMetricsFromRawRow(
   row: Record<string, unknown>,
-  fallbackId: string
-): KalodataRawProduct | null {
-  const title = String(
-    row.product_name ?? row.product_title ?? row.title ?? ''
-  ).trim();
-  if (!title) return null;
-
-  const productId = String(row.product_id ?? row.id ?? fallbackId).trim();
-
+  sourceEndpoint: ProductMetricSourceEndpoint = 'unknown',
+  fetchedAt = new Date().toISOString()
+): {
+  priceThb: number | null;
+  commissionRate: number | null;
+  salesVolume7d: number;
+  revenueThb7d: number;
+  videoRevenueThb7d: number;
+  revenueGrowthRate: number;
+  kalodataMetrics: ProductKalodataMetrics;
+  validatedMetrics: ProductValidatedMetrics;
+  hasAnyRawMetricField: boolean;
+} {
   const rawPrice =
     parsePositiveOrNull(row.unit_price) ??
     parsePositiveOrNull(row.avg_price) ??
@@ -349,13 +355,15 @@ function parseRawProductRow(
     parsePositiveOrNull(row.price);
   const priceThb = rawPrice !== null ? Math.round(rawPrice) : null;
 
-  const rawCommission = parsePositiveOrNull(row.commission_rate);
+  const rawCommission = parseNonNegativeOrNull(row.commission_rate);
   let commissionRate: number | null = null;
   if (rawCommission !== null) {
     commissionRate =
-      rawCommission > 0 && rawCommission < 1
-        ? Math.round(rawCommission * 1000) / 10
-        : Math.min(60, Math.round(rawCommission * 10) / 10);
+      rawCommission === 0
+        ? 0
+        : rawCommission > 0 && rawCommission < 1
+          ? Math.round(rawCommission * 1000) / 10
+          : Math.min(100, Math.round(rawCommission * 10) / 10);
   }
 
   const rawSalesVol = parseFiniteNumber(
@@ -371,6 +379,18 @@ function parseRawProductRow(
   const rawRating = parseFiniteNumber(row.product_rating ?? row.rating);
   const rawReviewCount = parseFiniteNumber(row.review_count ?? row.comment_count);
 
+  const hasAnyRawMetricField =
+    rawSalesVol !== null ||
+    rawRevenue !== null ||
+    rawVideoRevenue !== null ||
+    rawLiveRevenue !== null ||
+    rawGrowthRate !== null ||
+    rawCreatorCount !== null ||
+    rawRating !== null ||
+    rawReviewCount !== null;
+
+  // Legacy V1 fields kept intact for computeDirectKalodataScore backward compatibility.
+  // Phase 1 validatedMetrics preserves exact ZERO / MISSING / INVALID / UNAVAILABLE states separately.
   const salesVolume7d = rawSalesVol !== null && rawSalesVol >= 0 ? Math.round(rawSalesVol) : 0;
   const revenueThb7d =
     rawRevenue !== null && rawRevenue >= 0
@@ -393,13 +413,57 @@ function parseRawProductRow(
     creatorCount:
       rawCreatorCount !== null && rawCreatorCount >= 0 ? Math.round(rawCreatorCount) : null,
     rating:
-      rawRating !== null && rawRating > 0 && rawRating <= 5
+      rawRating !== null && rawRating >= 0 && rawRating <= 5
         ? Math.round(rawRating * 10) / 10
         : null,
     reviewCount:
       rawReviewCount !== null && rawReviewCount >= 0 ? Math.round(rawReviewCount) : null,
     dateRange: 'last7Day',
+    fetchedAt,
   };
+
+  const validatedMetrics = adaptRawKalodataRowToValidatedMetrics(row, {
+    fetchedAt,
+    dateRange: 'last7Day',
+    sourceEndpoint,
+  });
+
+  return {
+    priceThb,
+    commissionRate,
+    salesVolume7d,
+    revenueThb7d,
+    videoRevenueThb7d,
+    revenueGrowthRate,
+    kalodataMetrics,
+    validatedMetrics,
+    hasAnyRawMetricField,
+  };
+}
+
+export function parseRawProductRow(
+  row: Record<string, unknown>,
+  fallbackId: string,
+  sourceEndpoint: ProductMetricSourceEndpoint = 'unknown',
+  fetchedAt = new Date().toISOString()
+): KalodataRawProduct | null {
+  const title = String(
+    row.product_name ?? row.product_title ?? row.title ?? ''
+  ).trim();
+  if (!title) return null;
+
+  const productId = String(row.product_id ?? row.id ?? fallbackId).trim();
+
+  const {
+    priceThb,
+    commissionRate,
+    salesVolume7d,
+    revenueThb7d,
+    videoRevenueThb7d,
+    revenueGrowthRate,
+    kalodataMetrics,
+    validatedMetrics,
+  } = extractMetricsFromRawRow(row, sourceEndpoint, fetchedAt);
 
   const imageUrl = sanitizeExternalUrl(
     row.master_image_url ?? row.image_url ?? row.cover_url ?? row.main_image
@@ -485,6 +549,7 @@ function parseRawProductRow(
     videoRevenueThb7d,
     revenueGrowthRate,
     kalodataMetrics,
+    validatedMetrics,
     categoryHint,
     rawCategoryId,
     imageUrl,
@@ -908,7 +973,7 @@ export async function fetchSingleKalodataProductById(params: {
 
     const parsed =
       detail && typeof detail === 'object'
-        ? parseRawProductRow(detail, cleanId)
+        ? parseRawProductRow(detail, cleanId, 'detail')
         : null;
     const products = parsed ? [parsed] : [];
 
@@ -1027,9 +1092,15 @@ export async function fetchKalodataThailandProducts(params: {
     );
 
     const rows = asList(rankData);
-    const products: KalodataRawProduct[] = rows
-      .map((row, idx) => parseRawProductRow(row, `kalo_${idx + 1}`))
-      .filter((item): item is KalodataRawProduct => item !== null);
+    const rankFetchedAt = new Date().toISOString();
+    const seenIds = new Set<string>();
+    const products: KalodataRawProduct[] = [];
+    for (let idx = 0; idx < rows.length; idx += 1) {
+      const parsed = parseRawProductRow(rows[idx], `kalo_${idx + 1}`, 'rank', rankFetchedAt);
+      if (!parsed || seenIds.has(parsed.id)) continue;
+      seenIds.add(parsed.id);
+      products.push(parsed);
+    }
 
     if (products.length > 0) {
       if (searchCache.size > 40) {
@@ -1103,16 +1174,22 @@ export async function enrichSingleKalodataProduct(
     estimatedCost,
   });
 
+  const enrichFetchedAt = new Date().toISOString();
   const deepInsights: ProductDeepInsights = {
-    fetchedAt: new Date().toISOString(),
+    fetchedAt: enrichFetchedAt,
   };
   let kalodataMetrics: ProductKalodataMetrics | undefined;
+  let validatedMetrics: ProductValidatedMetrics | undefined;
   let shopName: string | undefined;
   let imageUrl: string | undefined;
 
+  const attemptedLayers: Array<'details' | 'specs' | 'comments'> = [];
+  const failedLayers: Array<'details' | 'specs' | 'comments'> = [];
+  let firstError: unknown = null;
   const tasks: Promise<void>[] = [];
 
   if (options.includeDetails) {
+    attemptedLayers.push('details');
     tasks.push(
       (async () => {
         try {
@@ -1144,19 +1221,22 @@ export async function enrichSingleKalodataProduct(
             const img = sanitizeExternalUrl(detail.master_image_url);
             if (img) imageUrl = img;
 
-            const parsedDetail = parseRawProductRow(detail, cleanProductId);
-            if (parsedDetail?.kalodataMetrics) {
-              kalodataMetrics = parsedDetail.kalodataMetrics;
+            const extracted = extractMetricsFromRawRow(detail, 'detail', enrichFetchedAt);
+            if (extracted.hasAnyRawMetricField || extracted.priceThb !== null || extracted.commissionRate !== null) {
+              kalodataMetrics = extracted.kalodataMetrics;
+              validatedMetrics = extracted.validatedMetrics;
             }
           }
-        } catch {
-          // Graceful partial enrichment
+        } catch (err) {
+          failedLayers.push('details');
+          if (!firstError) firstError = err;
         }
       })()
     );
   }
 
   if (options.includeSpecs) {
+    attemptedLayers.push('specs');
     tasks.push(
       (async () => {
         try {
@@ -1200,14 +1280,16 @@ export async function enrichSingleKalodataProduct(
               .slice(0, 10);
             if (list.length > 0) deepInsights.highlights = list;
           }
-        } catch {
-          // Graceful partial enrichment
+        } catch (err) {
+          failedLayers.push('specs');
+          if (!firstError) firstError = err;
         }
       })()
     );
   }
 
   if (options.includeComments) {
+    attemptedLayers.push('comments');
     tasks.push(
       (async () => {
         try {
@@ -1256,21 +1338,38 @@ export async function enrichSingleKalodataProduct(
               if (list.length > 0) deepInsights.usageScenarios = list;
             }
           }
-        } catch {
-          // Graceful partial enrichment
+        } catch (err) {
+          failedLayers.push('comments');
+          if (!firstError) firstError = err;
         }
       })()
     );
   }
 
   await Promise.all(tasks);
+
+  if (attemptedLayers.length > 0 && failedLayers.length === attemptedLayers.length) {
+    if (firstError instanceof KalodataApiError) {
+      throw firstError;
+    }
+    throw new KalodataApiError(
+      'KALODATA_UPSTREAM_ERROR',
+      firstError instanceof Error
+        ? firstError.message
+        : 'All requested Kalodata deep-data layers failed to load.',
+      502
+    );
+  }
+
   const post = await computePostSpendDiff(apiKey, balanceBefore);
 
   return {
     deepInsights,
     kalodataMetrics,
+    validatedMetrics,
     shopName,
     imageUrl,
+    ...(failedLayers.length > 0 ? { failedLayers } : {}),
     creditsUsed: post.creditsUsed,
     balance: post.balance,
   };

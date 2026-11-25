@@ -1,19 +1,48 @@
-import { useEffect, useState } from 'react';
-import { ArrowRight, Bookmark, Check, Copy, ExternalLink } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Bookmark,
+  Check,
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  SlidersHorizontal,
+} from 'lucide-react';
 import type { Translations } from '../i18n';
 import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
 import { getStudioFallbackImage } from '../lib/media';
+import {
+  type ActiveStrategyView,
+  ensureProductV2Intelligence,
+  type ExcludedIntelligenceCardItem,
+  getClassificationTone,
+  getDimensionBarClass,
+  getToneClasses,
+  type RankedIntelligenceCardItem,
+  summarizeProductProvenance,
+} from '../lib/productIntelligenceView.ts';
 import { getTikTokShopProductUrl } from '../lib/tiktokLink';
-import type { CardDensity, Language, ProductItem, ResultViewMode } from '../types';
-import { getEffectiveScoreBreakdown, getScoreTone, ScoreRing } from './ScoreRing';
+import type {
+  CardDensity,
+  Language,
+  ProductItem,
+  ResultViewMode,
+  ScoreGrade,
+  V2DimensionStatus,
+} from '../types';
+import { ScoreRing } from './ScoreRing';
 
 interface ProductCardProps {
   product: ProductItem;
+  intelligenceItem?: RankedIntelligenceCardItem | ExcludedIntelligenceCardItem;
+  activeStrategyView?: ActiveStrategyView;
   index: number;
   language: Language;
   isSaved: boolean;
   viewMode?: ResultViewMode;
   density?: CardDensity;
+  nowMs?: number;
   t: Translations;
   onSelect: (product: ProductItem) => void;
   onToggleSave: (product: ProductItem) => void;
@@ -40,41 +69,85 @@ function formatCompactCount(count: number): string {
   return Math.round(count).toLocaleString();
 }
 
+function scoreToGrade(score: number | null): ScoreGrade {
+  if (score === null) return 'low';
+  if (score >= 75) return 'top';
+  if (score >= 58) return 'strong';
+  if (score >= 40) return 'fair';
+  return 'low';
+}
+
+function formatDimensionValue(
+  score: number | null,
+  status: V2DimensionStatus,
+  t: Translations
+): string {
+  if (status === 'NOT_MONETIZABLE') return '0%';
+  if (score === null || status === 'INSUFFICIENT' || status === 'INVALID') {
+    return status === 'INSUFFICIENT' ? t.v2.metricsShort.missing : status;
+  }
+  return `${Math.round(score)}`;
+}
+
 export function ProductCard({
-  product,
+  product: rawProduct,
+  intelligenceItem,
+  activeStrategyView = 'overall',
   index,
   language,
   isSaved,
   viewMode = 'grid',
   density = 'standard',
+  nowMs,
   t,
   onSelect,
   onToggleSave,
   onOpenScoreDetails,
 }: ProductCardProps) {
+  const product = useMemo(
+    () =>
+      intelligenceItem?.product ??
+      ensureProductV2Intelligence(rawProduct, nowMs !== undefined ? { nowMs } : undefined),
+    [intelligenceItem, rawProduct, nowMs]
+  );
+
   const fallbackSrc = getStudioFallbackImage(product.category);
   const [imgSrc, setImgSrc] = useState<string>(product.imageUrl || fallbackSrc);
   const [usingFallback, setUsingFallback] = useState<boolean>(!product.imageUrl);
   const [copiedField, setCopiedField] = useState<'thai' | 'id' | null>(null);
+  const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
-  const score = getEffectiveScoreBreakdown(product);
-  const scoreTone = getScoreTone(score.grade);
+  const commercial = product.commercialScoreV2!;
+  const strategyReport = product.strategyIntelligenceV2!;
+  const validated = product.validatedMetrics!;
+  const provenanceSummary = useMemo(
+    () => intelligenceItem?.provenanceSummary ?? summarizeProductProvenance(validated),
+    [intelligenceItem, validated]
+  );
+
+  const isExcluded = intelligenceItem?.kind === 'excluded';
+  const isStrategyView = activeStrategyView !== 'overall';
+  const strategyEval = isStrategyView
+    ? strategyReport.strategies[activeStrategyView]
+    : strategyReport.bestStrategyId
+      ? strategyReport.strategies[strategyReport.bestStrategyId]
+      : null;
+
+  const displayedScore: number | null = isExcluded
+    ? intelligenceItem.strategyScore ?? intelligenceItem.commercialOpportunityScore
+    : isStrategyView
+      ? strategyEval?.strategyScore ?? commercial.commercialOpportunityScore
+      : commercial.commercialOpportunityScore;
+
+  const scoreGrade = scoreToGrade(displayedScore);
+  const classification = strategyReport.opportunityClassification;
+  const classTone = getToneClasses(getClassificationTone(classification));
   const analysis = product.aiAnalysis;
   const metrics = product.kalodataMetrics;
   const tiktokShopUrl = getTikTokShopProductUrl(product);
 
-  const hasSavedDeepData = Boolean(
-    product.deepInsights?.description?.trim() ||
-      (product.deepInsights?.highlights && product.deepInsights.highlights.length > 0) ||
-      (product.deepInsights?.painPoints && product.deepInsights.painPoints.length > 0) ||
-      (product.deepInsights?.usageScenarios && product.deepInsights.usageScenarios.length > 0)
-  );
-
-  // Always preserve the original product name (do not replace with translated AI analysis name)
   const primaryTitle = product.thaiTitle;
-  const isTitleDecoded = false;
 
-  // Ensure Category label always renders in Myanmar when Myanmar mode is active
   const displayCategoryLabel =
     language === 'my'
       ? product.categoryLabel.my && /[\u1000-\u109F]/.test(product.categoryLabel.my)
@@ -95,14 +168,6 @@ export function ProductCard({
     typeof metrics?.revenueThb7d === 'number' && Number.isFinite(metrics.revenueThb7d);
   const hasAnySalesRow = hasSalesVol || hasVideoRev || hasTotalRev;
 
-  const decisionToneClass =
-    analysis?.decision === 'strong_go'
-      ? 'text-emerald-700 dark:text-emerald-400'
-      : analysis?.decision === 'need_more_data'
-        ? 'text-rose-700 dark:text-rose-400'
-        : 'text-amber-700 dark:text-amber-400';
-
-  // Keep image synced cleanly when product list updates
   useEffect(() => {
     if (product.imageUrl) {
       setImgSrc(product.imageUrl);
@@ -131,13 +196,6 @@ export function ProductCard({
       setCopiedField((curr) => (curr === field ? null : curr));
     }, 1600);
   }
-
-  // Single quiet secondary status label (saved state is shown directly by the Bookmark icon)
-  const studioStatusLabel = analysis
-    ? t.card.analyzedTag
-    : hasSavedDeepData
-      ? t.card.deepDataTag
-      : null;
 
   const renderSaveIconButton = (variant: 'compact' | 'regular' | 'overlay' = 'compact') => {
     const label = isSaved ? t.card.unsaveProduct : t.card.saveProduct;
@@ -189,12 +247,16 @@ export function ProductCard({
   const isCompact = density === 'compact';
   const isSpacious = density === 'spacious';
 
+  const isZeroCommission =
+    validated.commissionRate.state === 'ZERO' ||
+    commercial.earningScore.status === 'NOT_MONETIZABLE';
+
   const commissionText =
     product.commissionRate !== null
       ? `${product.commissionRate}%${
           product.commissionThb !== null ? ` · ฿${product.commissionThb.toLocaleString()}` : ''
         }`
-      : '—';
+      : t.v2.metricsShort.missing;
 
   const salesVolText = hasSalesVol
     ? `${formatCompactCount(metrics!.salesVolume7d!)}${t.card.unitsSuffix}`
@@ -205,6 +267,106 @@ export function ProductCard({
     : hasTotalRev
       ? formatCompactThb(metrics!.revenueThb7d!)
       : '—';
+
+  // Dimension details for independent 4-dimension display
+  const growthText =
+    commercial.demandScore.growthStatus === 'VERIFIED' &&
+    commercial.demandScore.subcomponents.verifiedGrowthPercent !== null
+      ? `${commercial.demandScore.subcomponents.verifiedGrowthPercent > 0 ? '+' : ''}${commercial.demandScore.subcomponents.verifiedGrowthPercent.toFixed(0)}%`
+      : commercial.demandScore.growthStatus === 'UNVERIFIED'
+        ? t.v2.metricsShort.unverified
+        : commercial.demandScore.growthStatus === 'MISSING'
+          ? t.v2.metricsShort.missing
+          : commercial.demandScore.growthStatus;
+
+  const payoutText =
+    commercial.earningScore.payoutPerSaleThb !== null
+      ? `฿${commercial.earningScore.payoutPerSaleThb.toFixed(commercial.earningScore.payoutPerSaleThb < 10 ? 1 : 0)}`
+      : isZeroCommission
+        ? '฿0'
+        : t.v2.metricsShort.missing;
+
+  const competitionSubtext =
+    commercial.competitionScore.creatorCount !== null
+      ? `${commercial.competitionScore.creatorCount}c${
+          commercial.adjustedRpcThb !== null
+            ? ` · ${formatCompactThb(commercial.adjustedRpcThb)}`
+            : ''
+        }`
+      : validated.creatorCount.unit === 'UNVERIFIED'
+        ? t.v2.metricsShort.unverified
+        : t.v2.metricsShort.missing;
+
+  const qualitySubtext =
+    commercial.customerQualityScore.bayesianRating !== null &&
+    commercial.customerQualityScore.reviewCount !== null
+      ? `${commercial.customerQualityScore.bayesianRating.toFixed(2)}★ (${formatCompactCount(
+          commercial.customerQualityScore.reviewCount
+        )})`
+      : validated.rating.unit === 'UNVERIFIED' || validated.reviewCount.unit === 'UNVERIFIED'
+        ? t.v2.metricsShort.unverified
+        : t.v2.metricsShort.missing;
+
+  const dimensions = [
+    {
+      key: 'demand',
+      label: t.v2.dimensions.demand.short,
+      score: commercial.demandScore.score,
+      status: commercial.demandScore.status,
+      subtext: growthText,
+    },
+    {
+      key: 'earning',
+      label: t.v2.dimensions.earning.short,
+      score: commercial.earningScore.score,
+      status: commercial.earningScore.status,
+      subtext: payoutText,
+    },
+    {
+      key: 'competition',
+      label: t.v2.dimensions.competition.short,
+      score: commercial.competitionScore.score,
+      status: commercial.competitionScore.status,
+      subtext: competitionSubtext,
+    },
+    {
+      key: 'quality',
+      label: t.v2.dimensions.quality.short,
+      score: commercial.customerQualityScore.score,
+      status: commercial.customerQualityScore.status,
+      subtext: qualitySubtext,
+    },
+  ];
+
+  // Conversion evidence summary (kept distinct from commercial score)
+  const convEvidence = commercial.conversionEvidence;
+  const convText =
+    convEvidence.evidenceLevel === 'INSUFFICIENT'
+      ? t.v2.conversionLevels.INSUFFICIENT
+      : convEvidence.videoRevenueShare !== null
+        ? `${t.v2.conversionChannels[convEvidence.dominantChannel]} · ${Math.round(
+            convEvidence.videoRevenueShare * 100
+          )}% Video`
+        : t.v2.conversionLevels[convEvidence.evidenceLevel];
+
+  // Top concise risk warnings (max 3 inline labels)
+  const activeRisks = (intelligenceItem?.riskTags ?? commercial.riskTags).slice(0, 3);
+  const formattedRisks = activeRisks.map(
+    (tag) => t.v2.riskLabels[tag] ?? t.v2.formatRiskTag(tag)
+  );
+
+  // Strategy match label
+  const strategyMatchLabel = isStrategyView
+    ? `${t.v2.strategies[activeStrategyView].shortName}: ${
+        t.v2.strategyEligibility[
+          intelligenceItem?.kind === 'excluded'
+            ? intelligenceItem.eligibilityStatus
+            : strategyEval?.eligibilityStatus ?? 'INSUFFICIENT_DATA'
+        ]
+      }`
+    : strategyReport.bestStrategyId
+      ? t.v2.strategies[strategyReport.bestStrategyId].name
+      : t.v2.strategyExplorer.noStrategyQualified;
 
   const renderUtilityButtons = (compactMode: boolean) => (
     <div className={`flex items-center shrink-0 ${compactMode ? 'gap-0.5' : 'gap-1'}`}>
@@ -261,11 +423,194 @@ export function ProductCard({
     </div>
   );
 
+  const renderDimensionsBlock = (columnsClass: string, compactSpacing: boolean) => (
+    <div
+      className={`grid ${columnsClass} ${
+        compactSpacing ? 'gap-x-3 gap-y-2' : 'gap-x-4 gap-y-2.5'
+      } pt-2.5 border-t border-slate-100 dark:border-slate-800/80`}
+    >
+      {dimensions.map((dim) => {
+        const tone = getDimensionBarClass(dim.score, dim.status);
+        const pct =
+          dim.score !== null && dim.status !== 'INSUFFICIENT' && dim.status !== 'INVALID'
+            ? Math.max(4, Math.min(100, dim.score))
+            : 0;
+        return (
+          <div key={dim.key} className="min-w-0">
+            <div className="flex items-baseline justify-between gap-1.5">
+              <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 truncate">
+                {dim.label}
+              </span>
+              <span className={`text-xs font-mono-num tabular-nums font-semibold shrink-0 ${tone.textClass}`}>
+                {formatDimensionValue(dim.score, dim.status, t)}
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800/90 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${tone.barClass}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="mt-0.5 text-[10px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400 truncate">
+              {dim.subtext}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const renderEvidenceAndRisks = () => {
+    const confidenceTone =
+      commercial.dataConfidence.level === 'HIGH'
+        ? 'text-emerald-700 dark:text-emerald-400'
+        : commercial.dataConfidence.level === 'MEDIUM'
+          ? 'text-teal-700 dark:text-teal-400'
+          : commercial.dataConfidence.level === 'LOW'
+            ? 'text-amber-700 dark:text-amber-400'
+            : 'text-rose-700 dark:text-rose-400';
+
+    const reasons =
+      intelligenceItem?.kind === 'ranked'
+        ? intelligenceItem.reasonsForRanking
+        : strategyReport.opportunityInsights;
+    const cautions =
+      intelligenceItem?.kind === 'excluded'
+        ? [intelligenceItem.explanation]
+        : strategyReport.cautionInsights;
+    const failedReqs =
+      intelligenceItem?.kind === 'excluded'
+        ? intelligenceItem.failedRequirements
+        : strategyEval?.failedRequirements ?? [];
+
+    return (
+      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 space-y-2 text-[11px]">
+        {/* Confidence + Conversion Evidence (strictly separated) */}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <div className="inline-flex items-center gap-1.5 min-w-0">
+            <span className="text-slate-500 dark:text-slate-400">{t.v2.confidenceLabel}:</span>
+            <span className={`font-mono-num tabular-nums font-semibold ${confidenceTone}`}>
+              {Math.round(commercial.dataConfidence.score)}/100 ·{' '}
+              {t.v2.confidenceLevels[commercial.dataConfidence.level]}
+            </span>
+          </div>
+
+          <div
+            className="inline-flex items-center gap-1.5 min-w-0 text-slate-600 dark:text-slate-300"
+            title={t.v2.conversionDisclaimerShort}
+          >
+            <span className="text-slate-500 dark:text-slate-400">{t.v2.conversionLabel}:</span>
+            <span className="font-mono-num tabular-nums font-medium truncate">{convText}</span>
+          </div>
+        </div>
+
+        {/* Concise Unboxed Risk / Unverified Warning Line */}
+        {(formattedRisks.length > 0 || provenanceSummary.hasUnverifiedCoreMetrics) && (
+          <div className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400 leading-snug">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span className="min-w-0">
+              {formattedRisks.length > 0
+                ? formattedRisks.join(' · ')
+                : t.v2.provenance.unverifiedCoreBanner(provenanceSummary.unverifiedCount)}
+            </span>
+          </div>
+        )}
+
+        {/* Inline Expandable Why-Ranked & Full Breakdown Trigger */}
+        <div className="flex items-center justify-between gap-2 pt-0.5">
+          <button
+            type="button"
+            onClick={() => setIsDetailsExpanded((prev) => !prev)}
+            aria-expanded={isDetailsExpanded}
+            className="text-[11px] font-medium text-teal-700 dark:text-teal-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+          >
+            <span>
+              {isDetailsExpanded
+                ? t.v2.strategyExplorer.hideReasonsBtn
+                : t.v2.strategyExplorer.whyRankedBtn}
+            </span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 transition-transform duration-150 ${
+                isDetailsExpanded ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onOpenScoreDetails(product)}
+            className="text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white inline-flex items-center gap-1 cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3 h-3 shrink-0" />
+            <span>{t.v2.strategyExplorer.viewFullBreakdownBtn}</span>
+          </button>
+        </div>
+
+        {isDetailsExpanded && (
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-2 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+            {reasons.length > 0 && (
+              <div>
+                <div className="font-semibold text-slate-800 dark:text-slate-200">
+                  {t.v2.strategyExplorer.whyRankedTitle}
+                </div>
+                <ul className="mt-0.5 space-y-0.5 list-disc pl-4">
+                  {reasons.slice(0, 3).map((reason, idx) => (
+                    <li key={idx}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {failedReqs.length > 0 && (
+              <div>
+                <div className="font-semibold text-rose-700 dark:text-rose-400">
+                  {t.v2.strategyExplorer.failedRequirementsTitle}
+                </div>
+                <ul className="mt-0.5 space-y-0.5 list-disc pl-4">
+                  {failedReqs.slice(0, 3).map((req) => (
+                    <li key={req.key}>
+                      <span className="font-medium">{req.label}:</span> {req.detail}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {cautions.length > 0 && (
+              <div>
+                <div className="font-semibold text-amber-700 dark:text-amber-400">
+                  {t.v2.strategyExplorer.cautionsTitle}
+                </div>
+                <ul className="mt-0.5 space-y-0.5 list-disc pl-4">
+                  {cautions.slice(0, 2).map((caution, idx) => (
+                    <li key={idx}>{caution}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {commercial.missingMetrics.length > 0 && (
+              <div className="text-slate-500 dark:text-slate-400">
+                <span className="font-semibold">
+                  {t.v2.strategyExplorer.missingOrUnverifiedTitle}:
+                </span>{' '}
+                <span className="font-mono-num">{commercial.missingMetrics.join(', ')}</span>
+              </div>
+            )}
+
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 italic">
+              {t.v2.conversionDisclaimerShort}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // =========================================================================
   // LIST VIEW — 3 Zoom Levels (Micro: Image + Name | Compact | Detailed)
   // =========================================================================
   if (viewMode === 'list') {
-    // List Level 0 (Smallest): Product Thumbnail + Product Name + minimized Save icon
     if (isMicro) {
       return (
         <article className="group flex items-center gap-1 pr-2 bg-white dark:bg-[#131B24] border border-slate-200/85 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700">
@@ -309,7 +654,6 @@ export function ProductCard({
       );
     }
 
-    // List Level 1 (Compact): medium thumbnail + title + core price/commission + score ring
     if (isCompact) {
       return (
         <article className="group flex flex-row items-center bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700">
@@ -347,19 +691,13 @@ export function ProductCard({
                   #{index + 1}
                 </span>
                 <span aria-hidden="true">·</span>
+                <span className={`font-medium shrink-0 ${classTone.text}`}>
+                  {t.v2.classifications[classification]}
+                </span>
+                <span aria-hidden="true">·</span>
                 <span className="truncate" title={displayCategoryLabel}>
                   {displayCategoryLabel}
                 </span>
-                {studioStatusLabel && (
-                  <>
-                    <span aria-hidden="true" className="hidden sm:inline">
-                      ·
-                    </span>
-                    <span className="hidden sm:inline-flex items-center gap-1 text-teal-700 dark:text-teal-400 font-medium shrink-0">
-                      <span>{studioStatusLabel}</span>
-                    </span>
-                  </>
-                )}
               </div>
 
               <button
@@ -372,46 +710,41 @@ export function ProductCard({
                 </h3>
               </button>
 
-              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-mono-num">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-mono-num tabular-nums">
                 <span className="font-semibold text-slate-900 dark:text-slate-100">
                   {product.priceThb !== null ? `฿${product.priceThb.toLocaleString()}` : '—'}
                 </span>
-                <span className="text-teal-700 dark:text-teal-400 font-semibold">
+                <span
+                  className={
+                    isZeroCommission
+                      ? 'text-rose-700 dark:text-rose-400 font-semibold'
+                      : 'text-teal-700 dark:text-teal-400 font-semibold'
+                  }
+                >
                   {commissionText}
                 </span>
-                {hasAnySalesRow && (
-                  <span className="hidden sm:inline text-slate-500 dark:text-slate-400">
-                    {salesVolText} · {revenueText}
-                  </span>
-                )}
+                <span className="hidden md:inline text-slate-500 dark:text-slate-400">
+                  D:{formatDimensionValue(commercial.demandScore.score, commercial.demandScore.status, t)}{' '}
+                  · E:{formatDimensionValue(commercial.earningScore.score, commercial.earningScore.status, t)}{' '}
+                  · C:{formatDimensionValue(commercial.competitionScore.score, commercial.competitionScore.status, t)}{' '}
+                  · Q:{formatDimensionValue(commercial.customerQualityScore.score, commercial.customerQualityScore.status, t)}
+                </span>
               </div>
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               {renderSaveIconButton('regular')}
 
-              {tiktokShopUrl && (
-                <a
-                  href={tiktokShopUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={t.card.openTikTokShop}
-                  aria-label={`${t.card.openTikTokShop}: ${primaryTitle}`}
-                  className="hidden sm:inline-flex h-7 px-2 rounded-md text-[11px] font-medium text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/50 items-center gap-1 transition-colors"
-                >
-                  <span>Shop</span>
-                  <ExternalLink className="w-3 h-3 shrink-0" />
-                </a>
-              )}
-
               <button
                 type="button"
                 onClick={() => onOpenScoreDetails(product)}
-                title={`${t.score.grades[score.grade]} (${score.total}/100) — ${t.score.tooltipBtn}`}
-                aria-label={`${t.score.tooltipBtn}: ${score.total}/100`}
+                title={`${t.v2.classifications[classification]} (${
+                  displayedScore ?? '—'
+                }/100) — ${t.score.tooltipBtn}`}
+                aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? 'Withheld'}`}
                 className="inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors shrink-0 cursor-pointer"
               >
-                <ScoreRing score={score.total} grade={score.grade} size={34} strokeWidth={3} />
+                <ScoreRing score={displayedScore} grade={scoreGrade} size={34} strokeWidth={3} />
               </button>
 
               <button
@@ -429,18 +762,17 @@ export function ProductCard({
       );
     }
 
-    // List Level 2 (Detailed / Full): complete horizontal analytics row
+    // List Level 2 (Detailed): Complete V2 Product Intelligence row (stacks cleanly on <640px phones)
     return (
-      <article className="group flex flex-row items-stretch bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700">
-        {/* Left Studio Thumbnail */}
+      <article className="group flex flex-col sm:flex-row items-stretch bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700">
         <button
           type="button"
           onClick={() => onSelect(product)}
           aria-label={`${primaryTitle} — ${t.card.createPlan}`}
-          className={`relative w-24 sm:w-36 md:w-44 shrink-0 overflow-hidden border-r border-slate-100 dark:border-slate-800/80 block text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 ${
+          className={`relative w-full h-40 sm:h-auto sm:w-36 md:w-44 shrink-0 overflow-hidden border-b sm:border-b-0 sm:border-r border-slate-100 dark:border-slate-800/80 block text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 ${
             usingFallback
               ? 'bg-slate-100 dark:bg-slate-900'
-              : 'bg-slate-50 dark:bg-slate-900/70 p-1.5 sm:p-2.5'
+              : 'bg-slate-50 dark:bg-slate-900/70 p-2 sm:p-2.5'
           }`}
         >
           <img
@@ -460,34 +792,28 @@ export function ProductCard({
           />
         </button>
 
-        {/* Center Info & Inline Metrics */}
-        <div className="flex-1 min-w-0 p-3 sm:p-4 flex flex-col justify-between gap-2">
+        <div className="flex-1 min-w-0 p-3 sm:p-4 flex flex-col justify-between gap-2.5">
           <div>
-            {/* Metadata + Mobile Score */}
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
                   <span className="font-mono-num font-semibold text-slate-900 dark:text-slate-100 shrink-0">
-                    #{index + 1}
+                    #{isExcluded ? '—' : index + 1}
                   </span>
                   <span aria-hidden="true">·</span>
-                  <span className={`font-medium shrink-0 ${scoreTone.labelClass}`}>
-                    {t.score.grades[score.grade]}
+                  <span className={`font-semibold shrink-0 ${classTone.text}`}>
+                    {t.v2.classifications[classification]}
                   </span>
                   <span aria-hidden="true">·</span>
-                  <span className="truncate" title={displayCategoryLabel}>
+                  <span className="text-teal-700 dark:text-teal-400 font-medium truncate">
+                    {strategyMatchLabel}
+                  </span>
+                  <span aria-hidden="true" className="hidden md:inline">
+                    ·
+                  </span>
+                  <span className="hidden md:inline truncate" title={displayCategoryLabel}>
                     {displayCategoryLabel}
                   </span>
-                  {studioStatusLabel && (
-                    <>
-                      <span aria-hidden="true" className="hidden md:inline">
-                        ·
-                      </span>
-                      <span className="hidden md:inline-flex items-center gap-1 text-teal-700 dark:text-teal-400 font-medium whitespace-nowrap shrink-0">
-                        <span>{studioStatusLabel}</span>
-                      </span>
-                    </>
-                  )}
                 </div>
 
                 <button
@@ -503,45 +829,33 @@ export function ProductCard({
 
               <div className="flex items-center gap-1 shrink-0 -mt-0.5 -mr-0.5">
                 {renderSaveIconButton('regular')}
-
-                {/* Mobile Compact Score Ring */}
                 <button
                   type="button"
                   onClick={() => onOpenScoreDetails(product)}
-                  title={`${t.score.grades[score.grade]} (${score.total}/100) — ${t.score.tooltipBtn}`}
-                  aria-label={`${t.score.tooltipBtn}: ${score.total}/100`}
+                  title={`${t.v2.classifications[classification]} (${
+                    displayedScore ?? '—'
+                  }/100) — ${t.score.tooltipBtn}`}
+                  aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? 'Withheld'}`}
                   className="sm:hidden inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 shrink-0 cursor-pointer"
                 >
-                  <ScoreRing score={score.total} grade={score.grade} size={36} strokeWidth={3} />
+                  <ScoreRing score={displayedScore} grade={scoreGrade} size={36} strokeWidth={3} />
                 </button>
               </div>
             </div>
 
-            {/* Shop Name + Minimized Utilities */}
             <div className="mt-1 flex items-center justify-between gap-2">
-              <p
-                className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate min-w-0 flex-1"
-                title={isTitleDecoded ? `${product.shopName} · ${product.thaiTitle}` : product.shopName}
-              >
+              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate min-w-0 flex-1">
                 {product.shopName}
               </p>
               {renderUtilityButtons(false)}
             </div>
-
-            {/* Saved AI Analysis 1-Line Summary */}
-            {analysis && (
-              <div className="hidden sm:flex items-baseline gap-2 mt-2 text-xs">
-                <span className={`font-semibold shrink-0 ${decisionToneClass}`}>
-                  {t.studio.analysisDecisions[analysis.decision]}
-                </span>
-                {analysis.bottomLine[language] && (
-                  <p className="text-slate-600 dark:text-slate-300 truncate min-w-0">
-                    {analysis.bottomLine[language]}
-                  </p>
-                )}
-              </div>
-            )}
           </div>
+
+          {/* 4 Independent Dimensions (4-col on md+, 2-col on mobile) */}
+          {renderDimensionsBlock('grid-cols-2 md:grid-cols-4', true)}
+
+          {/* Evidence, Confidence & Risks */}
+          {renderEvidenceAndRisks()}
 
           {/* Horizontal Tabular Metrics + Mobile CTA */}
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
@@ -550,7 +864,7 @@ export function ProductCard({
                 <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400">
                   {t.card.price}
                 </div>
-                <div className="text-xs sm:text-sm font-semibold font-mono-num text-slate-900 dark:text-slate-100">
+                <div className="text-xs sm:text-sm font-semibold font-mono-num tabular-nums text-slate-900 dark:text-slate-100">
                   {product.priceThb !== null ? `฿${product.priceThb.toLocaleString()}` : '—'}
                 </div>
               </div>
@@ -559,7 +873,13 @@ export function ProductCard({
                 <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400">
                   {t.card.commission}
                 </div>
-                <div className="text-xs sm:text-sm font-semibold font-mono-num text-teal-700 dark:text-teal-400">
+                <div
+                  className={`text-xs sm:text-sm font-semibold font-mono-num tabular-nums ${
+                    isZeroCommission
+                      ? 'text-rose-700 dark:text-rose-400'
+                      : 'text-teal-700 dark:text-teal-400'
+                  }`}
+                >
                   {commissionText}
                 </div>
               </div>
@@ -570,7 +890,7 @@ export function ProductCard({
                     <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400">
                       {t.card.sales7d}
                     </div>
-                    <div className="text-xs font-semibold font-mono-num text-slate-800 dark:text-slate-200">
+                    <div className="text-xs font-semibold font-mono-num tabular-nums text-slate-800 dark:text-slate-200">
                       {salesVolText}
                     </div>
                   </div>
@@ -579,7 +899,7 @@ export function ProductCard({
                     <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400">
                       {hasVideoRev ? t.card.videoRev7d : t.card.revenue7d}
                     </div>
-                    <div className="text-xs font-semibold font-mono-num text-slate-800 dark:text-slate-200">
+                    <div className="text-xs font-semibold font-mono-num tabular-nums text-slate-800 dark:text-slate-200">
                       {revenueText}
                     </div>
                   </div>
@@ -587,7 +907,6 @@ export function ProductCard({
               )}
             </div>
 
-            {/* Mobile Inline Compact CTA */}
             <button
               type="button"
               onClick={() => onSelect(product)}
@@ -600,32 +919,46 @@ export function ProductCard({
         </div>
 
         {/* Desktop / Tablet Right Action Column */}
-        <div className="hidden sm:flex flex-col items-end justify-between gap-3 w-44 md:w-48 shrink-0 p-4 border-l border-slate-100 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-900/20">
+        <div className="hidden sm:flex flex-col items-end justify-between gap-3 w-48 md:w-52 shrink-0 p-4 border-l border-slate-100 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-900/20">
           <div className="w-full flex items-center justify-between gap-2">
             <div className="min-w-0">
-              {studioStatusLabel && (
-                <div className="inline-flex md:hidden items-center gap-1 text-[11px] text-teal-700 dark:text-teal-400 font-medium truncate">
-                  <span className="truncate">{studioStatusLabel}</span>
+              <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                {isStrategyView && !isExcluded
+                  ? t.v2.strategyScoreLabel
+                  : t.v2.commercialScoreLabel}
+              </div>
+              <div className={`text-xs font-semibold truncate ${classTone.text}`}>
+                {displayedScore === null
+                  ? isZeroCommission
+                    ? t.v2.withheldZeroCommLabel
+                    : t.v2.withheldLabel
+                  : `${displayedScore}/100`}
+              </div>
+              {isStrategyView && commercial.commercialOpportunityScore !== null && (
+                <div className="text-[10px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
+                  {t.v2.commercialScoreShort}: {commercial.commercialOpportunityScore}
                 </div>
               )}
-              <div className={`text-[11px] font-medium ${scoreTone.labelClass}`}>
-                {t.score.grades[score.grade]}
-              </div>
-              <div className="text-[10px] text-slate-400 dark:text-slate-500">
-                {score.total}/100
-              </div>
             </div>
 
             <button
               type="button"
               onClick={() => onOpenScoreDetails(product)}
-              title={`${t.score.grades[score.grade]} (${score.total}/100) — ${t.score.tooltipBtn}`}
-              aria-label={`${t.score.tooltipBtn}: ${score.total}/100`}
+              title={`${t.v2.classifications[classification]} (${
+                displayedScore ?? '—'
+              }/100) — ${t.score.tooltipBtn}`}
+              aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? 'Withheld'}`}
               className="inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:scale-[1.04] transition-all shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
-              <ScoreRing score={score.total} grade={score.grade} size={42} strokeWidth={3.5} />
+              <ScoreRing score={displayedScore} grade={scoreGrade} size={44} strokeWidth={3.5} />
             </button>
           </div>
+
+          {analysis && (
+            <div className="w-full text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2">
+              {analysis.bottomLine[language]}
+            </div>
+          )}
 
           <button
             type="button"
@@ -641,7 +974,7 @@ export function ProductCard({
   }
 
   // =========================================================================
-  // GRID VIEW — Smallest Gallery Zoom Level (Micro: Image + Product Name + Save Icon)
+  // GRID VIEW — Smallest Gallery Zoom Level (Micro)
   // =========================================================================
   if (isMicro) {
     return (
@@ -697,11 +1030,10 @@ export function ProductCard({
       ? 'aspect-square sm:aspect-[4/3]'
       : 'aspect-[4/3]';
 
-  const bodyPaddingClass = isSpacious ? 'p-5 sm:p-6' : isCompact ? 'p-3 sm:p-3.5' : 'p-5';
+  const bodyPaddingClass = isSpacious ? 'p-5 sm:p-6' : isCompact ? 'p-3 sm:p-3.5' : 'p-4 sm:p-5';
 
   return (
     <article className="group flex flex-col bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-700">
-      {/* Clickable Clean Studio Product Frame */}
       <button
         type="button"
         onClick={() => onSelect(product)}
@@ -731,9 +1063,8 @@ export function ProductCard({
         />
       </button>
 
-      {/* Essential Product Details Grounded Strictly in Kalodata & Studio State */}
       <div className={`flex flex-col flex-1 ${bodyPaddingClass}`}>
-        {/* Clean unboxed inline metadata with rank, score tier & localized category */}
+        {/* Clean Unboxed Metadata Line: Rank · Classification · Category */}
         <div
           className={`flex items-center justify-between gap-1.5 text-slate-500 dark:text-slate-400 ${
             isCompact ? 'text-[11px]' : 'text-xs'
@@ -741,246 +1072,199 @@ export function ProductCard({
         >
           <div className="flex items-center gap-1 min-w-0 truncate">
             <span className="font-mono-num font-semibold text-slate-900 dark:text-slate-100 shrink-0">
-              #{index + 1}
+              #{isExcluded ? '—' : index + 1}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className={`font-semibold shrink-0 truncate ${classTone.text}`}>
+              {t.v2.classifications[classification]}
             </span>
             {!isCompact && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className={`font-medium shrink-0 ${scoreTone.labelClass}`}>
-                  {t.score.grades[score.grade]}
+                <span className="truncate" title={displayCategoryLabel}>
+                  {displayCategoryLabel}
                 </span>
               </>
             )}
-            <span aria-hidden="true">·</span>
-            <span className="truncate" title={displayCategoryLabel}>
-              {displayCategoryLabel}
-            </span>
           </div>
           <div className="flex items-center gap-1 shrink-0 -mr-1">
-            {studioStatusLabel && (
-              <span className="inline-flex items-center text-teal-700 dark:text-teal-400 font-medium whitespace-nowrap shrink-0">
-                <span className={isCompact ? 'hidden sm:inline' : 'inline'}>
-                  {studioStatusLabel}
-                </span>
-              </span>
-            )}
             {renderSaveIconButton('compact')}
           </div>
         </div>
 
-        {/* Title + Direct Clickable Score Circle */}
+        {/* Title + Primary V2 Commercial / Strategy Score Ring */}
         <div
           className={`${isCompact ? 'mt-1.5 gap-2' : 'mt-2.5 gap-3'} flex items-start justify-between`}
         >
-          <button
-            type="button"
-            onClick={() => onSelect(product)}
-            className="text-left min-w-0 flex-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded"
-          >
-            <h3
-              className={`font-display font-semibold text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors leading-snug line-clamp-2 ${
-                isSpacious
-                  ? 'text-base sm:text-lg'
-                  : isCompact
-                    ? 'text-xs sm:text-sm'
-                    : 'text-base'
-              }`}
+          <div className="min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => onSelect(product)}
+              className="text-left w-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded"
             >
-              {primaryTitle}
-            </h3>
-          </button>
+              <h3
+                className={`font-display font-semibold text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors leading-snug line-clamp-2 ${
+                  isSpacious
+                    ? 'text-base sm:text-lg'
+                    : isCompact
+                      ? 'text-xs sm:text-sm'
+                      : 'text-sm sm:text-base'
+                }`}
+              >
+                {primaryTitle}
+              </h3>
+            </button>
+
+            {!isCompact && (
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
+                <span className="text-teal-700 dark:text-teal-400 font-medium truncate">
+                  {strategyMatchLabel}
+                </span>
+                {isStrategyView && commercial.commercialOpportunityScore !== null && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
+                      {t.v2.commercialScoreShort}: {commercial.commercialOpportunityScore}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
             onClick={() => onOpenScoreDetails(product)}
-            title={`${t.score.grades[score.grade]} (${score.total}/100) — ${t.score.tooltipBtn}`}
-            aria-label={`${t.score.tooltipBtn}: ${score.total}/100`}
+            title={`${t.v2.classifications[classification]} (${
+              displayedScore ?? '—'
+            }/100) — ${t.score.tooltipBtn}`}
+            aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? 'Withheld'}`}
             className="inline-flex items-center justify-center rounded-full p-0.5 -mt-0.5 -mr-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:scale-[1.04] transition-all shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             <ScoreRing
-              score={score.total}
-              grade={score.grade}
+              score={displayedScore}
+              grade={scoreGrade}
               size={isSpacious ? 48 : isCompact ? 34 : 44}
               strokeWidth={isCompact ? 3 : 3.5}
             />
           </button>
         </div>
 
-        {/* Shop Name + Quick Copy TH / ID + Minimized Shop Link */}
+        {/* Shop Name + Utilities */}
         <div
           className={`${
             isCompact ? 'mt-1.5 flex-wrap gap-y-1' : 'mt-1.5'
           } flex items-center justify-between gap-1.5`}
         >
-          <p
-            className={`${
-              isCompact ? 'text-[11px]' : 'text-xs'
-            } text-slate-500 dark:text-slate-400 truncate min-w-0 flex-1`}
-            title={isTitleDecoded ? `${product.shopName} · ${product.thaiTitle}` : product.shopName}
-          >
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate min-w-0 flex-1">
             {product.shopName}
           </p>
           {renderUtilityButtons(isCompact)}
         </div>
 
-        {/* Saved AI Product Analysis Verdict Preview (shown ONLY if user already analyzed in Studio) */}
-        {analysis && !isCompact && (
-          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80">
-            <div className={`text-[11px] font-semibold ${decisionToneClass}`}>
-              {t.studio.analysisDecisions[analysis.decision]}
-            </div>
-            {analysis.bottomLine[language] && (
-              <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2">
-                {analysis.bottomLine[language]}
-              </p>
-            )}
+        {/* 4 Independent Dimensions */}
+        {isCompact ? (
+          <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-4 gap-1 text-center font-mono-num tabular-nums">
+            {dimensions.map((dim) => {
+              const tone = getDimensionBarClass(dim.score, dim.status);
+              return (
+                <div key={dim.key} className="min-w-0">
+                  <div className="text-[9px] text-slate-400 dark:text-slate-500 truncate">
+                    {dim.label}
+                  </div>
+                  <div className={`text-[11px] font-semibold ${tone.textClass}`}>
+                    {dim.score !== null ? Math.round(dim.score) : dim.status === 'NOT_MONETIZABLE' ? '0%' : '—'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2.5">
+            {renderDimensionsBlock(isSpacious ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2', false)}
+            {renderEvidenceAndRisks()}
           </div>
         )}
 
         {/* Bottom Honest Kalodata Metrics & Studio CTA */}
-        <div className={`mt-auto ${isCompact ? 'pt-2.5' : 'pt-4'}`}>
-          {isSpacious && hasAnySalesRow ? (
-            /* Spacious 2-col desktop: clean 4-column horizontal KPI bar */
-            <div className="pt-3.5 border-t border-slate-100 dark:border-slate-800/90 grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">{t.card.price}</div>
-                <div className="mt-0.5 text-base font-semibold font-mono-num text-slate-900 dark:text-slate-100">
+        <div className={`mt-auto ${isCompact ? 'pt-2.5' : 'pt-3.5'}`}>
+          <div
+            className={`border-t border-slate-100 dark:border-slate-800/90 ${
+              isCompact ? 'pt-2 space-y-1.5' : 'pt-3 space-y-2.5'
+            }`}
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <div className="min-w-0">
+                <div
+                  className={`${
+                    isCompact ? 'text-[10px]' : 'text-[11px]'
+                  } text-slate-500 dark:text-slate-400`}
+                >
+                  {t.card.price}
+                </div>
+                <div
+                  className={`mt-0.5 font-semibold font-mono-num tabular-nums text-slate-900 dark:text-slate-100 ${
+                    isCompact ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'
+                  }`}
+                >
                   {product.priceThb !== null ? `฿${product.priceThb.toLocaleString()}` : '—'}
                 </div>
               </div>
-              <div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+
+              <div className="text-right min-w-0">
+                <div
+                  className={`${
+                    isCompact ? 'text-[10px]' : 'text-[11px]'
+                  } text-slate-500 dark:text-slate-400`}
+                >
                   {t.card.commission}
                 </div>
-                <div className="mt-0.5 text-sm font-semibold font-mono-num text-teal-700 dark:text-teal-400">
+                <div
+                  className={`mt-0.5 font-semibold font-mono-num tabular-nums truncate ${
+                    isZeroCommission
+                      ? 'text-rose-700 dark:text-rose-400'
+                      : 'text-teal-700 dark:text-teal-400'
+                  } ${isCompact ? 'text-[11px] sm:text-xs' : 'text-xs sm:text-sm'}`}
+                >
                   {commissionText}
                 </div>
               </div>
-              <div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {t.card.sales7d}
-                </div>
-                <div className="mt-0.5 text-sm font-semibold font-mono-num text-slate-800 dark:text-slate-200">
-                  {salesVolText}
-                </div>
-              </div>
-              <div className="sm:text-right">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {hasVideoRev ? t.card.videoRev7d : t.card.revenue7d}
-                </div>
-                <div className="mt-0.5 text-sm font-semibold font-mono-num text-slate-800 dark:text-slate-200">
-                  {revenueText}
-                </div>
-              </div>
             </div>
-          ) : (
-            <div
-              className={`border-t border-slate-100 dark:border-slate-800/90 ${
-                isCompact ? 'pt-2.5 space-y-2' : 'pt-3.5 space-y-3'
-              }`}
-            >
-              {/* Row 1: Price & Affiliate Commission */}
-              <div className="flex items-baseline justify-between gap-2">
+
+            {hasAnySalesRow && !isCompact && (
+              <div className="pt-2 border-t border-slate-100/90 dark:border-slate-800/70 flex items-baseline justify-between gap-2">
                 <div className="min-w-0">
-                  <div
-                    className={`${
-                      isCompact ? 'text-[10px]' : 'text-[11px]'
-                    } text-slate-500 dark:text-slate-400`}
-                  >
-                    {t.card.price}
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {t.card.sales7d}
                   </div>
-                  <div
-                    className={`mt-0.5 font-semibold font-mono-num text-slate-900 dark:text-slate-100 ${
-                      isCompact ? 'text-xs sm:text-sm' : 'text-base'
-                    }`}
-                  >
-                    {product.priceThb !== null ? `฿${product.priceThb.toLocaleString()}` : '—'}
+                  <div className="mt-0.5 font-semibold font-mono-num tabular-nums text-xs text-slate-800 dark:text-slate-200">
+                    {salesVolText}
                   </div>
                 </div>
 
                 <div className="text-right min-w-0">
-                  <div
-                    className={`${
-                      isCompact ? 'text-[10px]' : 'text-[11px]'
-                    } text-slate-500 dark:text-slate-400`}
-                  >
-                    {t.card.commission}
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {hasVideoRev ? t.card.videoRev7d : t.card.revenue7d}
                   </div>
-                  <div
-                    className={`mt-0.5 font-semibold font-mono-num text-teal-700 dark:text-teal-400 truncate ${
-                      isCompact ? 'text-[11px] sm:text-xs' : 'text-sm'
-                    }`}
-                  >
-                    {isCompact && product.commissionRate !== null
-                      ? `${product.commissionRate}%${
-                          product.commissionThb !== null
-                            ? ` · ฿${Math.round(product.commissionThb).toLocaleString()}`
-                            : ''
-                        }`
-                      : commissionText}
+                  <div className="mt-0.5 font-semibold font-mono-num tabular-nums text-xs text-slate-800 dark:text-slate-200">
+                    {revenueText}
                   </div>
                 </div>
               </div>
-
-              {/* Row 2: Live Kalodata 7-Day Sales & Video/Total Revenue */}
-              {hasAnySalesRow && (
-                <div
-                  className={`${
-                    isCompact ? 'pt-1.5' : 'pt-2.5'
-                  } border-t border-slate-100/90 dark:border-slate-800/70 flex items-baseline justify-between gap-2`}
-                >
-                  <div className="min-w-0">
-                    <div
-                      className={`${
-                        isCompact ? 'text-[10px]' : 'text-[11px]'
-                      } text-slate-500 dark:text-slate-400`}
-                    >
-                      {t.card.sales7d}
-                    </div>
-                    <div
-                      className={`mt-0.5 font-semibold font-mono-num text-slate-800 dark:text-slate-200 ${
-                        isCompact ? 'text-[11px]' : 'text-xs'
-                      }`}
-                    >
-                      {salesVolText}
-                    </div>
-                  </div>
-
-                  <div className="text-right min-w-0">
-                    <div
-                      className={`${
-                        isCompact ? 'text-[10px]' : 'text-[11px]'
-                      } text-slate-500 dark:text-slate-400`}
-                    >
-                      {hasVideoRev ? t.card.videoRev7d : t.card.revenue7d}
-                    </div>
-                    <div
-                      className={`mt-0.5 font-semibold font-mono-num text-slate-800 dark:text-slate-200 ${
-                        isCompact ? 'text-[11px]' : 'text-xs'
-                      }`}
-                    >
-                      {revenueText}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
 
           <button
             type="button"
             onClick={() => onSelect(product)}
             className={`w-full rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#131B24] ${
-              isCompact ? 'mt-3 h-9 px-2.5 text-xs' : 'mt-4 h-11 px-4 text-sm'
+              isCompact ? 'mt-2.5 h-8 px-2.5 text-[11px]' : 'mt-3.5 h-10 px-4 text-xs sm:text-sm'
             }`}
           >
-            <span className={isCompact ? 'sm:hidden truncate' : 'hidden'}>
-              {t.discover.openStudioShort}
-            </span>
-            <span className={isCompact ? 'hidden sm:inline truncate' : 'truncate'}>
-              {t.card.createPlan}
-            </span>
-            <ArrowRight className={isCompact ? 'w-3.5 h-3.5 shrink-0' : 'w-4 h-4 shrink-0'} />
+            <span className="truncate">{isCompact ? t.discover.openStudioShort : t.card.createPlan}</span>
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
           </button>
         </div>
       </div>

@@ -11,6 +11,7 @@ import type { Language, SavedHistoryEntry } from '../types';
 interface HistoryViewProps {
   entries: SavedHistoryEntry[];
   language: Language;
+  nowMs?: number;
   t: Translations;
   onOpenEntry: (entry: SavedHistoryEntry) => void;
   onDeleteEntry: (entryId: string) => void;
@@ -22,6 +23,7 @@ interface HistoryViewProps {
 export function HistoryView({
   entries,
   language,
+  nowMs,
   t,
   onOpenEntry,
   onDeleteEntry,
@@ -37,9 +39,12 @@ export function HistoryView({
     () =>
       entries.map((entry) => ({
         ...entry,
-        product: hydrateProductFromStorage(entry.product),
+        product: hydrateProductFromStorage(
+          entry.product,
+          nowMs !== undefined ? { nowMs } : undefined
+        ),
       })),
-    [entries]
+    [entries, nowMs]
   );
 
   const filteredEntries = useMemo(() => {
@@ -225,7 +230,14 @@ export function HistoryView({
 
                   <div className="px-4 pb-4 mt-auto">
                     <div className="pt-3 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between gap-2 text-xs font-mono-num">
-                      <div className="flex items-center gap-2.5 min-w-0 truncate">
+                      <div className="flex items-center gap-2 min-w-0 truncate">
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold tabular-nums">
+                          {entry.product.commercialScoreV2?.commercialOpportunityScore !== null &&
+                          entry.product.commercialScoreV2?.commercialOpportunityScore !== undefined
+                            ? `V2 ${Math.round(entry.product.commercialScoreV2.commercialOpportunityScore)}`
+                            : `V2 —`}
+                        </span>
+                        <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
                         <span className="text-slate-800 dark:text-slate-200 font-semibold">
                           {entry.product.priceThb !== null
                             ? `฿${entry.product.priceThb.toLocaleString()}`

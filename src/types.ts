@@ -1,3 +1,11 @@
+import type { ProductValidatedMetrics } from './types/metrics';
+import type { CommercialScoreV2Result } from './types/scoringV2';
+import type { ProductStrategyReportV2 } from './types/strategyV2';
+
+export * from './types/metrics';
+export * from './types/scoringV2';
+export * from './types/strategyV2';
+
 export type Language = 'my' | 'en';
 export type Theme = 'light' | 'dark';
 export type VisualStyle = 'cinematic' | 'asmr' | 'before_after' | 'problem_fix';
@@ -50,6 +58,7 @@ export interface ProductKalodataMetrics {
   rating?: number | null;
   reviewCount?: number | null;
   dateRange?: string;
+  fetchedAt?: string;
 }
 
 export type ProductAnalysisDecision = 'strong_go' | 'test_carefully' | 'need_more_data';
@@ -116,6 +125,9 @@ export interface ProductItem {
   aiEnriched?: boolean;
   scoreBreakdown?: ProductScoreBreakdown;
   kalodataMetrics?: ProductKalodataMetrics;
+  validatedMetrics?: ProductValidatedMetrics;
+  commercialScoreV2?: CommercialScoreV2Result;
+  strategyIntelligenceV2?: ProductStrategyReportV2;
   deepInsights?: ProductDeepInsights;
   aiAnalysis?: ProductAiAnalysis;
 }
@@ -215,6 +227,7 @@ export interface RecentSearchEntry {
 export interface SavedDeepInsightRecord {
   deepInsights: ProductDeepInsights;
   kalodataMetrics?: ProductKalodataMetrics;
+  validatedMetrics?: ProductValidatedMetrics;
   shopName?: string;
   imageUrl?: string;
   savedAt: string;
