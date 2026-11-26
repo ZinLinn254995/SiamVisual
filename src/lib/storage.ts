@@ -48,6 +48,7 @@ const RESULT_VIEW_KEY = 'siamvisual_result_view_v1';
 const RESULT_GRID_COLS_KEY = 'siamvisual_result_grid_cols_v1';
 const RESULT_LIST_ZOOM_KEY = 'siamvisual_result_list_zoom_v1';
 const RANK_BOARD_SNAPSHOT_KEY = 'siamvisual_rank_board_snapshot_v1';
+const PINCH_HINT_SEEN_KEY = 'siamvisual_pinch_hint_seen_v1';
 
 const MAX_RECENT_SEARCHES = 30;
 
@@ -1299,6 +1300,22 @@ export function saveRankBoardSnapshot(snapshot: RankBoardSnapshot): void {
 export function clearRankBoardSnapshot(): void {
   try {
     localStorage.removeItem(RANK_BOARD_SNAPSHOT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function loadPinchHintSeen(): boolean {
+  try {
+    return localStorage.getItem(PINCH_HINT_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function savePinchHintSeen(): void {
+  try {
+    localStorage.setItem(PINCH_HINT_SEEN_KEY, '1');
   } catch {
     // ignore
   }

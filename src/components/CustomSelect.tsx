@@ -1,7 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, X } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { BottomSheet } from './BottomSheet';
 
 export interface CustomSelectOption {
   value: string;
@@ -45,11 +46,16 @@ export function CustomSelect({
 }: CustomSelectProps) {
   const prefersReducedMotion = useReducedMotion();
   const generatedId = useId();
-  const listboxId = `${id ?? generatedId}-listbox`;
+  const baseId = id ?? generatedId;
+  const listboxId = `${baseId}-listbox`;
+  const sheetTitleId = `${baseId}-sheet-title`;
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const [isOpen, setIsOpen] = useState(false);
+  const [isMobileSheet, setIsMobileSheet] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 640 : false
+  );
   const [activeIndex, setActiveIndex] = useState<number>(() =>
     Math.max(
       0,
@@ -60,12 +66,22 @@ export function CustomSelect({
 
   const selectedOption = options.find((o) => o.value === value) ?? options[0];
 
+  useEffect(() => {
+    const syncViewport = () => {
+      setIsMobileSheet(window.innerWidth < 640);
+    };
+    syncViewport();
+    window.addEventListener('resize', syncViewport, { passive: true });
+    return () => window.removeEventListener('resize', syncViewport);
+  }, []);
+
   const updateCoords = () => {
     const trigger = triggerRef.current;
-    if (!trigger) return;
+    if (!trigger || isMobileSheet) return;
     const rect = trigger.getBoundingClientRect();
-    const estimatedHeight = Math.min(options.length * 36 + 12, 260);
-    const spaceBelow = window.innerHeight - rect.bottom - 12;
+    const estimatedHeight = Math.min(options.length * 42 + 12, 260);
+    const bottomClearance = window.innerWidth < 1024 ? 76 : 12;
+    const spaceBelow = window.innerHeight - rect.bottom - bottomClearance;
     const spaceAbove = rect.top - 12;
     const openUpward = spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
 
@@ -92,13 +108,15 @@ export function CustomSelect({
 
   useLayoutEffect(() => {
     if (!isOpen) return;
-    updateCoords();
     const selectedIdx = options.findIndex((o) => o.value === value);
     setActiveIndex(selectedIdx >= 0 ? selectedIdx : 0);
-  }, [isOpen, value, options.length]);
+    if (!isMobileSheet) {
+      updateCoords();
+    }
+  }, [isOpen, isMobileSheet, value, options.length]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isMobileSheet) return;
 
     const handlePointerDown = (e: MouseEvent | TouchEvent) => {
       const target = e.target as Node | null;
@@ -157,7 +175,7 @@ export function CustomSelect({
       window.removeEventListener('resize', handleViewportChange);
       window.removeEventListener('scroll', handleViewportChange, true);
     };
-  }, [isOpen, activeIndex, options, onChange]);
+  }, [isOpen, isMobileSheet, activeIndex, options, onChange]);
 
   function handleTriggerKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
     if (disabled) return;
@@ -171,8 +189,8 @@ export function CustomSelect({
 
   const triggerSizeClass =
     size === 'sm'
-      ? 'h-8 px-2.5 rounded-lg text-[11px] gap-1.5'
-      : 'h-10 px-3 rounded-xl text-xs gap-2';
+      ? 'relative h-9 sm:h-8 px-2.5 rounded-lg text-xs sm:text-[11px] gap-1.5 before:content-[""] before:absolute before:-inset-1 sm:before:hidden'
+      : 'h-11 sm:h-10 px-3 rounded-xl text-sm sm:text-xs gap-2';
 
   const triggerToneClass = isOpen
     ? 'border-teal-500 dark:border-teal-400 bg-white dark:bg-[#0E151D] text-slate-900 dark:text-slate-100 ring-2 ring-teal-500/20'
@@ -211,7 +229,89 @@ export function CustomSelect({
         />
       </button>
 
+      {/* Mobile (<640px): Unified Thumb-Zone Bottom Sheet Picker */}
       {canPortal &&
+        isMobileSheet &&
+        createPortal(
+          <BottomSheet
+            isOpen={isOpen}
+            onClose={() => {
+              setIsOpen(false);
+              triggerRef.current?.focus();
+            }}
+            historyKey={`select_${baseId}`}
+            variant="sheet"
+            maxWidthClass="max-w-lg"
+            zIndexClass="z-[70]"
+            backdropClassName="bg-slate-950/50 backdrop-blur-[2px]"
+            labelledBy={ariaLabel ? sheetTitleId : undefined}
+            ariaLabel={ariaLabel || selectedOption?.label}
+          >
+            <div
+              data-sheet-handle="true"
+              className="px-4 pt-1 pb-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0 touch-none"
+            >
+              <h3
+                id={sheetTitleId}
+                className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
+              >
+                {ariaLabel || selectedOption?.label}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  triggerRef.current?.focus();
+                }}
+                aria-label="Close"
+                className="h-10 w-10 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center justify-center shrink-0 active:scale-95 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div
+              data-sheet-scroll="true"
+              id={listboxId}
+              role="listbox"
+              aria-label={ariaLabel}
+              className="flex-1 overflow-y-auto overscroll-contain p-2 space-y-1 pb-[max(0.875rem,env(safe-area-inset-bottom))]"
+            >
+              {options.map((opt) => {
+                const isSelected = opt.value === value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      onChange(opt.value);
+                      setIsOpen(false);
+                      triggerRef.current?.focus();
+                    }}
+                    className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3 text-left text-sm transition-colors cursor-pointer active:scale-[0.99] ${
+                      mono ? 'font-mono-num tabular-nums' : ''
+                    } ${
+                      isSelected
+                        ? 'bg-teal-50/95 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 font-semibold'
+                        : 'text-slate-800 dark:text-slate-200 font-medium hover:bg-slate-100/80 dark:hover:bg-slate-800/70'
+                    }`}
+                  >
+                    <span className="truncate">{opt.label}</span>
+                    {isSelected && (
+                      <Check className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </BottomSheet>,
+          document.body
+        )}
+
+      {/* Tablet / Desktop (>=640px): Floating Popover Select */}
+      {canPortal &&
+        !isMobileSheet &&
         createPortal(
           <AnimatePresence>
             {isOpen && coords && (
@@ -241,7 +341,7 @@ export function CustomSelect({
                   maxWidth: 'calc(100vw - 16px)',
                   zIndex: 80,
                 }}
-                className="rounded-xl border border-slate-200/95 dark:border-slate-700/90 bg-white dark:bg-[#16202B] p-1 shadow-[0_12px_32px_-8px_rgba(15,23,42,0.22)] dark:shadow-[0_14px_36px_-8px_rgba(0,0,0,0.65)] max-h-64 overflow-y-auto"
+                className="rounded-xl border border-slate-200/95 dark:border-slate-700/90 bg-white dark:bg-[#16202B] p-1 shadow-[0_12px_32px_-8px_rgba(15,23,42,0.22)] dark:shadow-[0_14px_36px_-8px_rgba(0,0,0,0.65)] max-h-64 overflow-y-auto overscroll-contain"
               >
                 {options.map((opt, idx) => {
                   const isSelected = opt.value === value;
@@ -259,7 +359,9 @@ export function CustomSelect({
                         triggerRef.current?.focus();
                       }}
                       className={`w-full ${
-                        size === 'sm' ? 'h-8 px-2.5 text-[11px]' : 'h-9 px-2.5 text-xs'
+                        size === 'sm'
+                          ? 'min-h-[42px] sm:min-h-0 sm:h-8 px-3 sm:px-2.5 text-xs sm:text-[11px]'
+                          : 'min-h-[44px] sm:min-h-0 sm:h-9 px-3 sm:px-2.5 text-sm sm:text-xs'
                       } ${
                         mono ? 'font-mono-num tabular-nums' : ''
                       } rounded-lg flex items-center justify-between gap-2.5 text-left transition-colors cursor-pointer ${

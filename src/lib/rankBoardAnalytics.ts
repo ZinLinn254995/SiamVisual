@@ -1,8 +1,9 @@
 import {
   inferSpecificProductCategory,
+  isLegacyDefaultHomeLabel,
   translateCategoryNameToMyanmar,
 } from './categoryTranslations.ts';
-import { evaluateSearchScore } from './searchScoreEngine.ts';
+import { evaluateSearchOpportunityScore } from './searchScoreEngine.ts';
 import type {
   CategoryKey,
   ProductItem,
@@ -94,11 +95,27 @@ export function computeRankProductRow(
   rankIndex: number
 ): ComputedRankProductRow {
   const km = product.kalodataMetrics;
-  const revenueThb = safeNonNeg(km?.revenueThb7d ?? product.revenueThb7d);
-  const salesVolume = safeNonNeg(km?.salesVolume7d ?? product.salesVolume7d);
-  const videoRevenueThb = safeNonNeg(km?.videoRevenueThb7d ?? product.videoRevenueThb7d);
-  const liveRevenueThb = safeNonNeg(km?.liveRevenueThb7d);
-  const shopRevenueThb = safeNonNeg(km?.shoppingMallRevenueThb7d);
+  const vm = product.validatedMetrics;
+  const revenueThb = safeNonNeg(
+    km?.revenueThb7d ?? (vm?.revenueThb7d?.unit === 'THB' ? vm.revenueThb7d.value : null)
+  );
+  const salesVolume = safeNonNeg(
+    km?.salesVolume7d ?? (vm?.salesVolume7d?.unit === 'COUNT' ? vm.salesVolume7d.value : null)
+  );
+  const videoRevenueThb = safeNonNeg(
+    km?.videoRevenueThb7d ??
+      (vm?.videoRevenueThb7d?.unit === 'THB' ? vm.videoRevenueThb7d.value : null)
+  );
+  const liveRevenueThb = safeNonNeg(
+    km?.liveRevenueThb7d ??
+      (vm?.liveRevenueThb7d?.unit === 'THB' ? vm.liveRevenueThb7d.value : null)
+  );
+  const shopRevenueThb = safeNonNeg(
+    km?.shoppingMallRevenueThb7d ??
+      (vm?.shoppingMallRevenueThb7d?.unit === 'THB'
+        ? vm.shoppingMallRevenueThb7d.value
+        : null)
+  );
 
   const channelSum = videoRevenueThb + liveRevenueThb + shopRevenueThb;
   const denom = Math.max(revenueThb, channelSum);
@@ -148,22 +165,30 @@ export function computeRankProductRow(
       ? round2((priceThb * commissionRate) / 100)
       : null;
 
-  const searchEval = evaluateSearchScore(product);
+  const searchEval = evaluateSearchOpportunityScore(product);
   const searchScore =
     searchEval.status === 'SCORED' && typeof searchEval.score === 'number'
       ? Math.round(searchEval.score)
       : null;
 
+  const hasRealCategoryLabel = !isLegacyDefaultHomeLabel(product.categoryLabel);
   const specificCat = inferSpecificProductCategory({
+    categoryId: product.kalodataCategoryId,
+    categoryHint: hasRealCategoryLabel ? product.categoryLabel?.en : undefined,
     thaiTitle: product.thaiTitle,
-    clearTitleEn: product.clearTitle?.en,
-    rawCategoryEn: product.categoryLabel?.en,
-    rawCategoryMy: product.categoryLabel?.my,
-    fallbackGroup: product.category,
+    englishTitle: product.clearTitle?.en,
+    shopName: product.shopName,
   });
 
-  const categoryNameEn = specificCat.en || product.categoryLabel?.en || product.category;
-  const categoryNameMy = specificCat.my || translateCategoryNameToMyanmar(categoryNameEn);
+  const categoryNameEn =
+    (specificCat.matched ? specificCat.label.en : '') ||
+    product.categoryLabel?.en ||
+    specificCat.label.en ||
+    product.category;
+  const categoryNameMy =
+    (specificCat.matched ? specificCat.label.my : '') ||
+    product.categoryLabel?.my ||
+    translateCategoryNameToMyanmar(categoryNameEn, product.kalodataCategoryId);
   const categoryKey =
     product.kalodataCategoryId?.trim() ||
     categoryNameEn.toLowerCase().replace(/[^a-z0-9]+/g, '_');

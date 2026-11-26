@@ -83,7 +83,7 @@ export function LanguageSwitch({ language, onToggle }: LanguageSwitchProps) {
       aria-label={ariaLabel}
       title={titleText}
       onClick={onToggle}
-      className="group relative h-9 w-[86px] sm:w-[100px] lg:w-[104px] p-0.5 rounded-full border border-slate-200/95 dark:border-slate-700/90 bg-slate-100/95 dark:bg-[#0E151D] hover:border-slate-300 dark:hover:border-slate-600 transition-colors duration-150 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-[#0B1117] select-none"
+      className='group relative h-9 w-[90px] sm:w-[100px] lg:w-[104px] p-0.5 rounded-full border border-slate-200/95 dark:border-slate-700/90 bg-slate-100/95 dark:bg-[#0E151D] hover:border-slate-300 dark:hover:border-slate-600 transition-colors duration-150 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-[#0B1117] select-none before:content-[""] before:absolute before:-inset-y-1 before:inset-x-0 sm:before:hidden'
     >
       {/* Sliding active thumb (pure compositor transform) */}
       <span
@@ -102,7 +102,7 @@ export function LanguageSwitch({ language, onToggle }: LanguageSwitchProps) {
         >
           <MyanmarFlag active={!isEnglish} />
           <span
-            className={`text-[10px] sm:text-[11px] font-bold tracking-tight leading-none whitespace-nowrap ${
+            className={`text-[10.5px] sm:text-[11px] font-bold tracking-tight leading-none whitespace-nowrap ${
               !isEnglish
                 ? 'text-slate-900 dark:text-white'
                 : 'text-slate-500 dark:text-slate-400'
@@ -119,7 +119,7 @@ export function LanguageSwitch({ language, onToggle }: LanguageSwitchProps) {
         >
           <EnglishFlag active={isEnglish} />
           <span
-            className={`text-[10px] sm:text-[11px] font-bold tracking-tight leading-none whitespace-nowrap ${
+            className={`text-[10.5px] sm:text-[11px] font-bold tracking-tight leading-none whitespace-nowrap ${
               isEnglish
                 ? 'text-slate-900 dark:text-white'
                 : 'text-slate-500 dark:text-slate-400'

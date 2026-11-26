@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowDown,
@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import type { Translations } from '../i18n';
 import { getStudioFallbackImage } from '../lib/media';
+import { CustomSelect } from './CustomSelect';
+import { InfoTooltip } from './InfoTooltip';
 import {
   type ComputedRankProductRow,
   computeRankProductRow,
@@ -117,6 +119,47 @@ function computeDotRadius(revenueThb: number, maxRev: number): number {
   return Math.round((4.5 + ratio * 8.5) * 10) / 10;
 }
 
+export interface ScatterPointTarget {
+  id: string;
+  cx: number;
+  cy: number;
+}
+
+export function findNearestScatterPointId(params: {
+  clientX: number;
+  clientY: number;
+  rect: { left: number; width: number; top: number; height: number };
+  viewBoxWidth: number;
+  viewBoxHeight: number;
+  points: ScatterPointTarget[];
+  maxScreenRadiusPx?: number;
+}): string | null {
+  const {
+    clientX,
+    clientY,
+    rect,
+    viewBoxWidth,
+    viewBoxHeight,
+    points,
+    maxScreenRadiusPx = 24,
+  } = params;
+  if (rect.width <= 0 || rect.height <= 0 || points.length === 0) return null;
+
+  let bestId: string | null = null;
+  let bestDist = maxScreenRadiusPx;
+
+  for (const pt of points) {
+    const screenX = rect.left + (pt.cx / viewBoxWidth) * rect.width;
+    const screenY = rect.top + (pt.cy / viewBoxHeight) * rect.height;
+    const dist = Math.hypot(clientX - screenX, clientY - screenY);
+    if (dist <= bestDist) {
+      bestDist = dist;
+      bestId = pt.id;
+    }
+  }
+  return bestId;
+}
+
 function getScoreBadgeClass(score: number | null): string {
   if (score === null) {
     return 'text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/40';
@@ -159,6 +202,8 @@ export function ProductRankBoardView({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<RankBoardSortKey>('rank');
   const [inspectedProductId, setInspectedProductId] = useState<string | null>(null);
+  const scatterSvgRef = useRef<SVGSVGElement | null>(null);
+  const activeScrubPointerIdRef = useRef<number | null>(null);
 
   const allComputedRows = useMemo<ComputedRankProductRow[]>(() => {
     if (!snapshot) return [];
@@ -209,6 +254,42 @@ export function ProductRankBoardView({
     }
     return scatterRows[0] ?? filteredRows[0] ?? null;
   }, [inspectedProductId, filteredRows, scatterRows]);
+
+  const scatterPoints = useMemo<ScatterPointTarget[]>(
+    () =>
+      scatterRows.map((row) => ({
+        id: row.product.id,
+        cx: mapPriceToX(row.priceThb ?? 0),
+        cy: mapCommToY(row.commissionRate ?? 0),
+      })),
+    [scatterRows]
+  );
+
+  // Paint selected dot last so it always renders cleanly above overlapping bubbles
+  const orderedScatterRows = useMemo(() => {
+    const selectedId = inspectedRow?.product.id;
+    if (!selectedId) return scatterRows;
+    const nonSelected = scatterRows.filter((r) => r.product.id !== selectedId);
+    const selected = scatterRows.find((r) => r.product.id === selectedId);
+    return selected ? [...nonSelected, selected] : scatterRows;
+  }, [scatterRows, inspectedRow]);
+
+  function selectNearestDotAtClientPoint(clientX: number, clientY: number) {
+    const svg = scatterSvgRef.current;
+    if (!svg) return;
+    const hitId = findNearestScatterPointId({
+      clientX,
+      clientY,
+      rect: svg.getBoundingClientRect(),
+      viewBoxWidth: 760,
+      viewBoxHeight: 278,
+      points: scatterPoints,
+      maxScreenRadiusPx: 24,
+    });
+    if (hitId) {
+      setInspectedProductId((prev) => (prev === hitId ? prev : hitId));
+    }
+  }
 
   const isStale = useMemo(() => {
     if (!snapshot?.syncedAt) return false;
@@ -271,15 +352,13 @@ export function ProductRankBoardView({
       <section className="rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-4 sm:p-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-teal-600 dark:text-teal-400 shrink-0" />
               <h1 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
                 {rb.title}
               </h1>
+              <InfoTooltip content={rb.subtitle} ariaLabel={rb.title} size="md" />
             </div>
-            <p className="mt-1.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
-              {rb.subtitle}
-            </p>
             {snapshot && (
               <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
                 <span>
@@ -316,7 +395,7 @@ export function ProductRankBoardView({
                 disabled={isSyncing}
                 onClick={() => onChangeDateRange('last7Day')}
                 aria-pressed={dateRange === 'last7Day'}
-                className={`h-9 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50 ${
+                className={`h-9 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer disabled:opacity-50 ${
                   dateRange === 'last7Day'
                     ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -329,7 +408,7 @@ export function ProductRankBoardView({
                 disabled={isSyncing}
                 onClick={() => onChangeDateRange('last30Day')}
                 aria-pressed={dateRange === 'last30Day'}
-                className={`h-9 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50 ${
+                className={`h-9 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer disabled:opacity-50 ${
                   dateRange === 'last30Day'
                     ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -343,7 +422,7 @@ export function ProductRankBoardView({
               type="button"
               disabled={isSyncing}
               onClick={() => onSync(dateRange)}
-              className="h-10 px-4 sm:px-5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+              className="h-10 px-4 sm:px-5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap shrink-0 disabled:opacity-60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
               <span>{isSyncing ? rb.syncingBtn : rb.syncBtn(RANK_BOARD_SYNC_COST)}</span>
@@ -353,9 +432,12 @@ export function ProductRankBoardView({
 
         {/* Notices: Stale / Limit Warning / Sync Error */}
         {isStale && !isSyncing && (
-          <div className="mt-4 px-3.5 py-2.5 rounded-xl border border-amber-200/90 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
+          <div className="mt-4 px-3.5 py-2 rounded-xl border border-amber-200/90 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 inline-flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
             <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{rb.staleNotice}</span>
+            <span className="font-medium">
+              {language === 'my' ? '၂၄ နာရီကျော်ကြာ ဒေတာ' : 'Stale (24h+)'}
+            </span>
+            <InfoTooltip tone="amber" content={rb.staleNotice} ariaLabel={rb.staleNotice} />
           </div>
         )}
         {limitWarning && (
@@ -398,36 +480,33 @@ export function ProductRankBoardView({
 
       {/* Empty State (before first Update Sync) */}
       {!isSyncing && !snapshot && (
-        <section className="max-w-2xl mx-auto rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-6 sm:p-8">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-950/50 border border-teal-200/70 dark:border-teal-800/70 flex items-center justify-center text-teal-600 dark:text-teal-400 shrink-0">
-              <TrendingUp className="w-5 h-5" />
+        <section className="max-w-xl mx-auto rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-950/50 border border-teal-200/70 dark:border-teal-800/70 flex items-center justify-center text-teal-600 dark:text-teal-400 shrink-0">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h2 className="font-display text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  {rb.emptyTitle}
+                </h2>
+                <InfoTooltip
+                  title={rb.emptyTitle}
+                  content={rb.emptyDesc}
+                  bullets={rb.emptyBullets}
+                  ariaLabel={rb.emptyTitle}
+                  size="md"
+                />
+              </div>
             </div>
-            <div>
-              <h2 className="font-display text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100">
-                {rb.emptyTitle}
-              </h2>
-              <p className="mt-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                {rb.emptyDesc}
-              </p>
-            </div>
-          </div>
 
-          <ul className="mt-5 space-y-2.5 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
-            {rb.emptyBullets.map((item, idx) => (
-              <li key={idx} className="flex items-start gap-2.5 leading-relaxed">
-                <span className="mt-2 w-1.5 h-1.5 rounded-full bg-teal-600 dark:bg-teal-400 shrink-0" />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-
-          <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             {!kalodataStatus.connected ? (
-              <>
-                <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-                  {rb.connectPromptNote}
-                </p>
+              <div className="flex items-center gap-2 shrink-0">
+                <InfoTooltip
+                  tone="amber"
+                  content={rb.connectPromptNote}
+                  ariaLabel={t.nav.connectApiShort}
+                />
                 <button
                   type="button"
                   onClick={onOpenConnectPanel}
@@ -435,13 +514,13 @@ export function ProductRankBoardView({
                 >
                   {t.nav.connectApiShort}
                 </button>
-              </>
+              </div>
             ) : (
               <button
                 type="button"
                 disabled={Boolean(limitWarning)}
                 onClick={() => onSync(dateRange)}
-                className="h-11 px-5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-55"
+                className="h-10 px-5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-55"
               >
                 <RefreshCw className="w-4 h-4 shrink-0" />
                 <span>{rb.emptyCtaBtn(RANK_BOARD_SYNC_COST)}</span>
@@ -557,12 +636,16 @@ export function ProductRankBoardView({
             {/* Left Card: Channel Revenue Split */}
             <div className="lg:col-span-5 rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-5 flex flex-col justify-between">
               <div>
-                <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
-                  {rb.channelSectionTitle}
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  {rb.channelSectionSub}
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
+                    {rb.channelSectionTitle}
+                  </h2>
+                  <InfoTooltip
+                    content={[rb.channelSectionSub, rb.channelClickHint]}
+                    ariaLabel={rb.channelSectionTitle}
+                    size="md"
+                  />
+                </div>
 
                 {/* Interactive SVG Donut + Center Readout */}
                 <div className="mt-5 flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center gap-5">
@@ -737,9 +820,6 @@ export function ProductRankBoardView({
                     />
                   )}
                 </div>
-                <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                  {rb.channelClickHint}
-                </p>
               </div>
             </div>
 
@@ -747,15 +827,20 @@ export function ProductRankBoardView({
             <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-5 flex flex-col justify-between">
               <div>
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                       {rb.categorySectionTitle}
                     </h2>
-                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                      {snapshot.categorySource === 'kalodata_category_rank'
-                        ? rb.categorySectionSubLive
-                        : rb.categorySectionSubAgg}
-                    </p>
+                    <InfoTooltip
+                      content={[
+                        snapshot.categorySource === 'kalodata_category_rank'
+                          ? rb.categorySectionSubLive
+                          : rb.categorySectionSubAgg,
+                        rb.categoryClickHint,
+                      ]}
+                      ariaLabel={rb.categorySectionTitle}
+                      size="md"
+                    />
                   </div>
                   <span className="text-[11px] font-mono-num font-medium px-2 py-0.5 rounded-md border border-slate-200/90 dark:border-slate-700 text-slate-600 dark:text-slate-300 whitespace-nowrap shrink-0">
                     {snapshot.categorySource === 'kalodata_category_rank'
@@ -765,7 +850,7 @@ export function ProductRankBoardView({
                 </div>
 
                 {/* Progress Bar Rows */}
-                <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
                   {snapshot.categoryMarket.slice(0, 10).map((cat, idx) => {
                     const isSelected = selectedCategoryId === cat.id;
                     const relativeWidth = Math.max(
@@ -778,7 +863,7 @@ export function ProductRankBoardView({
                         type="button"
                         aria-pressed={isSelected}
                         onClick={() => handleToggleCategoryFilter(cat.id)}
-                        className={`w-full text-left px-3 py-2 rounded-xl border transition-colors cursor-pointer ${
+                        className={`w-full min-h-[44px] text-left px-3 py-2 rounded-xl border transition-all active:scale-[0.99] cursor-pointer ${
                           isSelected
                             ? 'border-teal-500/90 bg-teal-50/70 dark:bg-teal-950/40'
                             : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/45'
@@ -831,12 +916,12 @@ export function ProductRankBoardView({
                 </div>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                <span className="inline-flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 shrink-0" />
-                  <span>{rb.categoryClickHint}</span>
-                </span>
-                {selectedCategory && (
+              {selectedCategory && (
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                  <span className="inline-flex items-center gap-1.5 font-medium text-teal-700 dark:text-teal-400">
+                    <Layers className="w-3.5 h-3.5 shrink-0" />
+                    <span>{selectedCategory.label[language]}</span>
+                  </span>
                   <button
                     type="button"
                     onClick={() => setSelectedCategoryId(null)}
@@ -844,21 +929,23 @@ export function ProductRankBoardView({
                   >
                     {rb.clearAllFilters}
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </section>
 
           {/* 3. Analytics Row 2: Full-Width Price × Commission Opportunity Matrix */}
           <section className="rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-5">
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-              <div>
+              <div className="flex items-center gap-1.5">
                 <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                   {rb.matrixSectionTitle}
                 </h2>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  {rb.matrixSectionSub}
-                </p>
+                <InfoTooltip
+                  content={[rb.matrixSectionSub, rb.matrixTapHint]}
+                  ariaLabel={rb.matrixSectionTitle}
+                  size="md"
+                />
               </div>
               {/* Compact Semantic Legend */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300">
@@ -878,11 +965,47 @@ export function ProductRankBoardView({
             </div>
 
             <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-              {/* Interactive SVG Scatter Plot */}
+              {/* Interactive SVG Scatter Plot (SVG-level coordinate matching & drag scrubbing) */}
               <div className="lg:col-span-8 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-[#0E151D] p-2 sm:p-3 overflow-hidden">
                 <svg
+                  ref={scatterSvgRef}
                   viewBox="0 0 760 278"
-                  className="w-full h-auto block select-none"
+                  onPointerDown={(e) => {
+                    if (e.pointerType === 'mouse' && e.button !== 0) return;
+                    activeScrubPointerIdRef.current = e.pointerId;
+                    try {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    } catch {
+                      // ignore unsupported capture
+                    }
+                    selectNearestDotAtClientPoint(e.clientX, e.clientY);
+                  }}
+                  onPointerMove={(e) => {
+                    if (
+                      activeScrubPointerIdRef.current === e.pointerId ||
+                      e.pointerType === 'mouse'
+                    ) {
+                      selectNearestDotAtClientPoint(e.clientX, e.clientY);
+                    }
+                  }}
+                  onPointerUp={(e) => {
+                    if (activeScrubPointerIdRef.current === e.pointerId) {
+                      activeScrubPointerIdRef.current = null;
+                      try {
+                        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                          e.currentTarget.releasePointerCapture(e.pointerId);
+                        }
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  }}
+                  onPointerCancel={(e) => {
+                    if (activeScrubPointerIdRef.current === e.pointerId) {
+                      activeScrubPointerIdRef.current = null;
+                    }
+                  }}
+                  className="w-full h-auto block select-none touch-none cursor-crosshair"
                   role="img"
                   aria-label={rb.matrixSectionTitle}
                 >
@@ -980,18 +1103,24 @@ export function ProductRankBoardView({
                   </text>
 
                   {/* Product Bubbles */}
-                  {scatterRows.map((row) => {
+                  {orderedScatterRows.map((row) => {
                     const cx = mapPriceToX(row.priceThb ?? 0);
                     const cy = mapCommToY(row.commissionRate ?? 0);
                     const r = computeDotRadius(row.revenueThb, maxRowRevenue);
                     const isSelected = inspectedRow?.product.id === row.product.id;
+                    const displayR = isSelected ? r + 2.5 : r;
 
-                    const fillClass =
-                      row.dominantChannel === 'video'
-                        ? 'fill-teal-600/80 dark:fill-teal-400/80'
+                    const fillClass = isSelected
+                      ? row.dominantChannel === 'video'
+                        ? 'fill-teal-500 dark:fill-teal-300'
                         : row.dominantChannel === 'live'
-                          ? 'fill-indigo-600/80 dark:fill-indigo-400/80'
-                          : 'fill-slate-500/75 dark:fill-slate-400/75';
+                          ? 'fill-indigo-500 dark:fill-indigo-300'
+                          : 'fill-slate-700 dark:fill-slate-100'
+                      : row.dominantChannel === 'video'
+                        ? 'fill-teal-600/75 dark:fill-teal-400/75'
+                        : row.dominantChannel === 'live'
+                          ? 'fill-indigo-600/75 dark:fill-indigo-400/75'
+                          : 'fill-slate-500/70 dark:fill-slate-400/70';
 
                     return (
                       <g
@@ -999,8 +1128,7 @@ export function ProductRankBoardView({
                         role="button"
                         tabIndex={0}
                         aria-label={`#${row.rank} ${row.product.thaiTitle}`}
-                        onClick={() => setInspectedProductId(row.product.id)}
-                        onMouseEnter={() => setInspectedProductId(row.product.id)}
+                        aria-pressed={isSelected}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
@@ -1010,21 +1138,31 @@ export function ProductRankBoardView({
                         className="cursor-pointer focus:outline-none"
                       >
                         {isSelected && (
-                          <circle
-                            cx={cx}
-                            cy={cy}
-                            r={r + 4}
-                            fill="none"
-                            strokeWidth="2"
-                            className="stroke-slate-900 dark:stroke-white"
-                          />
+                          <>
+                            <circle
+                              cx={cx}
+                              cy={cy}
+                              r={displayR + 7.5}
+                              fill="none"
+                              strokeWidth="3"
+                              className="stroke-teal-500/30 dark:stroke-teal-300/30"
+                            />
+                            <circle
+                              cx={cx}
+                              cy={cy}
+                              r={displayR + 4}
+                              fill="none"
+                              strokeWidth="2"
+                              className="stroke-slate-900 dark:stroke-white"
+                            />
+                          </>
                         )}
                         <circle
                           cx={cx}
                           cy={cy}
-                          r={r}
+                          r={displayR}
                           className={`${fillClass} stroke-white dark:stroke-[#0E151D] transition-all duration-150`}
-                          strokeWidth={isSelected ? 1.8 : 1}
+                          strokeWidth={isSelected ? 2 : 1}
                         />
                       </g>
                     );
@@ -1157,13 +1295,17 @@ export function ProductRankBoardView({
             {/* Table Header & Controls */}
             <div className="p-4 sm:p-5 border-b border-slate-200/80 dark:border-slate-800 space-y-3.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
+                <div className="flex items-center gap-2">
                   <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                     {rb.tableSectionTitle}
                   </h2>
-                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                    {rb.tableSectionSub(filteredRows.length, allComputedRows.length)}
-                  </p>
+                  <span className="text-xs font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
+                    ({filteredRows.length}/{allComputedRows.length})
+                  </span>
+                  <InfoTooltip
+                    content={rb.tableSectionSub(filteredRows.length, allComputedRows.length)}
+                    ariaLabel={rb.tableSectionTitle}
+                  />
                 </div>
 
                 {/* Live Search Input (0 cr) */}
@@ -1174,14 +1316,14 @@ export function ProductRankBoardView({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder={rb.searchPlaceholder}
-                    className="w-full h-9 pl-9 pr-8 rounded-xl border border-slate-200/90 dark:border-slate-700/90 bg-slate-50/70 dark:bg-[#0E151D] text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-full h-11 sm:h-9 pl-9 pr-10 rounded-xl border border-slate-200/90 dark:border-slate-700/90 bg-slate-50/70 dark:bg-[#0E151D] text-base sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   {searchQuery && (
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
                       aria-label={t.history.clearFilterAria}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 sm:h-7 sm:w-7 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -1194,7 +1336,7 @@ export function ProductRankBoardView({
                 <div
                   role="group"
                   aria-label="Quick rank filters"
-                  className="inline-flex flex-wrap items-center gap-1 p-0.5 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/75 dark:border-slate-700/70"
+                  className="inline-flex flex-wrap items-center gap-1.5 sm:gap-1 p-1 sm:p-0.5 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/75 dark:border-slate-700/70"
                 >
                   {(
                     [
@@ -1209,7 +1351,7 @@ export function ProductRankBoardView({
                       type="button"
                       aria-pressed={quickFilter === opt.key}
                       onClick={() => setQuickFilter(opt.key)}
-                      className={`h-8 px-2.5 sm:px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                      className={`h-10 sm:h-8 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer ${
                         quickFilter === opt.key
                           ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
                           : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -1220,24 +1362,30 @@ export function ProductRankBoardView({
                   ))}
                 </div>
 
-                {/* Mobile/Tablet Sort Dropdown */}
+                {/* Mobile/Tablet Sort Unified Picker */}
                 <div className="flex items-center gap-2 md:hidden">
-                  <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  <label
+                    htmlFor="rank-board-mobile-sort"
+                    className="text-xs font-medium text-slate-500 dark:text-slate-400"
+                  >
                     {rb.sortLabel}:
                   </label>
-                  <select
+                  <CustomSelect
+                    id="rank-board-mobile-sort"
+                    ariaLabel={rb.sortLabel}
+                    size="sm"
                     value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as RankBoardSortKey)}
-                    className="h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0E151D] text-xs font-medium text-slate-800 dark:text-slate-100"
-                  >
-                    <option value="rank">{rb.colRank}</option>
-                    <option value="revenue">{rb.colRevenue}</option>
-                    <option value="sales">{rb.colUnits}</option>
-                    <option value="commission">{rb.colCommission}</option>
-                    <option value="payout">{rb.colPayout}</option>
-                    <option value="videoShare">Video %</option>
-                    <option value="score">{rb.colScore}</option>
-                  </select>
+                    options={[
+                      { value: 'rank', label: rb.colRank },
+                      { value: 'revenue', label: rb.colRevenue },
+                      { value: 'sales', label: rb.colUnits },
+                      { value: 'commission', label: rb.colCommission },
+                      { value: 'payout', label: rb.colPayout },
+                      { value: 'videoShare', label: 'Video %' },
+                      { value: 'score', label: rb.colScore },
+                    ]}
+                    onChange={(val) => setSortBy(val as RankBoardSortKey)}
+                  />
                 </div>
 
                 {/* Active Cross-Filter Banner */}
@@ -1290,12 +1438,16 @@ export function ProductRankBoardView({
 
             {filteredRows.length === 0 ? (
               <div className="p-10 text-center">
-                <h3 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
-                  {rb.noMatchesTitle}
-                </h3>
-                <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-                  {rb.noMatchesDesc}
-                </p>
+                <div className="inline-flex items-center justify-center gap-1.5">
+                  <h3 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
+                    {rb.noMatchesTitle}
+                  </h3>
+                  <InfoTooltip
+                    content={rb.noMatchesDesc}
+                    ariaLabel={rb.noMatchesTitle}
+                    size="md"
+                  />
+                </div>
                 {hasActiveFilters && (
                   <button
                     type="button"
@@ -1547,10 +1699,14 @@ export function ProductRankBoardView({
                             </span>
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug">
+                            <div
+                              className={`text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 select-text ${
+                                language === 'my' ? 'leading-[1.55]' : 'leading-snug'
+                              }`}
+                            >
                               {row.product.thaiTitle}
                             </div>
-                            <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 truncate select-text">
                               {row.product.shopName} ·{' '}
                               {language === 'my' ? row.categoryNameMy : row.categoryNameEn}
                             </div>
@@ -1567,19 +1723,19 @@ export function ProductRankBoardView({
                         <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-mono-num tabular-nums">
                           <div className="p-2 rounded-lg bg-slate-50 dark:bg-[#0E151D] border border-slate-200/60 dark:border-slate-800">
                             <div className="text-[10px] font-sans text-slate-400">{rb.colRevenue}</div>
-                            <div className="font-semibold text-slate-900 dark:text-white">
+                            <div className="font-semibold text-slate-900 dark:text-white select-text">
                               {formatCompactThb(row.revenueThb)}
                             </div>
                           </div>
                           <div className="p-2 rounded-lg bg-slate-50 dark:bg-[#0E151D] border border-slate-200/60 dark:border-slate-800">
                             <div className="text-[10px] font-sans text-slate-400">{rb.colPrice}</div>
-                            <div className="font-semibold text-slate-900 dark:text-white">
+                            <div className="font-semibold text-slate-900 dark:text-white select-text">
                               {row.priceThb !== null ? `฿${Math.round(row.priceThb)}` : '—'}
                             </div>
                           </div>
                           <div className="p-2 rounded-lg bg-slate-50 dark:bg-[#0E151D] border border-slate-200/60 dark:border-slate-800">
                             <div className="text-[10px] font-sans text-slate-400">{rb.colCommission}</div>
-                            <div className="font-semibold text-teal-700 dark:text-teal-400">
+                            <div className="font-semibold text-teal-700 dark:text-teal-400 select-text">
                               {row.commissionRate !== null ? `${row.commissionRate}%` : '—'}
                               {row.payoutThb !== null ? ` · ฿${Math.round(row.payoutThb)}` : ''}
                             </div>
@@ -1608,7 +1764,7 @@ export function ProductRankBoardView({
                               />
                             </div>
                           </div>
-                          <div className="inline-flex items-center gap-1.5 shrink-0">
+                          <div className="inline-flex items-center gap-2 shrink-0">
                             <button
                               type="button"
                               aria-label={isSaved ? t.card.unsaveProduct : t.card.saveProduct}
@@ -1616,14 +1772,14 @@ export function ProductRankBoardView({
                                 e.stopPropagation();
                                 onToggleSaveProduct(row.product);
                               }}
-                              className={`h-8 w-8 inline-flex items-center justify-center rounded-lg border cursor-pointer ${
+                              className={`relative h-11 w-11 inline-flex items-center justify-center rounded-lg border transition-transform active:scale-95 cursor-pointer ${
                                 isSaved
                                   ? 'border-teal-500/70 bg-teal-50/70 dark:bg-teal-950/40 text-teal-700 dark:text-teal-400'
                                   : 'border-slate-200 dark:border-slate-700 text-slate-400'
                               }`}
                             >
                               <Bookmark
-                                className={`w-3.5 h-3.5 ${isSaved ? 'fill-current' : ''}`}
+                                className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`}
                               />
                             </button>
                             <button
@@ -1632,7 +1788,7 @@ export function ProductRankBoardView({
                                 e.stopPropagation();
                                 onSelectProduct(row.product);
                               }}
-                              className="h-8 px-3 rounded-lg bg-teal-600 dark:bg-teal-500 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                              className="h-11 px-3.5 rounded-lg bg-teal-600 dark:bg-teal-500 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 active:scale-[0.98] transition-transform cursor-pointer"
                             >
                               <span>{rb.openStudioAction}</span>
                               <ArrowUpRight className="w-3.5 h-3.5" />

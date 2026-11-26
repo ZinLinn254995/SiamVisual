@@ -88,6 +88,9 @@ export interface Translations {
     emptyGuideDesc: string;
     emptyGuidePoints: string[];
     emptyGuideDisclaimer: string;
+    floatingFilterBtn: string;
+    pullToRefreshHint: string;
+    pullToRefreshRelease: string;
   };
   card: {
     thaiOriginal: string;
@@ -120,6 +123,8 @@ export interface Translations {
     aiExplainedTag: string;
     openTikTokShop: string;
     openTikTokShort: string;
+    showDetailsToggle: string;
+    hideDetailsToggle: string;
   };
   score: {
     tooltipBtn: string;
@@ -265,6 +270,11 @@ export interface Translations {
     confirmProceedBtn: string;
     confirmCancelBtn: string;
     savedStyleMark: string;
+    leaveBusyTitle: string;
+    leaveBusyDesc: string;
+    leaveStayBtn: string;
+    leaveConfirmBtn: string;
+    scrollToTopAria: string;
     videoSectionTitle: string;
     commercialStudioNotice: string;
     analysisTitle: string;
@@ -454,6 +464,8 @@ export interface Translations {
     limitSavedToast: string;
     limitExceededMaxSpend: (spent: number, est: number, max: number) => string;
     limitExceededReserve: (balance: number, est: number, reserve: number) => string;
+    offlineNotice: string;
+    insufficientBalanceWarning: (balance: number, est: number) => string;
   };
   v2: {
     engineBadge: string;
@@ -891,6 +903,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       ],
       emptyGuideDisclaimer:
         'သတိပြုရန် — Search အမှတ်သည် လက်ရှိ Kalodata ရောင်းအားအချက်အလက်အပေါ် အခြေခံထားပြီး အနာဂတ်ရောင်းအားကို အာမမခံပါ။',
+      floatingFilterBtn: 'Filter · Sort',
+      pullToRefreshHint: 'စစ်ဆေးပြန်စရန် အောက်သို့ ဆွဲချပါ',
+      pullToRefreshRelease: 'လွှတ်လိုက်ပါ — ရှာဖွေမှု/စစ်ဆေးမှု ဖွင့်မယ်',
     },
     card: {
       thaiOriginal: 'ထိုင်း TikTok နာမည်',
@@ -923,6 +938,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       aiExplainedTag: 'AI ရှင်းပြပြီး',
       openTikTokShop: 'မူရင်း TikTok Shop တွင်ကြည့်မယ်',
       openTikTokShort: 'TikTok Shop',
+      showDetailsToggle: 'အသေးစိတ်ကြည့်ရန်',
+      hideDetailsToggle: 'အသေးစိတ်ပိတ်မယ်',
     },
     score: {
       tooltipBtn: 'Search အမှတ် အသေးစိတ်ကြည့်ရန်',
@@ -1069,6 +1086,11 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       confirmProceedBtn: 'အတည်ပြုပြီး ဖန်တီးမယ်',
       confirmCancelBtn: 'မလုပ်တော့ပါ',
       savedStyleMark: 'သိမ်းပြီး',
+      leaveBusyTitle: 'လုပ်ဆောင်နေဆဲ AI / Data ရယူမှု မပြီးသေးပါ',
+      leaveBusyDesc: 'Video Plan သို့မဟုတ် Kalodata Data ရယူမှု ဆက်လက်လုပ်ဆောင်နေပါသည် — ထွက်လိုပါသလား?',
+      leaveStayBtn: 'ဆက်စောင့်မယ်',
+      leaveConfirmBtn: 'ထွက်မယ်',
+      scrollToTopAria: 'အပေါ်ဆုံးသို့ ပြန်တက်မယ်',
       videoSectionTitle: 'Silent AI Video Ideas ဖန်တီးရန်',
       commercialStudioNotice:
         'Commercial Score သည် ဈေးကွက်အလားအလာကိုသာ တိုင်းတာပြီး Video Studio အကြံပြုချက်များနှင့် သီးခြားဖြစ်သည်။ Score မြင့်ခြင်း သို့မဟုတ် ယခင် Video ရောင်းအားရှိခြင်းသည် သင့် Video အတွက် ရောင်းအားအာမခံချက် မဟုတ်ပါ။',
@@ -1270,6 +1292,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         `Max Spend Limit ကျော်နေပါသည် — သုံးပြီး ${spent} + ယခုခန့်မှန်း ~${est} > Limit (${max} cr)။ Limit တိုးပါ သို့မဟုတ် Spent ကို Reset လုပ်ပါ။`,
       limitExceededReserve: (balance, est, reserve) =>
         `Minimum Reserve Limit ကြောင့် ရပ်ထားပါသည် — လက်ကျန် ${balance} မှ ~${est} နှုတ်ပါက ချန်ထားလိုသည့် ${reserve} cr အောက်ကျသွားပါမည်။`,
+      offlineNotice: 'အင်တာနက် ပြတ်တောက်နေပါသည် — Browser ထဲ သိမ်းထားပြီးသား Cache Data များကိုသာ ကြည့်နိုင်ပါမည်။',
+      insufficientBalanceWarning: (balance, est) =>
+        `Kalodata Credit လက်ကျန် (${balance} cr) မလုံလောက်ပါ — ဤလုပ်ဆောင်ချက်အတွက် ~${est} cr လိုအပ်ပါသည်။`,
     },
     v2: {
       engineBadge: 'Intelligence V2',
@@ -1952,6 +1977,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       ],
       emptyGuideDisclaimer:
         'Note: Search scores reflect recent 7-day Kalodata sales signals and do not guarantee future affiliate conversions.',
+      floatingFilterBtn: 'Filter · Sort',
+      pullToRefreshHint: 'Pull down to refresh view',
+      pullToRefreshRelease: 'Release to open refresh options',
     },
     card: {
       thaiOriginal: 'Thai TikTok listing',
@@ -1984,6 +2012,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       aiExplainedTag: 'AI Explained',
       openTikTokShop: 'Open Original on TikTok Shop',
       openTikTokShort: 'TikTok Shop',
+      showDetailsToggle: 'Show details',
+      hideDetailsToggle: 'Hide details',
     },
     score: {
       tooltipBtn: 'Inspect Search Score visual breakdown',
@@ -2130,6 +2160,11 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       confirmProceedBtn: 'Confirm & Generate',
       confirmCancelBtn: 'Cancel',
       savedStyleMark: 'Saved',
+      leaveBusyTitle: 'AI / Data task still in progress',
+      leaveBusyDesc: 'Studio is currently fetching Kalodata data or generating AI results. Leave Studio anyway?',
+      leaveStayBtn: 'Keep waiting',
+      leaveConfirmBtn: 'Leave Studio',
+      scrollToTopAria: 'Back to top',
       videoSectionTitle: 'Silent AI Video Ideas Generator',
       commercialStudioNotice:
         'Commercial Opportunity measures market signals separately from Video Studio suitability. Neither a high score nor past video sales guarantees your affiliate video results.',
@@ -2331,6 +2366,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         `Blocked by Max Spend Limit: tracked spent (${spent}) + est. (~${est}) exceeds your ${max} cr limit. Raise limit or reset spent counter.`,
       limitExceededReserve: (balance, est, reserve) =>
         `Blocked by Minimum Balance Reserve: balance (${balance}) minus est. (~${est}) would drop below your ${reserve} cr reserve.`,
+      offlineNotice: 'You are offline — live search and AI generation are paused. Saved and cached data remains available.',
+      insufficientBalanceWarning: (balance, est) =>
+        `Insufficient Kalodata balance (${balance} cr) — this action requires ~${est} cr.`,
     },
     v2: {
       engineBadge: 'Intelligence V2',

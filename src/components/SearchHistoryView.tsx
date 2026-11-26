@@ -5,6 +5,7 @@ import type { Translations } from '../i18n';
 import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
 import { getStudioFallbackImage } from '../lib/media';
 import type { BilingualText, Language, RecentSearchEntry } from '../types';
+import { InfoTooltip } from './InfoTooltip';
 
 interface SearchHistoryViewProps {
   entries: RecentSearchEntry[];
@@ -106,12 +107,16 @@ export function SearchHistoryView({
       {/* Header & Clear All Controls */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
         <div className="max-w-2xl">
-          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            {t.searchHistoryPage.title}
-          </h1>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-            {t.searchHistoryPage.subtitle}
-          </p>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              {t.searchHistoryPage.title}
+            </h1>
+            <InfoTooltip
+              content={t.searchHistoryPage.subtitle}
+              ariaLabel={t.searchHistoryPage.title}
+              size="md"
+            />
+          </div>
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 font-mono-num tabular-nums">
             {t.searchHistoryPage.totalCount(entries.length)}
           </p>
@@ -127,14 +132,14 @@ export function SearchHistoryView({
                     onClearAll();
                     setConfirmClearAll(false);
                   }}
-                  className="h-10 px-4 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer"
+                  className="h-11 sm:h-10 px-4 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
                 >
                   {t.searchHistoryPage.confirmClearAll}
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmClearAll(false)}
-                  className="h-10 px-3.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-300 text-sm font-medium whitespace-nowrap cursor-pointer"
+                  className="h-11 sm:h-10 px-3.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-300 text-sm font-medium whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer"
                 >
                   {t.searchHistoryPage.cancel}
                 </button>
@@ -143,7 +148,7 @@ export function SearchHistoryView({
               <button
                 type="button"
                 onClick={() => setConfirmClearAll(true)}
-                className="h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-600 dark:text-slate-300 hover:text-red-600 hover:border-red-200 dark:hover:text-red-400 dark:hover:border-red-900/60 text-sm font-medium inline-flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+                className="h-11 sm:h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-600 dark:text-slate-300 hover:text-red-600 hover:border-red-200 dark:hover:text-red-400 dark:hover:border-red-900/60 text-sm font-medium inline-flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
               >
                 <Trash2 className="w-4 h-4 shrink-0" />
                 <span>{t.searchHistoryPage.clearAllBtn}</span>
@@ -156,12 +161,16 @@ export function SearchHistoryView({
       {/* Empty State */}
       {entries.length === 0 ? (
         <div className="py-16 sm:py-20 text-center max-w-md mx-auto">
-          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
-            {t.searchHistoryPage.emptyTitle}
-          </h2>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-            {t.searchHistoryPage.emptyDesc}
-          </p>
+          <div className="inline-flex items-center justify-center gap-1.5">
+            <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
+              {t.searchHistoryPage.emptyTitle}
+            </h2>
+            <InfoTooltip
+              content={t.searchHistoryPage.emptyDesc}
+              ariaLabel={t.searchHistoryPage.emptyTitle}
+              size="md"
+            />
+          </div>
           <button
             type="button"
             onClick={onGoDiscover}
@@ -182,14 +191,14 @@ export function SearchHistoryView({
                 value={filterQuery}
                 onChange={(e) => setFilterQuery(e.target.value)}
                 placeholder={t.searchHistoryPage.searchPlaceholder}
-                className="w-full h-11 pl-10 pr-10 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B24] text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full h-11 pl-10 pr-11 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B24] text-base sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               {filterQuery && (
                 <button
                   type="button"
                   onClick={() => setFilterQuery('')}
                   aria-label={t.history.clearFilterAria}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -248,7 +257,7 @@ export function SearchHistoryView({
                     </div>
 
                     {/* Search Title */}
-                    <h3 className="mt-2 font-display text-base font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">
+                    <h3 className="mt-2 font-display text-base font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 select-text">
                       {getEntryTitle(entry)}
                     </h3>
 
@@ -282,7 +291,7 @@ export function SearchHistoryView({
 
                     {/* Top Product Sample Line */}
                     {entry.products[0] && (
-                      <p className="mt-2.5 text-xs text-slate-500 dark:text-slate-400 truncate">
+                      <p className="mt-2.5 text-xs text-slate-500 dark:text-slate-400 truncate select-text">
                         {entry.products[0].clearTitle[language]}
                       </p>
                     )}
@@ -292,7 +301,7 @@ export function SearchHistoryView({
                       <button
                         type="button"
                         onClick={() => onOpenEntry(entry)}
-                        className="flex-1 min-w-[140px] h-10 px-3.5 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer"
+                        className="flex-1 min-w-[140px] h-10 px-3.5 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer"
                       >
                         <span>{t.searchHistoryPage.openResultsBtn}</span>
                         <ArrowRight className="w-3.5 h-3.5" />

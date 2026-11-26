@@ -15,6 +15,15 @@ import {
 import type { ProductItem } from '../src/types.ts';
 
 function makeSampleProduct(overrides: Partial<ProductItem> = {}): ProductItem {
+  const priceThb = overrides.priceThb !== undefined ? overrides.priceThb : 299;
+  const commissionRate = overrides.commissionRate !== undefined ? overrides.commissionRate : 15;
+  const commissionThb =
+    overrides.commissionThb !== undefined
+      ? overrides.commissionThb
+      : priceThb !== null && commissionRate !== null
+        ? Math.round(priceThb * commissionRate) / 100
+        : null;
+
   return {
     id: overrides.id ?? '172999000001',
     thaiTitle: overrides.thaiTitle ?? 'เซรั่มวิตามินซี หน้าใส ลดจุดด่างดำ 30ml',
@@ -22,6 +31,8 @@ function makeSampleProduct(overrides: Partial<ProductItem> = {}): ProductItem {
       my: 'Vitamin C Brightening Serum',
       en: 'Vitamin C Brightening Serum',
     },
+    whatItIs: overrides.whatItIs ?? { my: '', en: '' },
+    whySilentWorks: overrides.whySilentWorks ?? { my: '', en: '' },
     category: overrides.category ?? 'beauty',
     categoryLabel: overrides.categoryLabel ?? {
       my: 'အလှကုန်နှင့် အသားအရေ',
@@ -29,12 +40,10 @@ function makeSampleProduct(overrides: Partial<ProductItem> = {}): ProductItem {
     },
     kalodataCategoryId: overrides.kalodataCategoryId ?? '601450',
     shopName: overrides.shopName ?? 'GlowTH Official',
-    priceThb: overrides.priceThb !== undefined ? overrides.priceThb : 299,
-    commissionRate: overrides.commissionRate !== undefined ? overrides.commissionRate : 15,
-    salesVolume7d: overrides.salesVolume7d ?? 1200,
-    revenueThb7d: overrides.revenueThb7d ?? 360000,
-    videoRevenueThb7d: overrides.videoRevenueThb7d ?? 240000,
-    revenueGrowthRate: overrides.revenueGrowthRate ?? 18,
+    priceThb,
+    commissionRate,
+    commissionThb,
+    visualTags: overrides.visualTags ?? [],
     kalodataMetrics: overrides.kalodataMetrics ?? {
       salesVolume7d: 1200,
       revenueThb7d: 360000,
@@ -45,18 +54,15 @@ function makeSampleProduct(overrides: Partial<ProductItem> = {}): ProductItem {
       dateRange: 'last7Day',
     },
     imageUrl: overrides.imageUrl ?? '',
-    visualDemoHook: overrides.visualDemoHook ?? { my: '', en: '' },
-    whySilentWorks: overrides.whySilentWorks ?? { my: '', en: '' },
-    score: overrides.score ?? {
+    scoreBreakdown: overrides.scoreBreakdown ?? {
       total: 84,
       grade: 'top',
-      visualDemo: 25,
-      aiFit: 20,
-      demandPrice: 20,
-      commissionValue: 19,
+      visualDemo: 85,
+      aiSuitability: 82,
+      salesDemand: 80,
+      commissionValue: 78,
       speechPenalty: 0,
     },
-    source: 'kalodata',
   };
 }
 
@@ -242,9 +248,16 @@ test('TopBar renders Rank Board tab right beside Discover in both Myanmar and En
     savedCount: 3,
     kalodataStatus: {
       connected: true,
-      keySource: 'user' as const,
-      maskedKey: '****1234',
-      balance: { available: 12.5, total: 20, used: 7.5, accountType: 'main' as const },
+      keySource: 'ui' as const,
+      maskedKey: null,
+      balance: {
+        available: 12.5,
+        mainRemain: 12.5,
+        subRemain: null,
+        accountType: 'main' as const,
+        unit: 'credits',
+        checkedAt: '2026-11-26T12:00:00.000Z',
+      },
     },
     kalodataLimits: {
       maxSpendCredits: null,
@@ -292,9 +305,16 @@ test('ProductRankBoardView renders empty state, loading state, and populated das
     limitWarning: null,
     kalodataStatus: {
       connected: true,
-      keySource: 'user' as const,
-      maskedKey: '****1234',
-      balance: { available: 10, total: 20, used: 10, accountType: 'main' as const },
+      keySource: 'ui' as const,
+      maskedKey: null,
+      balance: {
+        available: 10,
+        mainRemain: 10,
+        subRemain: null,
+        accountType: 'main' as const,
+        unit: 'credits',
+        checkedAt: '2026-11-26T12:00:00.000Z',
+      },
     },
     savedProductIds: new Set<string>(),
     nowMs: Date.parse('2026-11-26T13:00:00.000Z'),

@@ -9,6 +9,7 @@ import {
   type DiscoverySortMode,
 } from '../lib/discoveryFilterEngine';
 import { CustomSelect, type CustomSelectOption } from './CustomSelect';
+import { InfoTooltip } from './InfoTooltip';
 
 interface DiscoveryFilterBarProps {
   state: DiscoveryFilterState;
@@ -91,7 +92,7 @@ export function DiscoveryFilterBar({
       {/* Row 1: Evidence Shortlist Presets + Verified-Metric Sort */}
       <div className="px-3.5 sm:px-4 py-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
         <div className="relative min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pr-6 lg:pr-0">
+          <div className="flex items-center gap-2 sm:gap-1.5 overflow-x-auto no-scrollbar pr-6 lg:pr-0">
             {PRESET_ORDER.map((preset) => {
               const isSelected = state.preset === preset;
               const itemCount = presetCountMap[preset];
@@ -101,7 +102,7 @@ export function DiscoveryFilterBar({
                   type="button"
                   aria-pressed={isSelected}
                   onClick={() => onChange({ ...state, preset })}
-                  className={`h-8 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                  className={`h-10 sm:h-8 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                     isSelected
                       ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 font-semibold'
                       : 'bg-slate-50 dark:bg-slate-900/70 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -150,9 +151,10 @@ export function DiscoveryFilterBar({
       {/* Row 2: Zero-Credit Local Affiliate Refinements + Live Match Summary */}
       <div className="px-3.5 sm:px-4 py-2 border-t border-slate-100 dark:border-slate-800/85 bg-slate-50/55 dark:bg-slate-900/35 flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
             <SlidersHorizontal className="w-3 h-3 shrink-0" />
-            <span>{copy.zeroCreditHint}</span>
+            <span>0 cr</span>
+            <InfoTooltip content={copy.zeroCreditHint} ariaLabel={copy.zeroCreditHint} />
           </span>
 
           {/* Min Commission Rate */}
@@ -218,7 +220,7 @@ export function DiscoveryFilterBar({
               onClick={() =>
                 onChange({ ...DEFAULT_DISCOVERY_FILTER_STATE, sortMode: 'search_score_desc' })
               }
-              className="h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1 cursor-pointer"
+              className="h-10 sm:h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1 active:scale-[0.97] transition-transform cursor-pointer"
             >
               <RotateCcw className="w-3 h-3 shrink-0" />
               <span>{copy.resetBtn}</span>

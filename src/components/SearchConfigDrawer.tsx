@@ -9,7 +9,6 @@ import {
   SlidersHorizontal,
   X,
 } from 'lucide-react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import type { Translations } from '../i18n';
 import {
   createRecommendedSearchConfigDraft,
@@ -22,7 +21,9 @@ import {
 } from '../lib/discoveryFilterEngine';
 import { inspectQueryLink } from '../lib/productLinkInspector';
 import type { KalodataCategoryItem, Language } from '../types';
+import { BottomSheet } from './BottomSheet';
 import { CustomSelect, type CustomSelectOption } from './CustomSelect';
+import { InfoTooltip } from './InfoTooltip';
 
 interface SearchConfigDrawerProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ interface SearchConfigDrawerProps {
   isSyncingCategories: boolean;
   hasLiveSyncedCategories: boolean;
   searchLimitWarning: string | null;
+  isOffline?: boolean;
   leanSearchCost: number;
   t: Translations;
   onClose: () => void;
@@ -72,13 +74,13 @@ export function SearchConfigDrawer({
   isSyncingCategories,
   hasLiveSyncedCategories,
   searchLimitWarning,
+  isOffline = false,
   leanSearchCost,
   t,
   onClose,
   onSyncCategories,
   onSubmit,
 }: SearchConfigDrawerProps) {
-  const prefersReducedMotion = useReducedMotion();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const wasOpenRef = useRef<boolean>(false);
   const [draft, setDraft] = useState<SearchConfigDraft>(() => ({
@@ -98,26 +100,6 @@ export function SearchConfigDrawer({
       filterState: { ...initialConfig.filterState },
     });
   }, [isOpen, initialConfig]);
-
-  // Lock body scroll and close on Escape while open
-  useEffect(() => {
-    if (!isOpen) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
 
   const linkInfo = useMemo(() => inspectQueryLink(draft.query), [draft.query]);
   const isSingleLinkValid =
@@ -148,7 +130,7 @@ export function SearchConfigDrawer({
 
   function handleFormSubmit(e: FormEvent) {
     e.preventDefault();
-    if (isSearching || Boolean(searchLimitWarning) || isLinkBroken) return;
+    if (isSearching || isOffline || Boolean(searchLimitWarning) || isLinkBroken) return;
     onSubmit({
       ...draft,
       query: draft.query.trim(),
@@ -171,85 +153,63 @@ export function SearchConfigDrawer({
           );
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="search-config-drawer-title"
-        >
-          {/* Backdrop Scrim */}
-          <motion.div
-            key="search-drawer-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: prefersReducedMotion ? 0.01 : 0.18 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-slate-950/55 backdrop-blur-[2px]"
-          />
-
-          {/* Bottom Sheet Surface */}
-          <motion.div
-            key="search-drawer-panel"
-            initial={prefersReducedMotion ? { opacity: 0 } : { y: '100%' }}
-            animate={prefersReducedMotion ? { opacity: 1 } : { y: 0 }}
-            exit={prefersReducedMotion ? { opacity: 0 } : { y: '100%' }}
-            transition={{
-              duration: prefersReducedMotion ? 0.01 : 0.28,
-              ease: [0.16, 1, 0.3, 1],
-            }}
-            style={{ willChange: 'transform' }}
-            className="relative z-10 w-full max-w-4xl max-h-[88dvh] flex flex-col rounded-t-2xl bg-white dark:bg-[#131B24] border-t border-x border-slate-200/90 dark:border-slate-800 shadow-[0_-16px_48px_-12px_rgba(15,23,42,0.28)] dark:shadow-[0_-16px_48px_-12px_rgba(0,0,0,0.65)] overflow-hidden"
+    <BottomSheet
+      isOpen={isOpen}
+      onClose={onClose}
+      historyKey="search_drawer"
+      variant="sheet"
+      maxWidthClass="max-w-4xl"
+      zIndexClass="z-50"
+      backdropClassName="bg-slate-950/55 backdrop-blur-[2px]"
+      labelledBy="search-config-drawer-title"
+      showHandleOnDesktop
+    >
+      {/* Sticky Drawer Header (swipeable via BottomSheet) */}
+      <div
+        data-sheet-handle="true"
+        className="px-4 sm:px-6 pt-1 pb-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-start justify-between gap-3 shrink-0 touch-none"
+      >
+        <div className="min-w-0 flex items-center gap-1.5">
+          <h2
+            id="search-config-drawer-title"
+            className="font-display text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100 leading-snug"
           >
-            {/* Subtle Sheet Handle Indicator */}
-            <div className="pt-2.5 pb-1 flex justify-center shrink-0">
-              <span
-                aria-hidden="true"
-                className="w-10 h-1 rounded-full bg-slate-300/90 dark:bg-slate-700"
-              />
-            </div>
+            {copy.title}
+          </h2>
+          <InfoTooltip content={copy.subtitle} ariaLabel={copy.title} size="md" />
+        </div>
 
-            {/* Sticky Drawer Header */}
-            <div className="px-4 sm:px-6 pt-1 pb-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-start justify-between gap-3 shrink-0">
-              <div className="min-w-0">
-                <h2
-                  id="search-config-drawer-title"
-                  className="font-display text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100 leading-snug"
-                >
-                  {copy.title}
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  {copy.subtitle}
-                </p>
-              </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={copy.closeAria}
+          className="h-10 w-10 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/70 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 inline-flex items-center justify-center shrink-0 transition-colors active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
 
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label={copy.closeAria}
-                className="h-10 w-10 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/70 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 inline-flex items-center justify-center shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Form Wrapping Scrollable Content + Sticky Action Footer */}
-            <form
-              onSubmit={handleFormSubmit}
-              className="flex-1 min-h-0 flex flex-col overflow-hidden"
-            >
-              {/* Scrollable Configuration Body */}
-              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 space-y-5">
+      {/* Form Wrapping Scrollable Content + Sticky Action Footer */}
+      <form
+        onSubmit={handleFormSubmit}
+        className="flex-1 min-h-0 flex flex-col overflow-hidden"
+      >
+        {/* Scrollable Configuration Body */}
+        <div
+          data-sheet-scroll="true"
+          className="flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 sm:py-5 space-y-5"
+        >
                 {/* Section 1: Keyword OR Single Product Link / ID */}
                 <div>
-                  <label
-                    htmlFor="drawer-keyword-or-link"
-                    className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-2"
-                  >
-                    {copy.keywordOrLinkLabel}
-                  </label>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <label
+                      htmlFor="drawer-keyword-or-link"
+                      className="text-xs font-semibold text-slate-800 dark:text-slate-200"
+                    >
+                      {copy.keywordOrLinkLabel}
+                    </label>
+                    <InfoTooltip content={copy.keywordOrLinkHint} ariaLabel={copy.keywordOrLinkLabel} />
+                  </div>
                   <div className="relative flex items-center rounded-xl border border-slate-200/95 dark:border-slate-700/90 bg-slate-50/70 dark:bg-slate-900/65 focus-within:border-teal-500 dark:focus-within:border-teal-400 focus-within:bg-white dark:focus-within:bg-[#0E151D] transition-colors">
                     {linkInfo.isLinkOrId ? (
                       <Link2 className="w-4 h-4 text-teal-600 dark:text-teal-400 absolute left-3.5 pointer-events-none" />
@@ -265,7 +225,7 @@ export function SearchConfigDrawer({
                         setDraft((prev) => ({ ...prev, query: e.target.value }))
                       }
                       placeholder={copy.keywordOrLinkPlaceholder}
-                      className="w-full h-11 pl-10 pr-10 rounded-xl bg-transparent text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
+                      className="w-full h-11 pl-10 pr-11 rounded-xl bg-transparent text-base sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
                     />
                     {draft.query && (
                       <button
@@ -275,7 +235,7 @@ export function SearchConfigDrawer({
                           inputRef.current?.focus();
                         }}
                         aria-label={t.history.clearFilterAria}
-                        className="absolute right-1.5 h-8 w-8 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                        className="absolute right-1 h-9 w-9 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 active:scale-95 cursor-pointer"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -283,24 +243,30 @@ export function SearchConfigDrawer({
                   </div>
 
                   {linkInfo.isLinkOrId && linkInfo.productId ? (
-                    <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-teal-700 dark:text-teal-400">
+                    <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-teal-700 dark:text-teal-400 font-mono-num">
                       <Link2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>{t.search.linkModeNotice(linkInfo.productId)}</span>
-                    </p>
+                      <span>ID: {linkInfo.productId} · ~{leanSearchCost} cr</span>
+                      <InfoTooltip
+                        tone="teal"
+                        content={t.search.linkModeNotice(linkInfo.productId)}
+                        ariaLabel={t.search.linkModeNotice(linkInfo.productId)}
+                      />
+                    </div>
                   ) : linkInfo.isLinkOrId && linkInfo.isShortLink ? (
-                    <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-teal-700 dark:text-teal-400">
+                    <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-teal-700 dark:text-teal-400">
                       <Link2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>{t.search.shortLinkNotice}</span>
-                    </p>
+                      <span>TikTok Short Link · ~{leanSearchCost} cr</span>
+                      <InfoTooltip
+                        tone="teal"
+                        content={t.search.shortLinkNotice}
+                        ariaLabel={t.search.shortLinkNotice}
+                      />
+                    </div>
                   ) : isLinkBroken ? (
                     <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
                       {t.search.invalidLinkNotice}
                     </p>
-                  ) : (
-                    <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                      {copy.keywordOrLinkHint}
-                    </p>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Section 2: Discovery Scope — Product Count & Sales Window */}
@@ -312,9 +278,12 @@ export function SearchConfigDrawer({
                   {/* Product Count Selector (20 / 50 / 100) */}
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                        {copy.countLabel}
-                      </span>
+                      <div className="inline-flex items-center gap-1.5 min-w-0">
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          {copy.countLabel}
+                        </span>
+                        <InfoTooltip content={copy.countCostNote} ariaLabel={copy.countLabel} />
+                      </div>
                       <span className="font-mono-num tabular-nums text-[11px] text-teal-700 dark:text-teal-400 font-medium">
                         ~{leanSearchCost} cr
                       </span>
@@ -357,16 +326,16 @@ export function SearchConfigDrawer({
                         );
                       })}
                     </div>
-                    <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 font-mono-num">
-                      {copy.countCostNote}
-                    </p>
                   </div>
 
                   {/* Sales Window Selector (7d / 30d) */}
                   <div>
-                    <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-2">
-                      {copy.windowLabel}
-                    </span>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                        {copy.windowLabel}
+                      </span>
+                      <InfoTooltip content={copy.windowNote} ariaLabel={copy.windowLabel} />
+                    </div>
                     <div
                       role="group"
                       aria-label={copy.windowLabel}
@@ -391,19 +360,24 @@ export function SearchConfigDrawer({
                         );
                       })}
                     </div>
-                    <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                      {copy.windowNote}
-                    </p>
                   </div>
                 </div>
 
                 {/* Section 3: Categories (Multi-select) */}
                 <div className="pt-4 border-t border-slate-100 dark:border-slate-800/85">
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
                       <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
                         {copy.categoriesLabel}
                       </span>
+                      <InfoTooltip
+                        content={
+                          linkInfo.isLinkOrId
+                            ? copy.categoriesDisabledInLinkMode
+                            : t.search.multiCategoryHint
+                        }
+                        ariaLabel={copy.categoriesLabel}
+                      />
                       {!linkInfo.isLinkOrId && draft.cateIds.length > 0 && (
                         <>
                           <span className="text-[11px] font-medium text-teal-700 dark:text-teal-400 font-mono-num">
@@ -447,9 +421,9 @@ export function SearchConfigDrawer({
                   </div>
 
                   {linkInfo.isLinkOrId ? (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {copy.categoriesDisabledInLinkMode}
-                    </p>
+                    <div className="inline-flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+                      <span>—</span>
+                    </div>
                   ) : (
                     <div className="flex flex-wrap items-center gap-1.5">
                       {categories.map((cat) => {
@@ -497,16 +471,21 @@ export function SearchConfigDrawer({
                     <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
                       <SlidersHorizontal className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
                       <span>{copy.affiliateFiltersLabel}</span>
+                      <InfoTooltip
+                        content={
+                          linkInfo.isLinkOrId
+                            ? copy.affiliateFiltersDisabledInLinkMode
+                            : copy.affiliateFiltersHint
+                        }
+                        ariaLabel={copy.affiliateFiltersLabel}
+                      />
                     </div>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {copy.affiliateFiltersHint}
-                    </span>
                   </div>
 
                   {linkInfo.isLinkOrId ? (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {copy.affiliateFiltersDisabledInLinkMode}
-                    </p>
+                    <div className="inline-flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+                      <span>—</span>
+                    </div>
                   ) : (
                     <div className="space-y-3.5">
                       {/* Shortlist Preset Buttons */}
@@ -678,6 +657,12 @@ export function SearchConfigDrawer({
                   )}
                 </div>
 
+                {isOffline && (
+                  <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                    {t.kalodata.offlineNotice}
+                  </p>
+                )}
+
                 {searchLimitWarning && (
                   <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
                     {searchLimitWarning}
@@ -686,12 +671,12 @@ export function SearchConfigDrawer({
               </div>
 
               {/* Sticky Bottom Footer */}
-              <div className="px-4 sm:px-6 py-3.5 border-t border-slate-200/85 dark:border-slate-800 bg-slate-50/85 dark:bg-[#0E151D] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+              <div className="px-4 sm:px-6 pt-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] border-t border-slate-200/85 dark:border-slate-800 bg-slate-50/85 dark:bg-[#0E151D] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
                 <div className="flex flex-wrap items-center justify-between sm:justify-start gap-x-3 gap-y-1.5 min-w-0">
                   <button
                     type="button"
                     onClick={handleResetToRecommendedDefaults}
-                    className="h-9 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                    className="h-9 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1.5 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                     <span>{copy.resetDefaultsBtn}</span>
@@ -705,14 +690,14 @@ export function SearchConfigDrawer({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="h-11 px-4 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 whitespace-nowrap cursor-pointer"
+                    className="h-11 px-4 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer"
                   >
                     {copy.cancelBtn}
                   </button>
                   <button
                     type="submit"
-                    disabled={isSearching || Boolean(searchLimitWarning) || isLinkBroken}
-                    className="flex-1 sm:flex-initial h-11 px-5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap disabled:opacity-55 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                    disabled={isSearching || isOffline || Boolean(searchLimitWarning) || isLinkBroken}
+                    className="flex-1 sm:flex-initial h-11 px-5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap disabled:opacity-55 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                   >
                     {isSingleLinkValid ? (
                       <Link2 className="w-4 h-4 shrink-0" />
@@ -730,9 +715,6 @@ export function SearchConfigDrawer({
                 </div>
               </div>
             </form>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+    </BottomSheet>
   );
 }

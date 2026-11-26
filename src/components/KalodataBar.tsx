@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { Translations } from '../i18n';
 import type { KalodataLimitSettings, KalodataStatus } from '../types';
+import { InfoTooltip } from './InfoTooltip';
 
 interface KalodataBarProps {
   status: KalodataStatus;
@@ -159,7 +160,7 @@ export function KalodataBar({
               disabled={isRefreshingBalance}
               onClick={onRefreshBalance}
               aria-label={t.kalodata.refreshBalance}
-              className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer disabled:opacity-60"
+              className="h-10 sm:h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer disabled:opacity-60"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingBalance ? 'animate-spin' : ''}`} />
               <span>{t.kalodata.refreshBalance}</span>
@@ -168,7 +169,7 @@ export function KalodataBar({
             <button
               type="button"
               onClick={openLimitEditor}
-              className={`h-9 px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer ${
+              className={`h-10 sm:h-9 px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer ${
                 isEditingLimit || hasAnyLimit
                   ? 'border-teal-600 dark:border-teal-400 text-teal-700 dark:text-teal-300 bg-teal-50/50 dark:bg-teal-950/30'
                   : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600'
@@ -186,7 +187,7 @@ export function KalodataBar({
                 setKeyInput('');
                 setPasteHint(null);
               }}
-              className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 transition-colors duration-150 whitespace-nowrap cursor-pointer"
+              className="h-10 sm:h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer"
             >
               {t.kalodata.changeKey}
             </button>
@@ -197,7 +198,7 @@ export function KalodataBar({
                 onClick={onDisconnect}
                 aria-label={t.kalodata.disconnect}
                 title={t.kalodata.disconnect}
-                className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-red-600 hover:border-red-200 dark:hover:border-red-900/60 transition-colors duration-150 shrink-0 cursor-pointer"
+                className="h-10 w-10 sm:h-9 sm:w-9 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-red-600 hover:border-red-200 dark:hover:border-red-900/60 transition-all active:scale-[0.98] duration-150 shrink-0 cursor-pointer"
               >
                 <Unlink className="w-3.5 h-3.5" />
               </button>
@@ -209,7 +210,7 @@ export function KalodataBar({
                 onClick={onClose}
                 aria-label={t.kalodata.closeBtn}
                 title={t.kalodata.closeBtn}
-                className="h-9 w-9 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors duration-150 shrink-0 cursor-pointer"
+                className="h-10 w-10 sm:h-9 sm:w-9 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all active:scale-95 duration-150 shrink-0 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -278,7 +279,7 @@ export function KalodataBar({
                   value={maxSpendInput}
                   onChange={(e) => setMaxSpendInput(e.target.value)}
                   placeholder={t.kalodata.maxSpendPlaceholder}
-                  className="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0B1117] font-mono-num text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:font-sans placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="mt-1 w-full h-11 sm:h-10 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0B1117] font-mono-num text-base sm:text-sm text-slate-900 dark:text-slate-100 placeholder:font-sans placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </label>
 
@@ -293,7 +294,7 @@ export function KalodataBar({
                   value={minReserveInput}
                   onChange={(e) => setMinReserveInput(e.target.value)}
                   placeholder={t.kalodata.minReservePlaceholder}
-                  className="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0B1117] font-mono-num text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:font-sans placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="mt-1 w-full h-11 sm:h-10 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0B1117] font-mono-num text-base sm:text-sm text-slate-900 dark:text-slate-100 placeholder:font-sans placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </label>
             </div>
@@ -333,13 +334,13 @@ export function KalodataBar({
                 <button
                   type="button"
                   onClick={() => setIsEditingLimit(false)}
-                  className="h-9 px-3 rounded-lg text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                  className="h-10 sm:h-9 px-3 rounded-lg text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white active:scale-[0.98] cursor-pointer"
                 >
                   {t.kalodata.cancel}
                 </button>
                 <button
                   type="submit"
-                  className="h-9 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold cursor-pointer whitespace-nowrap"
+                  className="h-10 sm:h-9 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold active:scale-[0.98] transition-transform cursor-pointer whitespace-nowrap"
                 >
                   {t.kalodata.saveLimitBtn}
                 </button>
@@ -354,11 +355,12 @@ export function KalodataBar({
   return (
     <div className="bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl p-5 text-left shadow-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <KeyRound className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
           <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100">
             {t.kalodata.title}
           </h2>
+          <InfoTooltip content={t.kalodata.subtitle} ariaLabel={t.kalodata.title} size="md" />
         </div>
 
         <div className="flex items-center gap-3">
@@ -375,17 +377,13 @@ export function KalodataBar({
               type="button"
               onClick={onClose}
               aria-label={t.kalodata.closeBtn}
-              className="h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+              className="h-9 w-9 sm:h-8 sm:w-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           )}
         </div>
       </div>
-
-      <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-        {t.kalodata.subtitle}
-      </p>
 
       <form onSubmit={handleSubmit} className="mt-4 flex flex-col sm:flex-row items-stretch gap-2">
         <div className="relative flex-1">
@@ -396,13 +394,13 @@ export function KalodataBar({
             placeholder={t.kalodata.inputPlaceholder}
             autoComplete="off"
             spellCheck={false}
-            className="w-full h-11 pl-3.5 pr-10 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-[#0B1117] font-mono text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:font-sans placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+            className="w-full h-11 pl-3.5 pr-11 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-[#0B1117] font-mono text-base sm:text-sm text-slate-900 dark:text-slate-100 placeholder:font-sans placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
           />
           <button
             type="button"
             onClick={() => setShowKey((prev) => !prev)}
             aria-label={showKey ? 'Hide key' : 'Show key'}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 h-8 w-8 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 h-9 w-9 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 cursor-pointer"
           >
             {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
@@ -412,7 +410,7 @@ export function KalodataBar({
           <button
             type="button"
             onClick={handlePasteClick}
-            className="h-11 px-3.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="h-11 px-3.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center justify-center gap-1.5 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer"
           >
             <ClipboardPaste className="w-3.5 h-3.5" />
             <span>{t.kalodata.pasteBtn}</span>
@@ -421,7 +419,7 @@ export function KalodataBar({
           <button
             type="submit"
             disabled={isConnecting || !keyInput.trim()}
-            className="h-11 flex-1 sm:flex-none px-5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold transition-colors duration-150 whitespace-nowrap disabled:opacity-55 cursor-pointer"
+            className="h-11 flex-1 sm:flex-none px-5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold transition-all active:scale-[0.98] duration-150 whitespace-nowrap disabled:opacity-55 cursor-pointer"
           >
             {isConnecting ? t.kalodata.connectingBtn : t.kalodata.connectBtn}
           </button>

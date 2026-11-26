@@ -1,18 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
+  Columns3,
   LayoutGrid,
   Link2,
   List,
   RefreshCw,
   Search,
   SlidersHorizontal,
+  WifiOff,
   X,
+  ZoomIn,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CompactFilterBar } from './components/CompactFilterBar';
 import { DiscoveryFilterBar } from './components/DiscoveryFilterBar';
 import { HistoryView } from './components/HistoryView';
+import { InfoTooltip } from './components/InfoTooltip';
 import { KalodataBar } from './components/KalodataBar';
 import { ProductCard } from './components/ProductCard';
 import { ProductRankBoardView, RANK_BOARD_SYNC_COST } from './components/ProductRankBoardView';
@@ -41,6 +45,7 @@ import {
   type SearchPageSizeOption,
 } from './lib/discoveryFilterEngine';
 import { inspectQueryLink } from './lib/productLinkInspector';
+import { useBackHistoryLayer } from './lib/backHistory';
 import {
   buildProductIntelligenceView,
   sortProductsByV2Overall,
@@ -62,6 +67,7 @@ import {
   loadDeepInsightsCache,
   loadKalodataLimits,
   loadLanguagePreference,
+  loadPinchHintSeen,
   loadProductAnalysisCache,
   loadRankBoardSnapshot,
   loadRecentSearches,
@@ -84,6 +90,7 @@ import {
   saveDeepInsightForProduct,
   saveKalodataLimits,
   saveLanguagePreference,
+  savePinchHintSeen,
   saveProductAnalysisForProduct,
   saveRankBoardSnapshot,
   saveResultGridCols,
@@ -232,6 +239,9 @@ export default function App() {
   const [language, setLanguage] = useState<Language>(() => loadLanguagePreference());
   const [theme, setTheme] = useState<Theme>(() => loadThemePreference());
   const [activeTab, setActiveTab] = useState<ActiveTab>('discover');
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
 
   // Kalodata API connection, live credit balance, drawer toggle & limits
   const [kalodataStatus, setKalodataStatus] = useState<KalodataStatus>({
@@ -279,10 +289,13 @@ export default function App() {
   const headerRef = useRef<HTMLElement | null>(null);
   const searchSectionRef = useRef<HTMLElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number>(60);
+  const [headerSafeTop, setHeaderSafeTop] = useState<number>(0);
   const [showCompactBar, setShowCompactBar] = useState<boolean>(false);
   const [isHeaderHidden, setIsHeaderHidden] = useState<boolean>(false);
+  const [isBottomNavHidden, setIsBottomNavHidden] = useState<boolean>(false);
   const compactActiveRef = useRef<boolean>(false);
   const headerHiddenRef = useRef<boolean>(false);
+  const bottomNavHiddenRef = useRef<boolean>(false);
   const [selectedCateIds, setSelectedCateIds] = useState<string[]>([]);
   const [resultViewMode, setResultViewMode] = useState<ResultViewMode>(() => loadResultViewMode());
   const [storedGridCols, setStoredGridCols] = useState<ResultGridCols | null>(() =>
@@ -296,10 +309,12 @@ export default function App() {
     return 'desktop';
   });
   const resultsGridRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollAnchorRef = useRef<{ productId: string; prevTop: number } | null>(null);
   const zoomHudTimerRef = useRef<number | null>(null);
   const lastPinchEndedAtRef = useRef<number>(0);
   const [zoomHudText, setZoomHudText] = useState<string | null>(null);
   const [zoomDirection, setZoomDirection] = useState<1 | -1 | 0>(0);
+  const [showPinchHint, setShowPinchHint] = useState<boolean>(() => !loadPinchHintSeen());
 
   const [evaluationNowMs, setEvaluationNowMs] = useState<number>(() => Date.now());
 
@@ -378,6 +393,21 @@ export default function App() {
   } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
+  const studioReturnTabRef = useRef(studioReturnTab);
+  studioReturnTabRef.current = studioReturnTab;
+
+  useBackHistoryLayer(
+    activeTab === 'studio' && Boolean(selectedProduct),
+    () => {
+      setActiveTab(studioReturnTabRef.current);
+      headerHiddenRef.current = false;
+      bottomNavHiddenRef.current = false;
+      setIsHeaderHidden(false);
+      setIsBottomNavHidden(false);
+    },
+    'studio_view'
+  );
+
   useEffect(() => {
     selectedProductIdRef.current = selectedProduct?.id ?? null;
   }, [selectedProduct?.id]);
@@ -409,6 +439,10 @@ export default function App() {
 
   const searchLimitWarning = useMemo(() => {
     if (!kalodataStatus.connected) return null;
+    const avail = kalodataStatus.balance?.available;
+    if (avail !== null && avail !== undefined && avail + 0.0001 < LEAN_SEARCH_COST) {
+      return t.kalodata.insufficientBalanceWarning(avail, LEAN_SEARCH_COST);
+    }
     if (
       kalodataLimits.maxSpendCredits !== null &&
       kalodataLimits.trackedSpentCredits + LEAN_SEARCH_COST >
@@ -420,7 +454,6 @@ export default function App() {
         kalodataLimits.maxSpendCredits
       );
     }
-    const avail = kalodataStatus.balance?.available;
     if (
       kalodataLimits.minBalanceReserve !== null &&
       avail !== null &&
@@ -438,6 +471,10 @@ export default function App() {
 
   const rankBoardLimitWarning = useMemo(() => {
     if (!kalodataStatus.connected) return null;
+    const avail = kalodataStatus.balance?.available;
+    if (avail !== null && avail !== undefined && avail + 0.0001 < RANK_BOARD_SYNC_COST) {
+      return t.kalodata.insufficientBalanceWarning(avail, RANK_BOARD_SYNC_COST);
+    }
     if (
       kalodataLimits.maxSpendCredits !== null &&
       kalodataLimits.trackedSpentCredits + RANK_BOARD_SYNC_COST >
@@ -449,36 +486,6 @@ export default function App() {
         kalodataLimits.maxSpendCredits
       );
     }
-    const avail = kalodataStatus.balance?.available;
-    if (
-      kalodataLimits.minBalanceReserve !== null &&
-      avail !== null &&
-      avail !== undefined &&
-      avail - RANK_BOARD_SYNC_COST < kalodataLimits.minBalanceReserve - 0.0001
-    ) {
-      return t.kalodata.limitExceededReserve(
-        avail,
-        RANK_BOARD_SYNC_COST,
-        kalodataLimits.minBalanceReserve
-      );
-    }
-    return null;
-  }, [kalodataStatus, kalodataLimits, t]);
-
-  const rankBoardLimitWarning = useMemo(() => {
-    if (!kalodataStatus.connected) return null;
-    if (
-      kalodataLimits.maxSpendCredits !== null &&
-      kalodataLimits.trackedSpentCredits + RANK_BOARD_SYNC_COST >
-        kalodataLimits.maxSpendCredits + 0.0001
-    ) {
-      return t.kalodata.limitExceededMaxSpend(
-        kalodataLimits.trackedSpentCredits,
-        RANK_BOARD_SYNC_COST,
-        kalodataLimits.maxSpendCredits
-      );
-    }
-    const avail = kalodataStatus.balance?.available;
     if (
       kalodataLimits.minBalanceReserve !== null &&
       avail !== null &&
@@ -530,6 +537,14 @@ export default function App() {
     } else {
       root.classList.remove('dark');
     }
+    let dynamicThemeMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"][data-dynamic="true"]');
+    if (!dynamicThemeMeta) {
+      dynamicThemeMeta = document.createElement('meta');
+      dynamicThemeMeta.name = 'theme-color';
+      dynamicThemeMeta.setAttribute('data-dynamic', 'true');
+      document.head.appendChild(dynamicThemeMeta);
+    }
+    dynamicThemeMeta.content = theme === 'dark' ? '#0B1117' : '#F8FAFC';
     saveThemePreference(theme);
   }, [theme]);
 
@@ -539,12 +554,25 @@ export default function App() {
     saveLanguagePreference(language);
   }, [language]);
 
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   // Suppress native browser long-press menus, text-selection popups, and image/link drag previews
-  // across the entire app while preserving typing & paste inside input/textarea fields.
+  // across the entire app while preserving typing, paste, and explicit .select-text opt-in blocks.
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null): boolean => {
       if (!(target instanceof Element)) return false;
-      return Boolean(target.closest('input, textarea, [contenteditable="true"]'));
+      return Boolean(
+        target.closest('input, textarea, [contenteditable="true"], .select-text, [data-selectable="true"]')
+      );
     };
 
     const handleContextMenu = (e: MouseEvent) => {
@@ -572,22 +600,32 @@ export default function App() {
     };
   }, []);
 
-  // Measure live TopBar height so CompactFilterBar docks edge-to-edge on every viewport
+  // Measure live TopBar height + safe-area top padding so CompactFilterBar docks edge-to-edge on every viewport
   useEffect(() => {
     const el = headerRef.current;
     if (!el) return;
-    const updateHeight = () => {
-      const next = Math.round(el.getBoundingClientRect().height);
-      if (next > 0) setHeaderHeight(next);
+    const updateMetrics = () => {
+      const nextHeight = Math.round(el.getBoundingClientRect().height);
+      const nextSafeTop = Math.round(parseFloat(window.getComputedStyle(el).paddingTop) || 0);
+      if (nextHeight > 0) setHeaderHeight(nextHeight);
+      setHeaderSafeTop(nextSafeTop);
     };
-    updateHeight();
+    updateMetrics();
+    const vv = window.visualViewport;
+    let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(updateHeight);
+      observer = new ResizeObserver(updateMetrics);
       observer.observe(el);
-      return () => observer.disconnect();
     }
-    window.addEventListener('resize', updateHeight, { passive: true });
-    return () => window.removeEventListener('resize', updateHeight);
+    window.addEventListener('resize', updateMetrics, { passive: true });
+    window.addEventListener('orientationchange', updateMetrics, { passive: true });
+    vv?.addEventListener('resize', updateMetrics, { passive: true });
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateMetrics);
+      window.removeEventListener('orientationchange', updateMetrics);
+      vv?.removeEventListener('resize', updateMetrics);
+    };
   }, []);
 
   useEffect(() => {
@@ -616,18 +654,28 @@ export default function App() {
     };
   }, []);
 
-  // Scroll-driven handoff on Discover results:
-  // - Scrolling down past the inline Category/Search block pushes Header out & replaces it with CompactFilterBar.
-  // - Scrolling slightly back up reveals Header again with CompactFilterBar docked cleanly underneath.
+  // Scroll-driven handoff on Discover results + mobile/tablet bottom nav scroll-hide across tabs:
+  // - Discover results: scrolling down hides TopBar -> CompactFilterBar & hides Bottom Nav (<1024px).
+  // - Other tabs (<1024px): scrolling down hides Bottom Nav for cleaner viewport, scroll up reveals it.
   useEffect(() => {
     const canShowCompact =
       activeTab === 'discover' && hasSearched && products.length > 0 && !isKalodataPanelOpen;
+    const isSmallViewport = viewportTier !== 'desktop';
+    const hasOpenModal = isKalodataPanelOpen || isSearchDrawerOpen || Boolean(scoreDialogProduct);
 
     if (!canShowCompact) {
       compactActiveRef.current = false;
       headerHiddenRef.current = false;
       setShowCompactBar(false);
       setIsHeaderHidden(false);
+    }
+
+    if (hasOpenModal || !isSmallViewport) {
+      bottomNavHiddenRef.current = false;
+      setIsBottomNavHidden(false);
+    }
+
+    if (!canShowCompact && (!isSmallViewport || hasOpenModal)) {
       return;
     }
 
@@ -645,48 +693,96 @@ export default function App() {
       const diff = isScrollEvent ? currentY - lastY : 0;
       lastY = currentY;
 
-      const sectionEl = searchSectionRef.current;
-      const rectBottom = sectionEl ? sectionEl.getBoundingClientRect().bottom : 999;
+      if (canShowCompact) {
+        const sectionEl = searchSectionRef.current;
+        const rectBottom = sectionEl ? sectionEl.getBoundingClientRect().bottom : 999;
 
-      if (!compactActiveRef.current && rectBottom <= 10 && currentY > 24) {
-        compactActiveRef.current = true;
-        setShowCompactBar(true);
-        if (diff >= 0) {
-          headerHiddenRef.current = true;
-          setIsHeaderHidden(true);
+        if (!compactActiveRef.current && rectBottom <= 10 && currentY > 24) {
+          compactActiveRef.current = true;
+          setShowCompactBar(true);
+          if (diff >= 0) {
+            headerHiddenRef.current = true;
+            setIsHeaderHidden(true);
+            if (isSmallViewport && !hasOpenModal) {
+              bottomNavHiddenRef.current = true;
+              setIsBottomNavHidden(true);
+            }
+            downAccum = 0;
+            upAccum = 0;
+          }
+          return;
+        }
+
+        if (compactActiveRef.current && (rectBottom >= 36 || currentY <= 12)) {
+          compactActiveRef.current = false;
+          headerHiddenRef.current = false;
+          bottomNavHiddenRef.current = false;
           downAccum = 0;
           upAccum = 0;
+          setShowCompactBar(false);
+          setIsHeaderHidden(false);
+          setIsBottomNavHidden(false);
+          return;
+        }
+
+        if (!compactActiveRef.current || !isScrollEvent || Math.abs(diff) < 1) return;
+
+        if (diff > 0) {
+          downAccum += diff;
+          upAccum = 0;
+          if (!headerHiddenRef.current && downAccum >= 10) {
+            headerHiddenRef.current = true;
+            downAccum = 0;
+            setIsHeaderHidden(true);
+            if (isSmallViewport && !hasOpenModal) {
+              bottomNavHiddenRef.current = true;
+              setIsBottomNavHidden(true);
+            }
+          }
+        } else {
+          upAccum += Math.abs(diff);
+          downAccum = 0;
+          if (headerHiddenRef.current && upAccum >= 14) {
+            headerHiddenRef.current = false;
+            bottomNavHiddenRef.current = false;
+            upAccum = 0;
+            setIsHeaderHidden(false);
+            setIsBottomNavHidden(false);
+          }
         }
         return;
       }
 
-      if (compactActiveRef.current && (rectBottom >= 36 || currentY <= 12)) {
-        compactActiveRef.current = false;
-        headerHiddenRef.current = false;
+      // Non-discover / pre-search mobile & tablet bottom nav scroll-hide
+      if (!isSmallViewport || hasOpenModal) return;
+
+      if (currentY <= 24) {
+        if (bottomNavHiddenRef.current) {
+          bottomNavHiddenRef.current = false;
+          setIsBottomNavHidden(false);
+        }
         downAccum = 0;
         upAccum = 0;
-        setShowCompactBar(false);
-        setIsHeaderHidden(false);
         return;
       }
 
-      if (!compactActiveRef.current || !isScrollEvent || Math.abs(diff) < 1) return;
+      if (!isScrollEvent || Math.abs(diff) < 1) return;
 
       if (diff > 0) {
         downAccum += diff;
         upAccum = 0;
-        if (!headerHiddenRef.current && downAccum >= 10) {
-          headerHiddenRef.current = true;
+        if (!bottomNavHiddenRef.current && currentY > 72 && downAccum >= 16) {
+          bottomNavHiddenRef.current = true;
           downAccum = 0;
-          setIsHeaderHidden(true);
+          setIsBottomNavHidden(true);
         }
       } else {
         upAccum += Math.abs(diff);
         downAccum = 0;
-        if (headerHiddenRef.current && upAccum >= 14) {
-          headerHiddenRef.current = false;
+        if (bottomNavHiddenRef.current && upAccum >= 14) {
+          bottomNavHiddenRef.current = false;
           upAccum = 0;
-          setIsHeaderHidden(false);
+          setIsBottomNavHidden(false);
         }
       }
     };
@@ -710,7 +806,15 @@ export default function App() {
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onResize);
     };
-  }, [activeTab, hasSearched, products.length, isKalodataPanelOpen]);
+  }, [
+    activeTab,
+    hasSearched,
+    products.length,
+    isKalodataPanelOpen,
+    isSearchDrawerOpen,
+    scoreDialogProduct,
+    viewportTier,
+  ]);
 
   // If category filtering shrinks the result grid enough that the inline filters come back into view, exit compact mode cleanly
   useEffect(() => {
@@ -720,8 +824,10 @@ export default function App() {
       if (rectBottom >= 36 || window.scrollY <= 12) {
         compactActiveRef.current = false;
         headerHiddenRef.current = false;
+        bottomNavHiddenRef.current = false;
         setShowCompactBar(false);
         setIsHeaderHidden(false);
+        setIsBottomNavHidden(false);
       }
     });
     return () => window.cancelAnimationFrame(raf);
@@ -877,6 +983,11 @@ export default function App() {
   }
 
   async function handleConnectKalodata(apiKey: string): Promise<boolean> {
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      setKalodataConnectError(t.kalodata.offlineNotice);
+      showToast(t.kalodata.offlineNotice, 'error');
+      return false;
+    }
     setIsConnectingKalodata(true);
     setKalodataConnectError(null);
     setSearchError(null);
@@ -918,6 +1029,10 @@ export default function App() {
   }
 
   async function handleRefreshBalance(): Promise<void> {
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      showToast(t.kalodata.offlineNotice, 'error');
+      return;
+    }
     setIsRefreshingBalance(true);
     try {
       const response = await fetch('/api/kalodata/balance');
@@ -944,6 +1059,10 @@ export default function App() {
   }
 
   async function handleSyncLiveCategories(): Promise<void> {
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      showToast(t.kalodata.offlineNotice, 'error');
+      return;
+    }
     if (!kalodataStatus.connected) {
       setIsKalodataPanelOpen(true);
       showToast(t.kalodata.connectRequiredError, 'error');
@@ -993,96 +1112,11 @@ export default function App() {
 
   // Manual Update Sync (~0.4 cr) for the Thailand TikTok Shop Executive Product Rank Board
   async function handleSyncRankBoard(targetDateRange?: SearchDateRange): Promise<void> {
-    const effectiveRange: SearchDateRange =
-      targetDateRange ?? rankBoardDateRange ?? 'last7Day';
-
-    if (!kalodataStatus.connected) {
-      setIsKalodataPanelOpen(true);
-      setRankBoardError(t.kalodata.connectRequiredError);
-      showToast(t.kalodata.connectRequiredError, 'error');
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      setRankBoardError(t.kalodata.offlineNotice);
+      showToast(t.kalodata.offlineNotice, 'error');
       return;
     }
-
-    if (rankBoardLimitWarning) {
-      setRankBoardError(rankBoardLimitWarning);
-      showToast(rankBoardLimitWarning, 'error');
-      return;
-    }
-
-    setIsSyncingRankBoard(true);
-    setRankBoardError(null);
-    try {
-      const response = await fetch('/api/rank-board/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dateRange: effectiveRange,
-          minBalanceReserve: kalodataLimits.minBalanceReserve,
-          maxSpendRemaining,
-        }),
-      });
-      const data = await parseApiJson<{
-        snapshot?: RankBoardSnapshot;
-        creditsUsed?: number | null;
-        balance?: KalodataCreditBalance | null;
-        code?: string;
-        error?: string;
-      }>(response, language);
-
-      if (!response.ok || !data.snapshot) {
-        if (data.code === 'KALODATA_NOT_CONNECTED') {
-          setKalodataStatus((prev) => ({ ...prev, connected: false, balance: null }));
-          setIsKalodataPanelOpen(true);
-          throw new Error(t.kalodata.connectRequiredError);
-        }
-        throw new Error(data.error || 'Could not sync Thailand TikTok Shop Rank Board.');
-      }
-
-      const nowMs = Date.now();
-      setEvaluationNowMs(nowMs);
-      const hydratedProducts = hydrateProductsFromStorage(data.snapshot.products, { nowMs });
-
-      if (hydratedProducts.length > 0) {
-        const snapshotUpdate = recordProductSnapshotsInStorage(hydratedProducts, { nowMs });
-        if (snapshotUpdate.addedCount > 0 || snapshotUpdate.updatedCount > 0) {
-          setProductSnapshots(snapshotUpdate.snapshotsByProductId);
-        }
-      }
-
-      const nextSnapshot: RankBoardSnapshot = {
-        ...data.snapshot,
-        products: hydratedProducts,
-      };
-      setRankBoardSnapshot(nextSnapshot);
-      setRankBoardDateRange(nextSnapshot.dateRange);
-      saveRankBoardSnapshot(nextSnapshot);
-
-      if (data.balance) {
-        setKalodataStatus((prev) => ({ ...prev, balance: data.balance ?? prev.balance }));
-      }
-      const spent =
-        typeof data.creditsUsed === 'number' ? data.creditsUsed : RANK_BOARD_SYNC_COST;
-      recordSpentCredits(spent);
-
-      showToast(
-        t.rankBoard.syncedToast(
-          nextSnapshot.products.length,
-          nextSnapshot.categoryMarket.length
-        ),
-        'neutral'
-      );
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : 'Could not sync Thailand TikTok Shop Rank Board.';
-      setRankBoardError(msg);
-      showToast(msg, 'error');
-    } finally {
-      setIsSyncingRankBoard(false);
-    }
-  }
-
-  // Manual Update Sync (~0.4 cr) for the Thailand TikTok Shop Executive Product Rank Board
-  async function handleSyncRankBoard(targetDateRange?: SearchDateRange): Promise<void> {
     const effectiveRange: SearchDateRange =
       targetDateRange ?? rankBoardDateRange ?? 'last7Day';
 
@@ -1197,6 +1231,15 @@ export default function App() {
     if (options?.cateIdsOverride !== undefined) setSelectedCateIds(effectiveCateIds);
     if (options?.pageSizeOverride !== undefined) setSearchPageSize(effectivePageSize);
     if (options?.dateRangeOverride !== undefined) setSearchDateRange(effectiveDateRange);
+
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      if (!isAppend) {
+        setHasSearched(true);
+        setSearchError(t.kalodata.offlineNotice);
+      }
+      showToast(t.kalodata.offlineNotice, 'error');
+      return;
+    }
 
     if (!kalodataStatus.connected) {
       setIsKalodataPanelOpen(true);
@@ -1443,6 +1486,12 @@ export default function App() {
       }
     }
 
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      setPlanError(t.kalodata.offlineNotice);
+      showToast(t.kalodata.offlineNotice, 'error');
+      return;
+    }
+
     setIsGeneratingPlan(true);
     setPlanError(null);
     setActivePlan(null);
@@ -1498,6 +1547,11 @@ export default function App() {
 
   async function handleFetchProductDeepInsights(options: ProductEnrichOptions) {
     if (!selectedProduct) return;
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      setEnrichError(t.kalodata.offlineNotice);
+      showToast(t.kalodata.offlineNotice, 'error');
+      return;
+    }
     const targetProduct = selectedProduct;
     const targetProductId = targetProduct.id;
     setIsEnrichingProduct(true);
@@ -1623,6 +1677,11 @@ export default function App() {
   // Manual AI Deep Product Analysis strictly grounded in available Kalodata data (0 Kalodata credits)
   async function handleAnalyzeProduct() {
     if (!selectedProduct || isAnalyzingProduct) return;
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      setAnalysisError(t.kalodata.offlineNotice);
+      showToast(t.kalodata.offlineNotice, 'error');
+      return;
+    }
     const targetProduct = selectedProduct;
     const targetProductId = targetProduct.id;
     setIsAnalyzingProduct(true);
@@ -1992,7 +2051,7 @@ export default function App() {
   );
 
   const defaultGridCols: ResultGridCols =
-    viewportTier === 'mobile' ? 1 : viewportTier === 'tablet' ? 2 : 3;
+    viewportTier === 'mobile' ? 2 : viewportTier === 'tablet' ? 2 : 3;
 
   const effectiveGridCols: ResultGridCols = (() => {
     if (storedGridCols === null) return defaultGridCols;
@@ -2088,6 +2147,65 @@ export default function App() {
       ? displayedRankedEntries.length > 0
       : displayedRankedEntries.length > 1);
 
+  const dismissPinchHint = () => {
+    setShowPinchHint(false);
+    savePinchHintSeen();
+  };
+
+  const captureResultsScrollAnchor = () => {
+    const containerEl = resultsGridRef.current;
+    if (!containerEl || window.scrollY <= 120) {
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
+    const minVisibleTop = compactActiveRef.current ? 64 : headerHeight;
+    const cards = containerEl.querySelectorAll<HTMLElement>('[data-product-id]');
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      if (rect.bottom > minVisibleTop && rect.top < window.innerHeight) {
+        const productId = card.dataset.productId;
+        if (productId) {
+          pendingScrollAnchorRef.current = { productId, prevTop: rect.top };
+        }
+        return;
+      }
+    }
+  };
+
+  const scrollAnchorActionRef = useRef(captureResultsScrollAnchor);
+  scrollAnchorActionRef.current = captureResultsScrollAnchor;
+  const dismissPinchHintRef = useRef(dismissPinchHint);
+  dismissPinchHintRef.current = dismissPinchHint;
+
+  // Compensate scroll offset synchronously when grid/list density changes so visible product stays anchored
+  useLayoutEffect(() => {
+    const anchor = pendingScrollAnchorRef.current;
+    if (!anchor) return;
+    pendingScrollAnchorRef.current = null;
+    const containerEl = resultsGridRef.current;
+    if (!containerEl) return;
+    const cards = containerEl.querySelectorAll<HTMLElement>('[data-product-id]');
+    for (const card of cards) {
+      if (card.dataset.productId === anchor.productId) {
+        const nextTop = card.getBoundingClientRect().top;
+        const delta = nextTop - anchor.prevTop;
+        if (Math.abs(delta) > 1) {
+          window.scrollBy({ top: delta, behavior: 'instant' as ScrollBehavior });
+        }
+        break;
+      }
+    }
+  }, [effectiveGridCols, listZoomLevel, resultViewMode]);
+
+  // Show one-time pinch gesture hint on mobile/tablet and persist dismissal in localStorage
+  useEffect(() => {
+    if (!showPinchHint || !canPinchResults || viewportTier === 'desktop') return;
+    const timer = window.setTimeout(() => {
+      dismissPinchHintRef.current();
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [showPinchHint, canPinchResults, viewportTier]);
+
   // Android Gallery-style two-finger pinch-to-zoom + iOS Safari gesture + desktop trackpad pinch (Ctrl+Wheel)
   // Attached at window level with touch-action: pan-y lock so Android Chrome / tablets never hijack
   // two-finger pinches into native browser page zoom or drop listeners across conditional mounts.
@@ -2176,6 +2294,8 @@ export default function App() {
         ) as ResultListZoom;
         if (nextLevel === state.listZoomLevel) return false;
         lastStepAt = now;
+        scrollAnchorActionRef.current();
+        dismissPinchHintRef.current();
         state.listZoomLevel = nextLevel;
         setZoomDirection(direction);
         setListZoomLevel(nextLevel);
@@ -2197,6 +2317,8 @@ export default function App() {
       );
       if (nextIdx === state.zoomIndex) return false;
       lastStepAt = now;
+      scrollAnchorActionRef.current();
+      dismissPinchHintRef.current();
       const nextCols = state.sequence[nextIdx];
       state.zoomIndex = nextIdx;
       setZoomDirection(direction);
@@ -2354,9 +2476,50 @@ export default function App() {
 
   function handleSelectViewMode(next: ResultViewMode) {
     if (next === resultViewMode) return;
+    captureResultsScrollAnchor();
     setZoomDirection(0);
     setResultViewMode(next);
     saveResultViewMode(next);
+  }
+
+  function handleCycleResultDensity() {
+    captureResultsScrollAnchor();
+    if (showPinchHint) {
+      dismissPinchHint();
+    }
+    const triggerQuickHud = (label: string) => {
+      setZoomHudText(label);
+      if (zoomHudTimerRef.current !== null) {
+        window.clearTimeout(zoomHudTimerRef.current);
+      }
+      zoomHudTimerRef.current = window.setTimeout(() => {
+        setZoomHudText(null);
+        zoomHudTimerRef.current = null;
+      }, 900);
+    };
+
+    if (resultViewMode === 'list') {
+      const nextLevel = ((listZoomLevel + 1) % 3) as ResultListZoom;
+      setZoomDirection(1);
+      setListZoomLevel(nextLevel);
+      saveResultListZoom(nextLevel);
+      const label =
+        nextLevel === 0
+          ? `List · ${t.discover.microViewTag}`
+          : nextLevel === 1
+            ? `List · ${t.discover.listCompactTag}`
+            : `List · ${t.discover.listDetailedTag}`;
+      triggerQuickHud(label);
+      return;
+    }
+
+    const nextIdx = (zoomIndex + 1) % zoomColsSequence.length;
+    const nextCols = zoomColsSequence[nextIdx];
+    setZoomDirection(nextIdx > zoomIndex ? 1 : -1);
+    setStoredGridCols(nextCols);
+    saveResultGridCols(nextCols);
+    const label = nextIdx === 0 ? `${nextCols}× · ${t.discover.microViewTag}` : `${nextCols}×`;
+    triggerQuickHud(label);
   }
 
   return (
@@ -2371,7 +2534,10 @@ export default function App() {
             }
           }
           setActiveTab(tab);
+          headerHiddenRef.current = false;
+          bottomNavHiddenRef.current = false;
           setIsHeaderHidden(false);
+          setIsBottomNavHidden(false);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         language={language}
@@ -2394,9 +2560,12 @@ export default function App() {
         }}
         headerRef={headerRef}
         isHidden={isHeaderHidden}
+        isBottomNavHidden={isBottomNavHidden}
         onRevealHeader={() => {
           headerHiddenRef.current = false;
+          bottomNavHiddenRef.current = false;
           setIsHeaderHidden(false);
+          setIsBottomNavHidden(false);
         }}
         studioReturnTab={studioReturnTab}
         t={t}
@@ -2408,6 +2577,7 @@ export default function App() {
           isVisible={showCompactBar && !isKalodataPanelOpen && !isSearchDrawerOpen}
           isHeaderHidden={isHeaderHidden}
           headerHeight={headerHeight}
+          headerSafeTop={headerSafeTop}
           categories={populatedDiscoverCategories}
           selectedCateIds={selectedCateIds}
           categoryMatchCounts={categoryMatchCounts}
@@ -2417,10 +2587,22 @@ export default function App() {
           isSearching={isSearching}
           isSingleLinkValid={isSingleLinkValid}
           isLinkOrId={linkInfo.isLinkOrId}
+          leanSearchCost={LEAN_SEARCH_COST}
+          isOffline={!isOnline}
           t={t}
           onToggleCategory={handleToggleCategory}
           onOpenSearchDrawer={() => setIsSearchDrawerOpen(true)}
         />
+      )}
+
+      {!isOnline && (
+        <div
+          role="status"
+          className="border-b border-amber-200/80 dark:border-amber-900/60 bg-amber-50/90 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 px-4 py-2 text-xs font-medium flex items-center justify-center gap-2"
+        >
+          <WifiOff className="w-3.5 h-3.5 shrink-0" />
+          <span>{t.kalodata.offlineNotice}</span>
+        </div>
       )}
 
       {/* Collapsible Kalodata Connection, Live Credit Balance & Credit Limit Drawer */}
@@ -2453,7 +2635,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Content Viewport */}
-      <main className="flex-1">
+      <main className="flex-1 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0">
         <AnimatePresence mode="wait">
           {activeTab === 'discover' && (
             <motion.div
@@ -2508,7 +2690,7 @@ export default function App() {
                           type="button"
                           onClick={() => setQuery('')}
                           aria-label={t.history.clearFilterAria}
-                          className="h-6 w-6 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 shrink-0 cursor-pointer"
+                          className="h-8 w-8 sm:h-6 sm:w-6 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 shrink-0 cursor-pointer"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -2520,7 +2702,7 @@ export default function App() {
                     type="button"
                     disabled={isSearching}
                     onClick={() => setIsSearchDrawerOpen(true)}
-                    className="h-11 px-6 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors duration-150 whitespace-nowrap shrink-0 disabled:opacity-55 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                    className="h-11 px-6 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-sm font-semibold inline-flex items-center justify-center gap-2 transition-all active:scale-[0.98] duration-150 whitespace-nowrap shrink-0 disabled:opacity-55 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                   >
                     {isSingleLinkValid ? (
                       <Link2 className="w-4 h-4 shrink-0" />
@@ -2621,7 +2803,7 @@ export default function App() {
                       <div className="mb-6 flex flex-col gap-3 pb-4 border-b border-slate-200/80 dark:border-slate-800">
                         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <h2 className="font-display text-lg sm:text-xl font-semibold text-slate-900 dark:text-slate-100">
                                 {lastSearchMode === 'single_link'
                                   ? t.discover.singleResultHeading
@@ -2629,22 +2811,61 @@ export default function App() {
                                     ? `${t.discover.resultsHeading} (${filteredProducts.length} / ${products.length})`
                                     : `${t.discover.resultsHeading} (${products.length})`}
                               </h2>
+                              <InfoTooltip
+                                content={
+                                  lastSearchMode === 'single_link'
+                                    ? t.discover.singleResultSubtext
+                                    : t.discover.resultsSubtext
+                                }
+                                ariaLabel={
+                                  lastSearchMode === 'single_link'
+                                    ? t.discover.singleResultHeading
+                                    : t.discover.resultsHeading
+                                }
+                                size="md"
+                              />
                               {activeResultScopeLabel && (
                                 <span className="text-xs sm:text-sm font-medium text-teal-700 dark:text-teal-400">
                                   · {activeResultScopeLabel}
                                 </span>
                               )}
                             </div>
-                            <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                              {lastSearchMode === 'single_link'
-                                ? t.discover.singleResultSubtext
-                                : t.discover.resultsSubtext}
-                            </p>
                           </div>
 
-                          {/* View Mode (List / Grid) & Adjustable Grid Column Controls */}
+                          {/* View Mode (List / Grid) & Mobile/Tablet Tactile Density Cycle Control */}
                           {filteredProducts.length > 0 && (
                             <div className="flex flex-wrap items-center gap-2 self-start sm:self-end shrink-0">
+                              <button
+                                type="button"
+                                onClick={handleCycleResultDensity}
+                                aria-label={
+                                  resultViewMode === 'grid'
+                                    ? t.discover.gridColsLabel(effectiveGridCols)
+                                    : listZoomLevel === 0
+                                      ? `List · ${t.discover.microViewTag}`
+                                      : listZoomLevel === 1
+                                        ? `List · ${t.discover.listCompactTag}`
+                                        : `List · ${t.discover.listDetailedTag}`
+                                }
+                                title={
+                                  resultViewMode === 'grid'
+                                    ? t.discover.gridColsLabel(effectiveGridCols)
+                                    : t.discover.pinchZoomHint
+                                }
+                                className="lg:hidden h-10 sm:h-9 px-3 rounded-lg border border-slate-200/80 dark:border-slate-700/70 bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 text-xs font-medium inline-flex items-center gap-1.5 transition-all active:scale-95 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                              >
+                                <Columns3 className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                                <span className="font-mono-num font-semibold">
+                                  {resultViewMode === 'grid'
+                                    ? `${effectiveGridCols}×`
+                                    : listZoomLevel === 0
+                                      ? t.discover.microViewTag
+                                      : listZoomLevel === 1
+                                        ? t.discover.listCompactTag
+                                        : t.discover.listDetailedTag}
+                                </span>
+                              </button>
+
                               <div
                                 role="group"
                                 aria-label="Result layout view"
@@ -2655,7 +2876,7 @@ export default function App() {
                                   onClick={() => handleSelectViewMode('grid')}
                                   aria-pressed={resultViewMode === 'grid'}
                                   title={t.discover.viewGrid}
-                                  className={`h-8 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                                  className={`h-9 sm:h-8 px-3 sm:px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-all active:scale-95 cursor-pointer ${
                                     resultViewMode === 'grid'
                                       ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
                                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -2669,7 +2890,7 @@ export default function App() {
                                   onClick={() => handleSelectViewMode('list')}
                                   aria-pressed={resultViewMode === 'list'}
                                   title={t.discover.viewList}
-                                  className={`h-8 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                                  className={`h-9 sm:h-8 px-3 sm:px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-all active:scale-95 cursor-pointer ${
                                     resultViewMode === 'list'
                                       ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
                                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -2704,19 +2925,24 @@ export default function App() {
 
                           {restoredFromBrowser ? (
                             <>
-                              <span
-                                className={`font-medium ${
-                                  isRestoredDataStale
-                                    ? 'text-amber-700 dark:text-amber-400'
-                                    : 'text-teal-700 dark:text-teal-400'
-                                }`}
-                              >
-                                {isRestoredDataStale
-                                  ? t.discover.staleSnapshotNotice
-                                  : isViewingOlderHistory
+                              {isRestoredDataStale ? (
+                                <span className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-400">
+                                  <span>
+                                    {language === 'my' ? 'Stale (၂၄ နာရီကျော်)' : 'Stale (24h+)'}
+                                  </span>
+                                  <InfoTooltip
+                                    tone="amber"
+                                    content={t.discover.staleSnapshotNotice}
+                                    ariaLabel={t.discover.staleSnapshotNotice}
+                                  />
+                                </span>
+                              ) : (
+                                <span className="font-medium text-teal-700 dark:text-teal-400">
+                                  {isViewingOlderHistory
                                     ? t.recent.viewingOlderNote
                                     : t.recent.loadedFromStorageNote}
-                              </span>
+                                </span>
+                              )}
                               {isRestoredDataStale && kalodataStatus.connected && (
                                 <button
                                   type="button"
@@ -2787,7 +3013,7 @@ export default function App() {
                                     type="button"
                                     aria-pressed={isSelected}
                                     onClick={() => handleToggleCategory(cat.id)}
-                                    className={`h-8 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                                    className={`h-9 sm:h-8 px-3 sm:px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-all active:scale-[0.97] duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                                       isSelected
                                         ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 font-semibold'
                                         : 'bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-300 border border-slate-200/85 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -2830,6 +3056,22 @@ export default function App() {
                                   : undefined
                               }
                             >
+                              {showPinchHint && canPinchResults && viewportTier !== 'desktop' && (
+                                <div className="lg:hidden mb-3 px-3 py-1.5 rounded-xl border border-teal-200/80 dark:border-teal-800/60 bg-teal-50/75 dark:bg-teal-950/35 flex items-center justify-between gap-2 text-xs text-teal-800 dark:text-teal-300">
+                                  <span className="inline-flex items-center gap-1.5 min-w-0">
+                                    <ZoomIn className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="truncate">{t.discover.pinchZoomHint}</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={dismissPinchHint}
+                                    aria-label={t.history.clearFilterAria}
+                                    className="h-7 w-7 inline-flex items-center justify-center rounded-md hover:bg-teal-100/80 dark:hover:bg-teal-900/50 shrink-0 cursor-pointer"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
                               <div
                                 className={
                                   resultViewMode === 'list'
@@ -2899,12 +3141,16 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="py-10 px-6 max-w-xl mx-auto text-center rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#131B24]">
-                              <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
-                                {t.v2.discoveryFilter.emptyTitle}
-                              </h3>
-                              <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                                {t.v2.discoveryFilter.emptyDesc}
-                              </p>
+                              <div className="inline-flex items-center justify-center gap-1.5">
+                                <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
+                                  {t.v2.discoveryFilter.emptyTitle}
+                                </h3>
+                                <InfoTooltip
+                                  content={t.v2.discoveryFilter.emptyDesc}
+                                  ariaLabel={t.v2.discoveryFilter.emptyTitle}
+                                  size="md"
+                                />
+                              </div>
                               <div className="mt-5 flex items-center justify-center">
                                 <button
                                   type="button"
@@ -2924,12 +3170,16 @@ export default function App() {
                         </div>
                       ) : (
                         <div className="py-12 px-6 max-w-lg mx-auto text-center rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#131B24]">
-                          <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
-                            {t.discover.filteredEmptyTitle}
-                          </h3>
-                          <p className="mt-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                            {t.discover.filteredEmptyDesc(products.length)}
-                          </p>
+                          <div className="inline-flex items-center justify-center gap-1.5">
+                            <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
+                              {t.discover.filteredEmptyTitle}
+                            </h3>
+                            <InfoTooltip
+                              content={t.discover.filteredEmptyDesc(products.length)}
+                              ariaLabel={t.discover.filteredEmptyTitle}
+                              size="md"
+                            />
+                          </div>
                           <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
                             <button
                               type="button"
@@ -2955,33 +3205,41 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="py-14 text-center max-w-md mx-auto">
-                      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
-                        {t.discover.noResultsTitle}
-                      </h2>
-                      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                        {t.discover.noResultsDesc}
-                      </p>
+                      <div className="inline-flex items-center justify-center gap-1.5">
+                        <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
+                          {t.discover.noResultsTitle}
+                        </h2>
+                        <InfoTooltip
+                          content={t.discover.noResultsDesc}
+                          ariaLabel={t.discover.noResultsTitle}
+                          size="md"
+                        />
+                      </div>
                     </div>
                   )
                 ) : (
-                  <div className="max-w-2xl mx-auto rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-[#131B24] p-5 sm:p-6">
-                    <h2 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
-                      {t.discover.emptyGuideTitle}
-                    </h2>
-                    <p className="mt-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                      {t.discover.emptyGuideDesc}
-                    </p>
-                    <ul className="mt-3.5 space-y-2 text-xs text-slate-700 dark:text-slate-300">
-                      {t.discover.emptyGuidePoints.map((point, idx) => (
-                        <li key={idx} className="flex items-start gap-2 leading-relaxed">
-                          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-teal-600 dark:bg-teal-400 shrink-0" />
-                          <span>{point}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                      {t.discover.emptyGuideDisclaimer}
-                    </p>
+                  <div className="max-w-xl mx-auto rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-[#131B24] p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h2 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
+                        {t.discover.emptyGuideTitle}
+                      </h2>
+                      <InfoTooltip
+                        title={t.discover.emptyGuideTitle}
+                        content={t.discover.emptyGuideDesc}
+                        bullets={t.discover.emptyGuidePoints}
+                        footer={t.discover.emptyGuideDisclaimer}
+                        ariaLabel={t.discover.emptyGuideTitle}
+                        size="md"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSearchDrawerOpen(true)}
+                      className="h-10 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <Search className="w-4 h-4 shrink-0" />
+                      <span>{t.search.searchButton}</span>
+                    </button>
                   </div>
                 )}
               </section>
@@ -3065,14 +3323,23 @@ export default function App() {
                 nowMs={evaluationNowMs}
                 kalodataStatus={kalodataStatus}
                 kalodataLimits={kalodataLimits}
+                isOffline={!isOnline}
+                isBottomNavHidden={isBottomNavHidden}
                 t={t}
-                onBack={() => setActiveTab(studioReturnTab)}
+                onBack={() => {
+                  setActiveTab(studioReturnTab);
+                  headerHiddenRef.current = false;
+                  bottomNavHiddenRef.current = false;
+                  setIsHeaderHidden(false);
+                  setIsBottomNavHidden(false);
+                }}
                 onToggleSave={handleToggleSaveProduct}
                 onSelectStyle={handleStyleChange}
                 onConfirmGenerate={handleConfirmGeneratePlan}
                 onFetchDeepInsights={handleFetchProductDeepInsights}
                 onAnalyzeProduct={handleAnalyzeProduct}
                 onOpenScoreDetails={setScoreDialogProduct}
+                onNotifyToast={showToast}
               />
             </motion.div>
           )}
@@ -3120,6 +3387,7 @@ export default function App() {
         isSyncingCategories={isSyncingCategories}
         hasLiveSyncedCategories={hasLiveSyncedCategories}
         searchLimitWarning={searchLimitWarning}
+        isOffline={!isOnline}
         leanSearchCost={LEAN_SEARCH_COST}
         t={t}
         onClose={() => setIsSearchDrawerOpen(false)}
@@ -3137,6 +3405,43 @@ export default function App() {
         onClose={() => setScoreDialogProduct(null)}
       />
 
+      {/* Mobile/Tablet Floating Filter & Sort Pill while scrolling Discover results */}
+      <AnimatePresence>
+        {activeTab === 'discover' &&
+          hasSearched &&
+          products.length > 0 &&
+          showCompactBar &&
+          !isSearching &&
+          !isSearchDrawerOpen &&
+          !isKalodataPanelOpen &&
+          !scoreDialogProduct && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, y: 12, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.95 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              onClick={() => setIsSearchDrawerOpen(true)}
+              aria-label={t.discover.floatingFilterBtn}
+              className={`lg:hidden fixed right-4 ${
+                isBottomNavHidden
+                  ? 'bottom-[calc(1rem+env(safe-area-inset-bottom))]'
+                  : 'bottom-[calc(4.75rem+env(safe-area-inset-bottom))]'
+              } z-30 h-11 px-4 rounded-full bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-950 border border-slate-700/50 dark:border-slate-300/60 shadow-lg backdrop-blur-md text-xs font-semibold inline-flex items-center gap-2 transition-[bottom,transform,opacity] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+              <span>{t.discover.floatingFilterBtn}</span>
+              {(discoveryFilterResult.counts.activeFilterCount > 0 ||
+                selectedCateIds.length > 0) && (
+                <span className="h-5 min-w-[20px] px-1.5 rounded-full bg-teal-500 text-slate-950 text-[11px] font-mono-num font-bold inline-flex items-center justify-center">
+                  {discoveryFilterResult.counts.activeFilterCount +
+                    (selectedCateIds.length > 0 ? 1 : 0)}
+                </span>
+              )}
+            </motion.button>
+          )}
+      </AnimatePresence>
+
       {/* Ephemeral Gallery Zoom HUD (shown briefly only while pinching / zooming grid) */}
       <AnimatePresence>
         {zoomHudText && (
@@ -3146,7 +3451,11 @@ export default function App() {
             exit={{ opacity: 0, y: 8, scale: 0.96 }}
             transition={{ duration: 0.16 }}
             aria-live="polite"
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none px-3.5 py-1.5 rounded-xl bg-slate-900/90 dark:bg-slate-100/95 text-white dark:text-slate-950 text-xs font-mono-num font-semibold shadow-sm backdrop-blur-sm whitespace-nowrap"
+            className={`fixed ${
+              isBottomNavHidden
+                ? 'bottom-[calc(1rem+env(safe-area-inset-bottom))]'
+                : 'bottom-[calc(4.75rem+env(safe-area-inset-bottom))]'
+            } lg:bottom-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none px-3.5 py-1.5 rounded-xl bg-slate-900/90 dark:bg-slate-100/95 text-white dark:text-slate-950 text-xs font-mono-num font-semibold shadow-sm backdrop-blur-sm whitespace-nowrap transition-[bottom] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]`}
           >
             {zoomHudText}
           </motion.div>
@@ -3162,7 +3471,11 @@ export default function App() {
             exit={{ opacity: 0, y: 12 }}
             transition={{ duration: 0.18 }}
             role="status"
-            className={`fixed bottom-4 inset-x-4 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:max-w-sm z-50 px-4 py-3 rounded-xl text-sm font-medium border shadow-sm ${
+            className={`fixed ${
+              isBottomNavHidden
+                ? 'bottom-[calc(1rem+env(safe-area-inset-bottom))]'
+                : 'bottom-[calc(4.75rem+env(safe-area-inset-bottom))]'
+            } inset-x-3 sm:inset-x-auto sm:right-5 lg:bottom-5 sm:max-w-sm z-50 px-4 py-3 rounded-xl text-sm font-medium border shadow-sm transition-[bottom] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
               toastMessage.tone === 'error'
                 ? 'bg-red-600 text-white border-red-700'
                 : 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 border-slate-800 dark:border-slate-200'

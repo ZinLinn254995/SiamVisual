@@ -4,6 +4,8 @@ import {
   ArrowRight,
   Bookmark,
   Check,
+  ChevronDown,
+  ChevronUp,
   Copy,
   ExternalLink,
 } from 'lucide-react';
@@ -138,6 +140,11 @@ export function ProductCard({
   const [imgSrc, setImgSrc] = useState<string>(product.imageUrl || fallbackSrc);
   const [usingFallback, setUsingFallback] = useState<boolean>(!product.imageUrl);
   const [copiedField, setCopiedField] = useState<'thai' | 'id' | null>(null);
+  const [detailsExpanded, setDetailsExpanded] = useState<boolean>(false);
+
+  useEffect(() => {
+    setDetailsExpanded(false);
+  }, [product.id]);
 
   const validated = product.validatedMetrics!;
   const historicalTrend = intelligenceItem?.historicalTrend;
@@ -258,7 +265,7 @@ export function ProductCard({
           aria-pressed={isSaved}
           aria-label={label}
           title={label}
-          className={`absolute top-1.5 right-1.5 z-10 h-8 w-8 rounded-lg border inline-flex items-center justify-center backdrop-blur-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+          className={`absolute top-1.5 right-1.5 z-10 h-9 w-9 sm:h-8 sm:w-8 rounded-lg border inline-flex items-center justify-center backdrop-blur-xs transition-all active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 before:content-[""] before:absolute before:-inset-1 sm:before:hidden ${
             isSaved
               ? 'border-teal-500/70 bg-teal-50/95 dark:bg-teal-950/85 text-teal-700 dark:text-teal-300'
               : 'border-slate-200/80 dark:border-slate-700/80 bg-white/85 dark:bg-[#131B24]/85 text-slate-500 dark:text-slate-300 hover:text-teal-700 dark:hover:text-teal-400 hover:border-teal-400/70'
@@ -269,7 +276,8 @@ export function ProductCard({
       );
     }
 
-    const sizeClass = variant === 'regular' ? 'h-9 w-9' : 'h-8 w-8';
+    const sizeClass =
+      variant === 'regular' ? 'h-10 w-10 sm:h-9 sm:w-9' : 'h-9 w-9 sm:h-8 sm:w-8';
     return (
       <button
         type="button"
@@ -280,7 +288,7 @@ export function ProductCard({
         aria-pressed={isSaved}
         aria-label={label}
         title={label}
-        className={`${sizeClass} rounded-lg inline-flex items-center justify-center transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+        className={`relative ${sizeClass} rounded-lg inline-flex items-center justify-center transition-all active:scale-95 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 before:content-[""] before:absolute before:-inset-1 sm:before:hidden ${
           isSaved
             ? 'text-teal-700 dark:text-teal-400 bg-teal-50/90 dark:bg-teal-950/50 hover:bg-teal-100/80 dark:hover:bg-teal-950/80'
             : 'text-slate-400 dark:text-slate-500 hover:text-teal-700 dark:hover:text-teal-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -375,14 +383,19 @@ export function ProductCard({
   const primaryCap = searchScore.capsApplied[0] ?? null;
 
   const renderUtilityButtons = (compactMode: boolean) => (
-    <div className={`flex items-center shrink-0 ${compactMode ? 'gap-0.5' : 'gap-1'}`}>
+    <div className={`flex items-center shrink-0 ${compactMode ? 'gap-1.5 sm:gap-0.5' : 'gap-2 sm:gap-1'}`}>
       <button
         type="button"
-        onClick={() => handleCopy('thai', product.thaiTitle)}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleCopy('thai', product.thaiTitle);
+        }}
         title={t.card.copyThai}
-        className={`${
-          compactMode ? 'h-7 px-1.5 text-[10px]' : 'h-7 px-1.5 text-[11px]'
-        } rounded-md font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-colors cursor-pointer`}
+        className={`relative ${
+          compactMode
+            ? 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px] sm:text-[10px]'
+            : 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px]'
+        } rounded-md font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-all active:scale-95 cursor-pointer before:content-[""] before:absolute before:-inset-1 sm:before:hidden`}
       >
         {copiedField === 'thai' ? (
           <Check className="w-3 h-3 text-teal-600 dark:text-teal-400" />
@@ -393,11 +406,16 @@ export function ProductCard({
       </button>
       <button
         type="button"
-        onClick={() => handleCopy('id', product.id)}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleCopy('id', product.id);
+        }}
         title={`${t.card.copyId}: ${product.id}`}
-        className={`${
-          compactMode ? 'h-7 px-1.5 text-[10px]' : 'h-7 px-1.5 text-[11px]'
-        } rounded-md font-mono-num font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-colors cursor-pointer`}
+        className={`relative ${
+          compactMode
+            ? 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px] sm:text-[10px]'
+            : 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px]'
+        } rounded-md font-mono-num font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-all active:scale-95 cursor-pointer before:content-[""] before:absolute before:-inset-1 sm:before:hidden`}
       >
         {copiedField === 'id' ? (
           <Check className="w-3 h-3 text-teal-600 dark:text-teal-400" />
@@ -415,11 +433,14 @@ export function ProductCard({
             href={tiktokShopUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
             title={t.card.openTikTokShop}
             aria-label={`${t.card.openTikTokShop}: ${primaryTitle}`}
-            className={`${
-              compactMode ? 'h-7 px-1.5 text-[10px]' : 'h-7 px-1.5 text-[11px]'
-            } rounded-md font-medium text-teal-700 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/50 inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500`}
+            className={`relative ${
+              compactMode
+                ? 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px] sm:text-[10px]'
+                : 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px]'
+            } rounded-md font-medium text-teal-700 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/50 inline-flex items-center gap-1 transition-all active:scale-95 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 before:content-[""] before:absolute before:-inset-1 sm:before:hidden`}
           >
             <span className={compactMode ? 'hidden sm:inline' : 'inline'}>Shop</span>
             <ExternalLink className="w-3 h-3 shrink-0" />
@@ -438,7 +459,7 @@ export function ProductCard({
         <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
           {t.card.price}
         </div>
-        <div className="mt-0.5 text-sm font-semibold font-mono-num tabular-nums text-slate-900 dark:text-slate-100 truncate">
+        <div className="mt-0.5 text-sm font-semibold font-mono-num tabular-nums text-slate-900 dark:text-slate-100 truncate select-text">
           {product.priceThb !== null ? `฿${product.priceThb.toLocaleString()}` : '—'}
         </div>
       </div>
@@ -448,7 +469,7 @@ export function ProductCard({
           {t.card.commission}
         </div>
         <div
-          className={`mt-0.5 text-sm font-semibold font-mono-num tabular-nums truncate ${
+          className={`mt-0.5 text-sm font-semibold font-mono-num tabular-nums truncate select-text ${
             isZeroCommission
               ? 'text-rose-700 dark:text-rose-400'
               : 'text-teal-700 dark:text-teal-400'
@@ -464,7 +485,7 @@ export function ProductCard({
             <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
               {t.card.sales7d}
             </div>
-            <div className="mt-0.5 text-xs sm:text-sm font-semibold font-mono-num tabular-nums text-slate-800 dark:text-slate-200 truncate">
+            <div className="mt-0.5 text-xs sm:text-sm font-semibold font-mono-num tabular-nums text-slate-800 dark:text-slate-200 truncate select-text">
               {salesVolText}
             </div>
           </div>
@@ -473,7 +494,7 @@ export function ProductCard({
             <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
               {hasVideoRev ? t.card.videoRev7d : t.card.revenue7d}
             </div>
-            <div className="mt-0.5 text-xs sm:text-sm font-semibold font-mono-num tabular-nums text-slate-800 dark:text-slate-200 truncate">
+            <div className="mt-0.5 text-xs sm:text-sm font-semibold font-mono-num tabular-nums text-slate-800 dark:text-slate-200 truncate select-text">
               {revenueText}
             </div>
           </div>
@@ -626,7 +647,10 @@ export function ProductCard({
   if (viewMode === 'list') {
     if (isMicro) {
       return (
-        <article className="group flex items-center gap-1 pr-2 bg-white dark:bg-[#131B24] border border-slate-200/85 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700">
+        <article
+          data-product-id={product.id}
+          className="group flex items-center gap-1 pr-2 bg-white dark:bg-[#131B24] border border-slate-200/85 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700"
+        >
           <button
             type="button"
             onClick={() => onSelect(product)}
@@ -658,7 +682,7 @@ export function ProductCard({
               />
             </div>
 
-            <h3 className="flex-1 min-w-0 font-display text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors leading-snug line-clamp-2">
+            <h3 className={`flex-1 min-w-0 font-display text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors ${language === 'my' ? 'leading-[1.55]' : 'leading-snug'} line-clamp-2`}>
               {primaryTitle}
             </h3>
           </button>
@@ -669,7 +693,10 @@ export function ProductCard({
 
     if (isCompact) {
       return (
-        <article className="group flex flex-row items-center bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700">
+        <article
+          data-product-id={product.id}
+          className="group flex flex-row items-center bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700"
+        >
           <button
             type="button"
             onClick={() => onSelect(product)}
@@ -722,12 +749,12 @@ export function ProductCard({
                 onClick={() => onSelect(product)}
                 className="mt-0.5 text-left w-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded"
               >
-                <h3 className="font-display text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors leading-snug line-clamp-1">
+                <h3 className={`font-display text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors ${language === 'my' ? 'leading-[1.55]' : 'leading-snug'} line-clamp-1`}>
                   {primaryTitle}
                 </h3>
               </button>
 
-              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-mono-num tabular-nums">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-mono-num tabular-nums select-text">
                 <span className="font-semibold text-slate-900 dark:text-slate-100">
                   {product.priceThb !== null ? `฿${product.priceThb.toLocaleString()}` : '—'}
                 </span>
@@ -756,7 +783,7 @@ export function ProductCard({
                 onClick={() => onOpenScoreDetails(product)}
                 title={scoreTooltipTitle}
                 aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? '—'}`}
-                className="inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors shrink-0 cursor-pointer"
+                className='relative inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors shrink-0 cursor-pointer before:content-[""] before:absolute before:-inset-1 sm:before:hidden'
               >
                 <ScoreRing score={displayedScore} grade={scoreGrade} size={34} strokeWidth={3} />
               </button>
@@ -765,7 +792,7 @@ export function ProductCard({
                 type="button"
                 onClick={() => onSelect(product)}
                 aria-label={`${primaryTitle} — ${t.discover.openStudioShort}`}
-                className="h-9 px-2.5 sm:px-3 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                className="h-10 sm:h-9 px-3 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-all active:scale-[0.98] cursor-pointer"
               >
                 <span className="hidden sm:inline">{t.discover.openStudioShort}</span>
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />
@@ -778,7 +805,10 @@ export function ProductCard({
 
     // List Level 2 (Detailed): Visual-First Search Score Row
     return (
-      <article className="group flex flex-col sm:flex-row items-stretch bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700">
+      <article
+        data-product-id={product.id}
+        className="group flex flex-col sm:flex-row items-stretch bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700"
+      >
         <button
           type="button"
           onClick={() => onSelect(product)}
@@ -829,20 +859,20 @@ export function ProductCard({
                   onClick={() => onSelect(product)}
                   className="mt-1 text-left w-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded"
                 >
-                  <h3 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors leading-snug line-clamp-2 sm:line-clamp-1">
+                  <h3 className={`font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors ${language === 'my' ? 'leading-[1.55]' : 'leading-snug'} line-clamp-2 sm:line-clamp-1`}>
                     {primaryTitle}
                   </h3>
                 </button>
               </div>
 
-              <div className="flex items-center gap-1 shrink-0 -mt-0.5 -mr-0.5">
+              <div className="flex items-center gap-1.5 sm:gap-1 shrink-0 -mt-0.5 -mr-0.5">
                 {renderSaveIconButton('regular')}
                 <button
                   type="button"
                   onClick={() => onOpenScoreDetails(product)}
                   title={scoreTooltipTitle}
                   aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? '—'}`}
-                  className="sm:hidden inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 shrink-0 cursor-pointer"
+                  className='relative sm:hidden inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 shrink-0 cursor-pointer before:content-[""] before:absolute before:-inset-1 sm:before:hidden'
                 >
                   <ScoreRing score={displayedScore} grade={scoreGrade} size={36} strokeWidth={3} />
                 </button>
@@ -850,7 +880,7 @@ export function ProductCard({
             </div>
 
             <div className="mt-1 flex items-center justify-between gap-2">
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate min-w-0 flex-1">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate min-w-0 flex-1 select-text">
                 {product.shopName}
               </p>
               {renderUtilityButtons(false)}
@@ -866,7 +896,7 @@ export function ProductCard({
             <button
               type="button"
               onClick={() => onSelect(product)}
-              className="w-full h-9 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
+              className="w-full h-10 sm:h-9 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer"
             >
               <span>{t.discover.openStudioShort}</span>
               <ArrowRight className="w-3.5 h-3.5 shrink-0" />
@@ -915,7 +945,10 @@ export function ProductCard({
   // =========================================================================
   if (isMicro) {
     return (
-      <article className="relative group flex flex-col bg-white dark:bg-[#131B24] border border-slate-200/85 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700">
+      <article
+        data-product-id={product.id}
+        className="relative group flex flex-col bg-white dark:bg-[#131B24] border border-slate-200/85 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700"
+      >
         {renderSaveIconButton('overlay')}
         <button
           type="button"
@@ -949,7 +982,7 @@ export function ProductCard({
           </div>
 
           <div className="px-2 py-2 sm:px-2.5 sm:py-2.5 flex-1">
-            <h3 className="font-display text-[11px] sm:text-xs font-medium text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors leading-snug line-clamp-2">
+            <h3 className={`font-display text-[11px] sm:text-xs font-medium text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors ${language === 'my' ? 'leading-[1.55]' : 'leading-snug'} line-clamp-2`}>
               {primaryTitle}
             </h3>
           </div>
@@ -970,7 +1003,10 @@ export function ProductCard({
   const bodyPaddingClass = isSpacious ? 'p-4 sm:p-5' : isCompact ? 'p-3' : 'p-3.5 sm:p-4';
 
   return (
-    <article className="group flex flex-col bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-700">
+    <article
+      data-product-id={product.id}
+      className="group flex flex-col bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-700"
+    >
       <button
         type="button"
         onClick={() => onSelect(product)}
@@ -1040,7 +1076,9 @@ export function ProductCard({
               className="text-left w-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded"
             >
               <h3
-                className={`font-display font-semibold text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors leading-snug line-clamp-2 ${
+                className={`font-display font-semibold text-slate-900 dark:text-slate-100 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors ${
+                  language === 'my' ? 'leading-[1.55]' : 'leading-snug'
+                } line-clamp-2 ${
                   isSpacious
                     ? 'text-base sm:text-lg'
                     : isCompact
@@ -1058,7 +1096,7 @@ export function ProductCard({
             onClick={() => onOpenScoreDetails(product)}
             title={scoreTooltipTitle}
             aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? '—'}`}
-            className="inline-flex flex-col items-center justify-center rounded-xl p-0.5 -mt-0.5 -mr-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            className='relative inline-flex flex-col items-center justify-center rounded-xl p-0.5 -mt-0.5 -mr-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 before:content-[""] before:absolute before:-inset-1 sm:before:hidden'
           >
             <ScoreRing
               score={displayedScore}
@@ -1076,7 +1114,7 @@ export function ProductCard({
 
         {/* Shop Name + Compact Utilities */}
         <div className="mt-1 flex items-center justify-between gap-1.5">
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate min-w-0 flex-1">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate min-w-0 flex-1 select-text">
             {product.shopName}
           </p>
           {renderUtilityButtons(isCompact)}
@@ -1108,11 +1146,11 @@ export function ProductCard({
 
             <div className="mt-auto pt-2.5">
               <div className="border-t border-slate-100 dark:border-slate-800/90 pt-2 flex items-baseline justify-between gap-2">
-                <div className="text-xs sm:text-sm font-semibold font-mono-num tabular-nums text-slate-900 dark:text-slate-100">
+                <div className="text-xs sm:text-sm font-semibold font-mono-num tabular-nums text-slate-900 dark:text-slate-100 select-text">
                   {product.priceThb !== null ? `฿${product.priceThb.toLocaleString()}` : '—'}
                 </div>
                 <div
-                  className={`text-[11px] sm:text-xs font-semibold font-mono-num tabular-nums truncate ${
+                  className={`text-[11px] sm:text-xs font-semibold font-mono-num tabular-nums truncate select-text ${
                     isZeroCommission
                       ? 'text-rose-700 dark:text-rose-400'
                       : 'text-teal-700 dark:text-teal-400'
@@ -1125,7 +1163,7 @@ export function ProductCard({
               <button
                 type="button"
                 onClick={() => onSelect(product)}
-                className="mt-2.5 w-full h-9 px-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                className="mt-2.5 w-full h-10 sm:h-9 px-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               >
                 <span className="truncate">{t.discover.openStudioShort}</span>
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />
@@ -1136,8 +1174,34 @@ export function ProductCard({
           <>
             <div className="mt-2.5 space-y-2.5">
               {renderHeroMetricsStrip(isSpacious ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}
-              {renderPillarBars(isSpacious ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}
-              {renderChannelAndPoolStrip()}
+              {isSpacious ? (
+                <>
+                  <div className={detailsExpanded ? 'space-y-2.5' : 'hidden lg:block space-y-2.5'}>
+                    {renderPillarBars('grid-cols-2 sm:grid-cols-4')}
+                    {renderChannelAndPoolStrip()}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDetailsExpanded((prev) => !prev)}
+                    aria-expanded={detailsExpanded}
+                    className="lg:hidden h-9 px-2 -ml-1 rounded-lg text-xs font-medium text-teal-700 dark:text-teal-400 hover:bg-teal-50/80 dark:hover:bg-teal-950/40 inline-flex items-center gap-1 active:scale-95 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                  >
+                    <span>
+                      {detailsExpanded ? t.card.hideDetailsToggle : t.card.showDetailsToggle}
+                    </span>
+                    {detailsExpanded ? (
+                      <ChevronUp className="w-3.5 h-3.5 shrink-0" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {renderPillarBars('grid-cols-2')}
+                  {renderChannelAndPoolStrip()}
+                </>
+              )}
             </div>
 
             {/* Clean Single-Action Studio CTA Footer */}
@@ -1145,7 +1209,7 @@ export function ProductCard({
               <button
                 type="button"
                 onClick={() => onSelect(product)}
-                className="w-full h-10 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#131B24]"
+                className="w-full h-10 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#131B24]"
               >
                 <span className="truncate">{t.discover.openStudioShort}</span>
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />

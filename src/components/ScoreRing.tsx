@@ -79,35 +79,35 @@ export function getScoreTone(grade: ScoreGrade): ScoreTone {
     case 'top':
       return {
         stroke: '#10B981', // Emerald 500
-        textClass: 'text-emerald-600 dark:text-emerald-400',
+        textClass: 'text-emerald-700 dark:text-emerald-400',
         labelClass: 'text-emerald-700 dark:text-emerald-400',
         barClass: 'bg-emerald-500 dark:bg-emerald-400',
-        trackClass: 'stroke-slate-200/80 dark:stroke-slate-800',
+        trackClass: 'stroke-slate-200 dark:stroke-slate-700/80',
       };
     case 'strong':
       return {
         stroke: '#0D9488', // Teal 600
-        textClass: 'text-teal-600 dark:text-teal-400',
+        textClass: 'text-teal-700 dark:text-teal-400',
         labelClass: 'text-teal-700 dark:text-teal-400',
         barClass: 'bg-teal-500 dark:bg-teal-400',
-        trackClass: 'stroke-slate-200/80 dark:stroke-slate-800',
+        trackClass: 'stroke-slate-200 dark:stroke-slate-700/80',
       };
     case 'fair':
       return {
         stroke: '#D97706', // Amber 600
-        textClass: 'text-amber-600 dark:text-amber-400',
-        labelClass: 'text-amber-700 dark:text-amber-400',
+        textClass: 'text-amber-800 dark:text-amber-400',
+        labelClass: 'text-amber-800 dark:text-amber-400',
         barClass: 'bg-amber-500 dark:bg-amber-400',
-        trackClass: 'stroke-slate-200/80 dark:stroke-slate-800',
+        trackClass: 'stroke-slate-200 dark:stroke-slate-700/80',
       };
     case 'low':
     default:
       return {
         stroke: '#E11D48', // Rose 600
-        textClass: 'text-rose-600 dark:text-rose-400',
+        textClass: 'text-rose-700 dark:text-rose-400',
         labelClass: 'text-rose-700 dark:text-rose-400',
         barClass: 'bg-rose-500 dark:bg-rose-400',
-        trackClass: 'stroke-slate-200/80 dark:stroke-slate-800',
+        trackClass: 'stroke-slate-200 dark:stroke-slate-700/80',
       };
   }
 }
@@ -119,10 +119,10 @@ export function getV2ScoreTone(
   if (score === null) {
     return {
       stroke: '#94A3B8',
-      textClass: 'text-slate-500 dark:text-slate-400',
+      textClass: 'text-slate-600 dark:text-slate-400',
       labelClass: 'text-slate-600 dark:text-slate-400',
       barClass: 'bg-slate-400 dark:bg-slate-600',
-      trackClass: 'stroke-slate-200/80 dark:stroke-slate-800',
+      trackClass: 'stroke-slate-200 dark:stroke-slate-700/80',
     };
   }
   const resolvedGrade: ScoreGrade =

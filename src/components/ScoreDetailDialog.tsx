@@ -1,6 +1,4 @@
-import { useEffect } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
 import type { Translations } from '../i18n';
 import { analyzeDetailRevenueTrend } from '../lib/revenueTrendAnalyzer.ts';
 import { adaptProductItemToValidatedMetrics } from '../lib/metricFoundation.ts';
@@ -14,6 +12,8 @@ import type {
   ProductObservationSnapshot,
   ScoreGrade,
 } from '../types';
+import { BottomSheet } from './BottomSheet';
+import { InfoTooltip } from './InfoTooltip';
 import { ScoreRing } from './ScoreRing';
 
 interface ScoreDetailDialogProps {
@@ -245,7 +245,10 @@ export function ScoreDetailContent({
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Clean Visual Header */}
-      <div className="p-4 sm:p-6 shrink-0 border-b border-slate-100 dark:border-slate-800/90 bg-white dark:bg-[#131B24]">
+      <div
+        data-sheet-handle="true"
+        className="p-4 sm:p-6 shrink-0 border-b border-slate-100 dark:border-slate-800/90 bg-white dark:bg-[#131B24] touch-none"
+      >
         <div className="flex items-start justify-between gap-3 sm:gap-4">
           <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
             <ScoreRing
@@ -281,7 +284,7 @@ export function ScoreDetailContent({
 
               <h2
                 id="score-dialog-title"
-                className="mt-1 font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2"
+                className="mt-1 font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2 select-text"
               >
                 {product.thaiTitle}
               </h2>
@@ -328,7 +331,10 @@ export function ScoreDetailContent({
       </div>
 
       {/* Scrollable Visual Breakdown Body */}
-      <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/90">
+      <div
+        data-sheet-scroll="true"
+        className="flex-1 overflow-y-auto overscroll-contain divide-y divide-slate-100 dark:divide-slate-800/90"
+      >
         {/* Active Cap / 0% Commission Notice (Only when triggered) */}
         {(searchScore.status === 'NOT_MONETIZABLE' || searchScore.capsApplied.length > 0) && (
           <div className="px-4 sm:px-6 py-3 bg-amber-50/55 dark:bg-amber-950/20 flex items-start gap-2.5 text-xs">
@@ -355,9 +361,12 @@ export function ScoreDetailContent({
         <div className="p-4 sm:p-6 space-y-4">
           <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
-              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                {copy.compositionTitle}
-              </h3>
+              <div className="inline-flex items-center gap-1.5">
+                <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  {copy.compositionTitle}
+                </h3>
+                <InfoTooltip content={t.score.dialogSubtitle} ariaLabel={copy.compositionTitle} />
+              </div>
               <span className="font-mono-num tabular-nums text-xs font-semibold text-slate-800 dark:text-slate-200">
                 {isCapped
                   ? `${Math.round(searchScore.rawWeightedScore!)} → ${searchScore.score} / 100`
@@ -726,14 +735,18 @@ export function ScoreDetailContent({
       </div>
 
       {/* Minimal Footer */}
-      <div className="px-4 sm:px-6 py-3 shrink-0 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between gap-3 bg-white dark:bg-[#131B24]">
-        <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
-          {copy.rankDataOnlyNote}
-        </span>
+      <div className="px-4 sm:px-6 pt-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-3 shrink-0 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between gap-3 bg-white dark:bg-[#131B24]">
+        <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 min-w-0">
+          <span className="truncate">{copy.badgeShort}</span>
+          <InfoTooltip
+            content={[copy.rankDataOnlyNote, copy.deepStudioHint]}
+            ariaLabel={copy.rankDataOnlyNote}
+          />
+        </div>
         <button
           type="button"
           onClick={onClose}
-          className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="h-10 sm:h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap shrink-0 cursor-pointer"
         >
           {t.score.closeBtn}
         </button>
@@ -750,56 +763,27 @@ export function ScoreDetailDialog({
   t,
   onClose,
 }: ScoreDetailDialogProps) {
-  useEffect(() => {
-    if (!product) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [product, onClose]);
-
   return (
-    <AnimatePresence>
+    <BottomSheet
+      isOpen={Boolean(product)}
+      onClose={onClose}
+      historyKey="score_dialog"
+      variant="dialog"
+      maxWidthClass="max-w-xl"
+      zIndexClass="z-50"
+      backdropClassName="bg-slate-950/45 backdrop-blur-[2px]"
+      labelledBy="score-dialog-title"
+    >
       {product && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-6"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="score-dialog-title"
-        >
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-slate-950/45 backdrop-blur-[2px]"
-          />
-
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="relative z-10 w-full max-w-xl max-h-[88vh] flex flex-col overflow-hidden rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 shadow-xl"
-          >
-            <ScoreDetailContent
-              product={product}
-              snapshots={snapshots}
-              language={language}
-              nowMs={nowMs}
-              t={t}
-              onClose={onClose}
-            />
-          </motion.div>
-        </div>
+        <ScoreDetailContent
+          product={product}
+          snapshots={snapshots}
+          language={language}
+          nowMs={nowMs}
+          t={t}
+          onClose={onClose}
+        />
       )}
-    </AnimatePresence>
+    </BottomSheet>
   );
 }
