@@ -3,9 +3,15 @@ import type {
   CategoryKey,
   KalodataCreditBalance,
   ProductAiAnalysis,
-  ProductAnalysisDecision,
   ProductItem,
+  RankBoardSnapshot,
+  SearchDateRange,
   VideoAdPlan,
+  VideoIdeaConcept,
+  VideoIdeasAwarenessLevel,
+  VideoIdeasFramework,
+  VideoIdeasPlaybookCategory,
+  VideoIdeasStrategyPack,
   VisualStyle,
 } from '../src/types.ts';
 import {
@@ -14,26 +20,31 @@ import {
 } from '../src/lib/categoryTranslations.ts';
 import { adaptProductItemToValidatedMetrics } from '../src/lib/metricFoundation.ts';
 import { sortProductsByV2Overall } from '../src/lib/productIntelligenceView.ts';
+import { buildRankBoardSnapshot } from '../src/lib/rankBoardAnalytics.ts';
 import { evaluateProductCommercialV2 } from '../src/lib/scoringEngineV2.ts';
 import { evaluateProductStrategiesV2 } from '../src/lib/strategyEngineV2.ts';
 import {
   generateStructuredJsonStream,
   sanitizeExternalUrl,
 } from './gemini.ts';
+import { buildVideoIdeasSystemInstruction } from './videoIdeasCurriculum.ts';
 import {
   type CreditGuardrails,
+  fetchKalodataCategoryMarketRank,
   fetchKalodataThailandProducts,
   fetchSingleKalodataProductById,
   KalodataApiError,
   type KalodataRawProduct,
   OFFICIAL_TH_CATEGORIES,
   parseProductLinkInput,
+  precheckKalodataCombinedGuardrails,
 } from './kalodata.ts';
 import {
   computeDirectKalodataScore,
   rankSilentVisualProducts,
   type ScoredCandidate,
 } from './scoreEngine.ts';
+import { resolveTikTokShortLinkProductId } from './tiktokLinkResolver.ts';
 
 const VALID_CATEGORIES = ['beauty', 'home', 'gadget', 'fashion', 'wellness', 'pet'] as const;
 
@@ -479,18 +490,37 @@ export async function searchSilentVisualProducts(params: {
   const linkCheck = parseProductLinkInput(params.query);
 
   if (linkCheck.isLinkOrId) {
-    if (!linkCheck.productId) {
+    let resolvedProductId = linkCheck.productId;
+
+    if (!resolvedProductId && linkCheck.isShortLink) {
+      const resolved = await resolveTikTokShortLinkProductId(params.query);
+      if (resolved.productId) {
+        resolvedProductId = resolved.productId;
+      } else if (resolved.reason === 'not_a_product_link') {
+        throw new KalodataApiError(
+          'KALODATA_INVALID_LINK',
+          'This TikTok short link does not point to a TikTok Shop product. Please copy a TikTok Shop product link or numeric Product ID.',
+          400
+        );
+      } else if (resolved.reason === 'timeout' || resolved.reason === 'network_error') {
+        throw new KalodataApiError(
+          'KALODATA_INVALID_LINK',
+          'Could not open that TikTok short link right now. Please try again or paste the full Product URL / numeric Product ID.',
+          400
+        );
+      }
+    }
+
+    if (!resolvedProductId) {
       throw new KalodataApiError(
         'KALODATA_INVALID_LINK',
-        linkCheck.isShortLink
-          ? 'Short TikTok links (vt.tiktok.com) hide the Product ID. Please open the link in a browser and paste the full Product URL or numeric Product ID.'
-          : 'Could not find a TikTok Shop Product ID in that link. Please paste a full TikTok Shop / Kalodata product link or numeric Product ID.',
+        'Could not find a TikTok Shop Product ID in that link. Please paste a TikTok Shop / Kalodata product link or numeric Product ID.',
         400
       );
     }
 
     const singleResult = await fetchSingleKalodataProductById({
-      productId: linkCheck.productId,
+      productId: resolvedProductId,
       dateRange: params.dateRange,
       forceRefresh: params.forceRefresh,
       guardrails: params.guardrails,
@@ -574,6 +604,85 @@ export async function searchSilentVisualProducts(params: {
     balance: kalodataResult.balance,
     pageNumber: kalodataResult.pageNumber ?? 1,
     hasMore: kalodataResult.hasMore ?? false,
+  };
+}
+
+export interface RankBoardSyncOutput {
+  snapshot: RankBoardSnapshot;
+  creditsUsed: number | null;
+  balance: KalodataCreditBalance | null;
+}
+
+/**
+ * Manual Update Sync (~0.4 cr) for the Thailand TikTok Shop Product Rank Board:
+ * Fetches Top 100 macro market products (/tiktok/product/rank) + Live L1 Category Market Rank
+ * (/tiktok/category/rank) in parallel after validating combined guardrails.
+ */
+export async function syncThailandRankBoard(params: {
+  dateRange?: SearchDateRange;
+  guardrails?: CreditGuardrails;
+}): Promise<RankBoardSyncOutput> {
+  const dateRange: SearchDateRange = params.dateRange === 'last30Day' ? 'last30Day' : 'last7Day';
+
+  // Validate combined ~0.4 cr credit guardrails upfront before spending any credits
+  const balanceBefore = await precheckKalodataCombinedGuardrails({
+    ...params.guardrails,
+    estimatedCost: 0.4,
+  });
+
+  const [productResult, categoryResult] = await Promise.all([
+    fetchKalodataThailandProducts({
+      query: '',
+      cateIds: [],
+      pageNumber: 1,
+      pageSize: 100,
+      dateRange,
+      forceRefresh: true,
+    }),
+    fetchKalodataCategoryMarketRank({
+      dateRange,
+      skipGuardrails: true,
+    }).catch(() => ({
+      categories: [],
+      creditsUsed: 0,
+      balance: null as KalodataCreditBalance | null,
+    })),
+  ]);
+
+  const scoredProducts = productResult.products
+    .slice(0, 100)
+    .map((raw) => buildScoredKalodataItem(raw, 'home'));
+
+  const latestBalance = categoryResult.balance ?? productResult.balance ?? balanceBefore;
+
+  let totalCreditsUsed: number | null = null;
+  if (
+    balanceBefore?.available !== null &&
+    balanceBefore?.available !== undefined &&
+    latestBalance?.available !== null &&
+    latestBalance?.available !== undefined
+  ) {
+    const diff = Math.round((balanceBefore.available - latestBalance.available) * 100) / 100;
+    totalCreditsUsed = diff >= 0 ? diff : 0;
+  } else {
+    const pCredits = typeof productResult.creditsUsed === 'number' ? productResult.creditsUsed : 0;
+    const cCredits = typeof categoryResult.creditsUsed === 'number' ? categoryResult.creditsUsed : 0;
+    totalCreditsUsed =
+      pCredits > 0 || cCredits > 0 ? Math.round((pCredits + cCredits) * 100) / 100 : null;
+  }
+
+  const snapshot = buildRankBoardSnapshot({
+    products: scoredProducts,
+    liveCategories: categoryResult.categories,
+    dateRange,
+    syncedAt: new Date().toISOString(),
+    creditsUsed: totalCreditsUsed,
+  });
+
+  return {
+    snapshot,
+    creditsUsed: totalCreditsUsed,
+    balance: latestBalance,
   };
 }
 
@@ -842,46 +951,172 @@ const bilingualListSchema = {
   required: ['my', 'en'],
 };
 
-const productAnalysisSchema = {
+const videoIdeaConceptSchema = {
   type: Type.OBJECT,
   properties: {
-    cleanName: bilingualSchema,
-    productOverview: bilingualSchema,
-    salesAndPricingAudit: bilingualSchema,
-    profitCalculation: bilingualSchema,
-    silentVideoVerdict: bilingualSchema,
-    visualAngles: bilingualListSchema,
-    deepDataSpecsAudit: bilingualSchema,
-    deepDataBuyerAudit: bilingualSchema,
-    risks: bilingualListSchema,
-    missingDataNotes: bilingualListSchema,
-    decision: {
+    title: bilingualSchema,
+    targetSegment: bilingualSchema,
+    awarenessLevel: {
       type: Type.STRING,
-      description: 'One of: strong_go, test_carefully, need_more_data',
+      description:
+        'One of: unaware, problem_aware, solution_aware, product_aware, most_aware',
     },
-    bottomLine: bilingualSchema,
+    framework: {
+      type: Type.STRING,
+      description: 'One of: PAS, BAB, AIDA, 3_REASONS_WHY',
+    },
+    creativeAngle: bilingualSchema,
+    ugcFormat: bilingualSchema,
+    recommendedDuration: {
+      type: Type.STRING,
+      description: 'Recommended duration e.g. "20–30s", "30–45s", or "45–75s"',
+    },
+    hook3Layer: {
+      type: Type.OBJECT,
+      properties: {
+        hookType: bilingualSchema,
+        visualHook: bilingualSchema,
+        verbalHook: bilingualSchema,
+        textHook: bilingualSchema,
+      },
+      required: ['hookType', 'visualHook', 'verbalHook', 'textHook'],
+    },
+    bridgeHold: bilingualSchema,
+    bodyPlan: bilingualSchema,
+    ctaAction: bilingualSchema,
+    muteTestVisual: bilingualSchema,
+    extraHookVariations: bilingualListSchema,
   },
   required: [
-    'cleanName',
-    'productOverview',
-    'salesAndPricingAudit',
-    'profitCalculation',
-    'silentVideoVerdict',
-    'visualAngles',
-    'deepDataSpecsAudit',
-    'deepDataBuyerAudit',
-    'risks',
-    'missingDataNotes',
-    'decision',
-    'bottomLine',
+    'title',
+    'targetSegment',
+    'awarenessLevel',
+    'framework',
+    'creativeAngle',
+    'ugcFormat',
+    'recommendedDuration',
+    'hook3Layer',
+    'bridgeHold',
+    'bodyPlan',
+    'ctaAction',
+    'muteTestVisual',
+    'extraHookVariations',
   ],
 };
 
-function normalizeDecision(raw: unknown): ProductAnalysisDecision {
-  if (raw === 'strong_go' || raw === 'test_carefully' || raw === 'need_more_data') {
+const videoIdeasStrategySchema = {
+  type: Type.OBJECT,
+  properties: {
+    playbookCategory: {
+      type: Type.STRING,
+      description:
+        'One of: problem_solving, impulse_trendy, aesthetic_lifestyle, high_ticket_trust, food_beverage',
+    },
+    playbookReason: bilingualSchema,
+    productAnalysis: {
+      type: Type.OBJECT,
+      properties: {
+        coreFeature: bilingualSchema,
+        functionalBenefit: bilingualSchema,
+        emotionalBenefit: bilingualSchema,
+        coreUsp: bilingualSchema,
+        visualProofIdea: bilingualSchema,
+      },
+      required: [
+        'coreFeature',
+        'functionalBenefit',
+        'emotionalBenefit',
+        'coreUsp',
+        'visualProofIdea',
+      ],
+    },
+    targetAudience: {
+      type: Type.OBJECT,
+      properties: {
+        primaryBuyer: bilingualSchema,
+        painPointLadder: bilingualSchema,
+        buyerVoiceInsight: bilingualSchema,
+      },
+      required: ['primaryBuyer', 'painPointLadder', 'buyerVoiceInsight'],
+    },
+    concepts: {
+      type: Type.ARRAY,
+      items: videoIdeaConceptSchema,
+    },
+    scalingPlan: {
+      type: Type.OBJECT,
+      properties: {
+        commentMiningIdeas: bilingualListSchema,
+        iterationRoadmap: bilingualSchema,
+        watchOuts: bilingualListSchema,
+      },
+      required: ['commentMiningIdeas', 'iterationRoadmap', 'watchOuts'],
+    },
+  },
+  required: [
+    'playbookCategory',
+    'playbookReason',
+    'productAnalysis',
+    'targetAudience',
+    'concepts',
+    'scalingPlan',
+  ],
+};
+
+function normalizePlaybookCategory(raw: unknown): VideoIdeasPlaybookCategory {
+  if (
+    raw === 'problem_solving' ||
+    raw === 'impulse_trendy' ||
+    raw === 'aesthetic_lifestyle' ||
+    raw === 'high_ticket_trust' ||
+    raw === 'food_beverage'
+  ) {
     return raw;
   }
-  return 'test_carefully';
+  return 'problem_solving';
+}
+
+function normalizeAwarenessLevel(raw: unknown): VideoIdeasAwarenessLevel {
+  if (
+    raw === 'unaware' ||
+    raw === 'problem_aware' ||
+    raw === 'solution_aware' ||
+    raw === 'product_aware' ||
+    raw === 'most_aware'
+  ) {
+    return raw;
+  }
+  return 'problem_aware';
+}
+
+function normalizeFramework(raw: unknown): VideoIdeasFramework {
+  if (raw === 'PAS' || raw === 'BAB' || raw === 'AIDA' || raw === '3_REASONS_WHY') {
+    return raw;
+  }
+  return 'PAS';
+}
+
+function cleanBilingual(
+  val: { my?: string; en?: string } | undefined
+): { my: string; en: string } {
+  return {
+    my: typeof val?.my === 'string' ? val.my.trim() : '',
+    en: typeof val?.en === 'string' ? val.en.trim() : '',
+  };
+}
+
+function cleanBilingualList(
+  val: { my?: string[]; en?: string[] } | undefined,
+  maxItems: number
+): { my: string[]; en: string[] } {
+  return {
+    my: Array.isArray(val?.my)
+      ? val.my.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, maxItems)
+      : [],
+    en: Array.isArray(val?.en)
+      ? val.en.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, maxItems)
+      : [],
+  };
 }
 
 export async function analyzeProductWithAi(
@@ -911,44 +1146,15 @@ export async function analyzeProductWithAi(
       (d?.usageScenarios && d.usageScenarios.length > 0)
   );
 
-  // Build explicit factual inventory of available vs missing Kalodata data
   const missingFields: string[] = [];
   if (product.priceThb === null) missingFields.push('Price (THB)');
-  if (product.commissionRate === null) missingFields.push('Affiliate Commission Rate (%)');
-  if (!hasSalesVolume) missingFields.push('7-Day Sales Volume');
-  if (!hasRevenue) missingFields.push('7-Day Total Revenue');
-  if (!hasVideoRevenue) missingFields.push('7-Day Video Revenue');
-  if (!hasGrowth) missingFields.push('Revenue Growth Rate');
-  if (!hasDetails) missingFields.push('Kalodata Deep Data: Product Details / Seller Description');
-  if (!hasSpecs) missingFields.push('Kalodata Deep Data: Selling Specs & Highlights');
-  if (!hasComments) missingFields.push('Kalodata Deep Data: Buyer Reviews & Pain Points');
-
-  // Pre-compute deterministic math on real numbers so AI calculations are 100% accurate
-  const computedMath: Record<string, string | number | null> = {
-    priceThb: product.priceThb,
-    commissionRatePct: product.commissionRate,
-    commissionPerSaleThb: product.commissionThb,
-    salesNeededFor1000Thb:
-      product.commissionThb && product.commissionThb > 0
-        ? Math.ceil(1000 / product.commissionThb)
-        : null,
-    salesNeededFor10000Thb:
-      product.commissionThb && product.commissionThb > 0
-        ? Math.ceil(10000 / product.commissionThb)
-        : null,
-    videoRevenueSharePct:
-      hasRevenue && hasVideoRevenue && (m?.revenueThb7d ?? 0) > 0
-        ? Math.round(((m!.videoRevenueThb7d! / m!.revenueThb7d!) * 100) * 10) / 10
-        : null,
-    avgDailySales7d:
-      hasSalesVolume ? Math.round((m!.salesVolume7d! / 7) * 10) / 10 : null,
-    avgDailyRevenueThb7d:
-      hasRevenue ? Math.round(m!.revenueThb7d! / 7) : null,
-  };
+  if (!hasDetails) missingFields.push('Seller Description');
+  if (!hasSpecs) missingFields.push('Selling Specs & Highlights');
+  if (!hasComments) missingFields.push('Buyer Reviews & Pain Points');
 
   const payloadForAi = {
     productId: product.id,
-    thaiTitle: product.thaiTitle,
+    originalProductName: product.thaiTitle,
     shopName: product.shopName,
     category: product.categoryLabel.en,
     priceThb: product.priceThb,
@@ -964,57 +1170,93 @@ export async function analyzeProductWithAi(
       rating: hasRating ? m?.rating : 'NOT_AVAILABLE',
       reviewCount: hasReviewCount ? m?.reviewCount : 'NOT_AVAILABLE',
     },
-    precomputedMath: computedMath,
-    silentVisualScore: product.scoreBreakdown ?? 'NOT_AVAILABLE',
     kalodataDeepData: {
-      sellerDescription: hasDetails ? d?.description?.slice(0, 450) : 'NOT_FETCHED_YET',
+      sellerDescription: hasDetails ? d?.description?.slice(0, 500) : 'NOT_FETCHED_YET',
       sellingSpecsHighlights: hasSpecs ? d?.highlights?.slice(0, 6) : 'NOT_FETCHED_YET',
-      buyerPainPoints: d?.painPoints?.length ? d.painPoints.slice(0, 4) : 'NOT_FETCHED_YET',
-      buyerUsageScenarios: d?.usageScenarios?.length ? d.usageScenarios.slice(0, 4) : 'NOT_FETCHED_YET',
+      buyerPainPoints: d?.painPoints?.length ? d.painPoints.slice(0, 5) : 'NOT_FETCHED_YET',
+      buyerUsageScenarios: d?.usageScenarios?.length ? d.usageScenarios.slice(0, 5) : 'NOT_FETCHED_YET',
     },
-    missingKalodataFields: missingFields,
   };
 
-  const prompt = `You are a strict Thailand TikTok Shop affiliate analyst evaluating a product ONLY from the Kalodata JSON below.
+  const prompt = `Create a complete, practical TikTok Shop Video Ideas Strategy Pack for the product below by strictly applying ALL 13 Lessons from your system training curriculum.
 
-KALODATA DATA (JSON):
+REAL PRODUCT & KALODATA DATA (JSON):
 ${JSON.stringify(payloadForAi)}
 
-STRICT RULES (ZERO HALLUCINATION + ULTRA-FAST CONCISE OUTPUT):
-1. Use ONLY real figures from JSON above. Never invent missing sales, revenue, specs, or reviews.
-2. For any "NOT_AVAILABLE" or "NOT_FETCHED_YET" field, state briefly in 1 short sentence in Myanmar (for 'my') and English (for 'en').
-3. Keep EVERY field crisp and compact (1–2 short sentences max; no fluff).
-4. CRITICAL LANGUAGE REQUIREMENT: Write all analysis and explanation sentences inside 'my' in fluent, natural Myanmar (Burmese) language (သုံးသပ်ချက်စာသားများကို မြန်မာဘာသာဖြင့်သာ ရေးပါ), and 'en' in English.
-5. DO NOT TRANSLATE THE PRODUCT NAME: Never translate the product name (thaiTitle) or brand/shop name into Myanmar. Keep the product name in its original form ("${product.thaiTitle}").
+STRICT EXECUTION RULES:
+1. NEVER TRANSLATE THE PRODUCT NAME: Keep the original product name ("${product.thaiTitle}") and brand/shop name as-is whenever referenced. Do NOT translate it into Myanmar.
+2. LANGUAGE: Write every 'my' field in natural, fluent, everyday Myanmar (Burmese) — NEVER Thai. Write every 'en' field in crisp English.
+3. NATURAL SPOKEN TONE (Lesson 6 & Lesson 12): Every verbalHook and spoken line in 'my' must sound like telling a close friend over coffee ("ဟဲ့...", "အစကတော့...", "တကယ်တမ်းကျ...") — ZERO formal broadcaster greetings ("မင်္ဂလာပါရှင်...") and ZERO spoken framework headings ("ပြဿနာကတော့...").
+4. ZERO HALLUCINATION: Use ONLY real facts, price, specs, and buyer pain points present in the JSON above. Never invent unverified FDA approvals, fake warranties, fake percentages, or fake discounts. If Deep Data is "NOT_FETCHED_YET", design practical visual concepts from the real listing/category/price and note what to verify physically.
+5. EXACTLY 3 GENUINELY DISTINCT VIDEO CONCEPTS (Lesson 2, 3, 6, 12):
+   - Each concept MUST have a DIFFERENT Creative Angle (1 Video = 1 Focused Angle; never combine 3 angles into 1 video).
+   - Span different Awareness Levels and/or Target Buyer Segments (e.g., Concept 1 = Cold Discovery Unaware/Problem Aware; Concept 2 = Solution Aware USP/Demo; Concept 3 = Product Aware Proof/Skeptic Converted/Gift/Honest Disqualification).
+   - Match the Module 3 Category Playbook (Lessons 7–11: Problem-Solving, Impulse/Trendy, Aesthetic/Lifestyle, High-Ticket/Trust, or Food & Beverage) in duration, visual proof, doubt-crushing, and CTA friction level.
+   - Include a tight 3-Layer Hook (Visual + Verbal + short Text Hook), Bridge/Hold (3–10s), Body (Show-Don't-Tell demo + 1–2 core benefits + 1 concrete Objection Handling / Flaw-Trust Hack), CTA (Clear Action + believable Reason Why Now), Mute Test check, and 2 extraHookVariations ("1 Body, 3–5 Hooks" testing).
+6. KEEP EVERY FIELD CRISP & ACTIONABLE (1–2 tight sentences per text field; 2–3 concise bullets for lists) so the creator can shoot immediately.`;
 
-FIELDS:
-- cleanName: Keep the original product name as-is (do not translate into Myanmar).
-- productOverview: 1–2 short sentences explaining what the product is and how it works (in Myanmar for 'my', English for 'en', without translating the product's proper name).
-- salesAndPricingAudit: 1–2 short sentences on 7d sales, revenue, video share, growth & price.
-- profitCalculation: 1–2 short sentences using exact precomputedMath (THB/sale, units for ฿1,000 & ฿10,000).
-- silentVideoVerdict: 1–2 short sentences on zero-speech AI visual ad fit.
-- visualAngles: 2–3 short visual hooks.
-- deepDataSpecsAudit: 1 short sentence on description/highlights.
-- deepDataBuyerAudit: 1 short sentence on buyer pain points/usage.
-- risks: 2–3 brief real risks visible in data.
-- missingDataNotes: Short items from missingKalodataFields (empty array if none).
-- decision: "strong_go" | "test_carefully" | "need_more_data".
-- bottomLine: 1 punchy sentence with next action.`;
-
-  const parsed = await generateStructuredJsonStream<
-    Omit<ProductAiAnalysis, 'analyzedAt' | 'dataSnapshot'>
-  >({
+  const parsed = await generateStructuredJsonStream<VideoIdeasStrategyPack>({
     contents: prompt,
     config: {
+      systemInstruction: buildVideoIdeasSystemInstruction(),
       responseMimeType: 'application/json',
-      responseSchema: productAnalysisSchema,
+      responseSchema: videoIdeasStrategySchema,
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
     },
     timeoutMs: 45000,
     retries: 1,
-    label: 'PRODUCT_ANALYSIS',
+    label: 'VIDEO_IDEAS_STRATEGY',
     onProgress,
   });
+
+  const normalizedConcepts: VideoIdeaConcept[] = Array.isArray(parsed.concepts)
+    ? parsed.concepts.slice(0, 3).map((c) => ({
+        title: cleanBilingual(c?.title),
+        targetSegment: cleanBilingual(c?.targetSegment),
+        awarenessLevel: normalizeAwarenessLevel(c?.awarenessLevel),
+        framework: normalizeFramework(c?.framework),
+        creativeAngle: cleanBilingual(c?.creativeAngle),
+        ugcFormat: cleanBilingual(c?.ugcFormat),
+        recommendedDuration:
+          typeof c?.recommendedDuration === 'string' && c.recommendedDuration.trim()
+            ? c.recommendedDuration.trim()
+            : '25–40s',
+        hook3Layer: {
+          hookType: cleanBilingual(c?.hook3Layer?.hookType),
+          visualHook: cleanBilingual(c?.hook3Layer?.visualHook),
+          verbalHook: cleanBilingual(c?.hook3Layer?.verbalHook),
+          textHook: cleanBilingual(c?.hook3Layer?.textHook),
+        },
+        bridgeHold: cleanBilingual(c?.bridgeHold),
+        bodyPlan: cleanBilingual(c?.bodyPlan),
+        ctaAction: cleanBilingual(c?.ctaAction),
+        muteTestVisual: cleanBilingual(c?.muteTestVisual),
+        extraHookVariations: cleanBilingualList(c?.extraHookVariations, 3),
+      }))
+    : [];
+
+  const videoIdeasPack: VideoIdeasStrategyPack = {
+    playbookCategory: normalizePlaybookCategory(parsed.playbookCategory),
+    playbookReason: cleanBilingual(parsed.playbookReason),
+    productAnalysis: {
+      coreFeature: cleanBilingual(parsed.productAnalysis?.coreFeature),
+      functionalBenefit: cleanBilingual(parsed.productAnalysis?.functionalBenefit),
+      emotionalBenefit: cleanBilingual(parsed.productAnalysis?.emotionalBenefit),
+      coreUsp: cleanBilingual(parsed.productAnalysis?.coreUsp),
+      visualProofIdea: cleanBilingual(parsed.productAnalysis?.visualProofIdea),
+    },
+    targetAudience: {
+      primaryBuyer: cleanBilingual(parsed.targetAudience?.primaryBuyer),
+      painPointLadder: cleanBilingual(parsed.targetAudience?.painPointLadder),
+      buyerVoiceInsight: cleanBilingual(parsed.targetAudience?.buyerVoiceInsight),
+    },
+    concepts: normalizedConcepts,
+    scalingPlan: {
+      commentMiningIdeas: cleanBilingualList(parsed.scalingPlan?.commentMiningIdeas, 3),
+      iterationRoadmap: cleanBilingual(parsed.scalingPlan?.iterationRoadmap),
+      watchOuts: cleanBilingualList(parsed.scalingPlan?.watchOuts, 3),
+    },
+  };
 
   return {
     analyzedAt: new Date().toISOString(),
@@ -1028,50 +1270,24 @@ FIELDS:
       my: product.thaiTitle,
       en: product.thaiTitle,
     },
-    productOverview: {
-      my: parsed.productOverview?.my?.trim() || '',
-      en: parsed.productOverview?.en?.trim() || '',
-    },
-    salesAndPricingAudit: {
-      my: parsed.salesAndPricingAudit?.my?.trim() || '',
-      en: parsed.salesAndPricingAudit?.en?.trim() || '',
-    },
-    profitCalculation: {
-      my: parsed.profitCalculation?.my?.trim() || '',
-      en: parsed.profitCalculation?.en?.trim() || '',
-    },
-    silentVideoVerdict: {
-      my: parsed.silentVideoVerdict?.my?.trim() || '',
-      en: parsed.silentVideoVerdict?.en?.trim() || '',
-    },
+    videoIdeasPack,
+    // Populate legacy fields cleanly for backup & external AI Chat prompt compatibility
+    productOverview: videoIdeasPack.productAnalysis.emotionalBenefit,
+    salesAndPricingAudit: videoIdeasPack.playbookReason,
+    profitCalculation: videoIdeasPack.productAnalysis.coreUsp,
+    silentVideoVerdict: videoIdeasPack.productAnalysis.visualProofIdea,
     visualAngles: {
-      my: Array.isArray(parsed.visualAngles?.my) ? parsed.visualAngles.my.slice(0, 4) : [],
-      en: Array.isArray(parsed.visualAngles?.en) ? parsed.visualAngles.en.slice(0, 4) : [],
+      my: normalizedConcepts.map((c) => `${c.title.my} (${c.creativeAngle.my})`).filter(Boolean),
+      en: normalizedConcepts.map((c) => `${c.title.en} (${c.creativeAngle.en})`).filter(Boolean),
     },
-    deepDataSpecsAudit: {
-      my: parsed.deepDataSpecsAudit?.my?.trim() || '',
-      en: parsed.deepDataSpecsAudit?.en?.trim() || '',
-    },
-    deepDataBuyerAudit: {
-      my: parsed.deepDataBuyerAudit?.my?.trim() || '',
-      en: parsed.deepDataBuyerAudit?.en?.trim() || '',
-    },
-    risks: {
-      my: Array.isArray(parsed.risks?.my) ? parsed.risks.my.slice(0, 5) : [],
-      en: Array.isArray(parsed.risks?.en) ? parsed.risks.en.slice(0, 5) : [],
-    },
+    deepDataSpecsAudit: videoIdeasPack.productAnalysis.coreFeature,
+    deepDataBuyerAudit: videoIdeasPack.targetAudience.buyerVoiceInsight,
+    risks: videoIdeasPack.scalingPlan.watchOuts,
     missingDataNotes: {
-      my: Array.isArray(parsed.missingDataNotes?.my)
-        ? parsed.missingDataNotes.my.slice(0, 8)
-        : [],
-      en: Array.isArray(parsed.missingDataNotes?.en)
-        ? parsed.missingDataNotes.en.slice(0, 8)
-        : [],
+      my: missingFields.length > 0 ? missingFields : [],
+      en: missingFields.length > 0 ? missingFields : [],
     },
-    decision: normalizeDecision(parsed.decision),
-    bottomLine: {
-      my: parsed.bottomLine?.my?.trim() || '',
-      en: parsed.bottomLine?.en?.trim() || '',
-    },
+    decision: 'strong_go',
+    bottomLine: videoIdeasPack.scalingPlan.iterationRoadmap,
   };
 }

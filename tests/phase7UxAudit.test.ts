@@ -495,6 +495,33 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
     assert.ok(myHtml.includes(TRANSLATIONS.my.v2.searchScore.channelsTitle));
     assert.ok(myHtml.includes(TRANSLATIONS.my.v2.searchScore.priceSweetSpotTitle));
     assert.ok(myHtml.includes(TRANSLATIONS.my.v2.searchScore.earningSnapshotTitle));
+
+    const prodWithSparkline = buildTestProduct(
+      'dialog-sparkline',
+      { unverifiedCore: true },
+      {
+        kalodataMetrics: {
+          revenueThb7d: 70_000,
+          revenueTrendThb: [8_000, 9_500, 10_000, 10_500, 11_000, 10_000, 11_000],
+          dateRange: 'last7Day',
+          fetchedAt: NOW_ISO,
+        },
+      }
+    );
+    const sparklineHtml = renderToStaticMarkup(
+      React.createElement(ScoreDetailContent, {
+        product: prodWithSparkline,
+        language: 'en',
+        nowMs: NOW_MS,
+        t: TRANSLATIONS.en,
+        onClose: () => {},
+      })
+    );
+    assert.ok(
+      sparklineHtml.includes(TRANSLATIONS.en.v2.searchScore.dailyTrendTitle),
+      'Verified daily revenueTrendThb should render the sparkline section'
+    );
+    assert.ok(sparklineHtml.includes('<polyline'), 'Sparkline SVG polyline should render');
   });
 
   it('does not leak Burmese labels into English VideoStudioView and translates categories in Myanmar mode', () => {

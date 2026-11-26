@@ -2,12 +2,13 @@ import type { RefObject } from 'react';
 import { CheckCircle2, KeyRound, Moon, Sun } from 'lucide-react';
 import type { Translations } from '../i18n';
 import type { KalodataLimitSettings, KalodataStatus, Language, Theme } from '../types';
+import { LanguageSwitch } from './LanguageSwitch';
 
-export type ActiveTab = 'discover' | 'search_history' | 'studio' | 'history';
+export type ActiveTab = 'discover' | 'rank_board' | 'search_history' | 'studio' | 'history';
 
 interface TopBarProps {
   activeTab: ActiveTab;
-  onNavigate: (tab: 'discover' | 'search_history' | 'history') => void;
+  onNavigate: (tab: 'discover' | 'rank_board' | 'search_history' | 'history') => void;
   language: Language;
   onToggleLanguage: () => void;
   theme: Theme;
@@ -21,6 +22,7 @@ interface TopBarProps {
   headerRef?: RefObject<HTMLElement | null>;
   isHidden?: boolean;
   onRevealHeader?: () => void;
+  studioReturnTab?: 'discover' | 'rank_board' | 'history';
   t: Translations;
 }
 
@@ -46,11 +48,16 @@ export function TopBar({
   headerRef,
   isHidden = false,
   onRevealHeader,
+  studioReturnTab = 'discover',
   t,
 }: TopBarProps) {
-  const isDiscoverActive = activeTab === 'discover' || activeTab === 'studio';
+  const isDiscoverActive =
+    activeTab === 'discover' || (activeTab === 'studio' && studioReturnTab === 'discover');
+  const isRankBoardActive =
+    activeTab === 'rank_board' || (activeTab === 'studio' && studioReturnTab === 'rank_board');
   const isSearchHistoryActive = activeTab === 'search_history';
-  const isHistoryActive = activeTab === 'history';
+  const isHistoryActive =
+    activeTab === 'history' || (activeTab === 'studio' && studioReturnTab === 'history');
   const hasLimit =
     kalodataLimits.maxSpendCredits !== null || kalodataLimits.minBalanceReserve !== null;
 
@@ -64,9 +71,9 @@ export function TopBar({
         isHidden ? '-translate-y-full pointer-events-none' : 'translate-y-0'
       }`}
     >
-      {/* Row 1: Brand (+ Desktop Nav) + Right Utility Controls */}
-      <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-15 flex items-center justify-between gap-1.5 sm:gap-6">
-        <div className="flex items-center gap-4 sm:gap-6 min-w-0">
+      {/* Row 1: Brand (+ Desktop Nav on lg+) + Right Utility Controls */}
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-15 flex items-center justify-between gap-2 sm:gap-4 lg:gap-6">
+        <div className="flex items-center gap-4 lg:gap-6 min-w-0">
           <button
             type="button"
             onClick={() => onNavigate('discover')}
@@ -75,8 +82,8 @@ export function TopBar({
             SiamVisual
           </button>
 
-          {/* Tablet / Desktop Inline Navigation */}
-          <nav aria-label="Main navigation" className="hidden sm:flex items-center gap-6">
+          {/* Desktop Inline Navigation (lg+ only so tablet 640-1023px never overlaps right utility buttons) */}
+          <nav aria-label="Main navigation" className="hidden lg:flex items-center gap-5 xl:gap-6">
             <button
               type="button"
               onClick={() => onNavigate('discover')}
@@ -88,6 +95,21 @@ export function TopBar({
             >
               {t.nav.discover}
               {isDiscoverActive && (
+                <span className="absolute inset-x-0 -bottom-[11px] h-[2px] bg-teal-600 dark:bg-teal-400" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('rank_board')}
+              className={`relative py-2 text-sm font-medium whitespace-nowrap shrink-0 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded-sm ${
+                isRankBoardActive
+                  ? 'text-slate-900 dark:text-white'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              {t.nav.rankBoard}
+              {isRankBoardActive && (
                 <span className="absolute inset-x-0 -bottom-[11px] h-[2px] bg-teal-600 dark:bg-teal-400" />
               )}
             </button>
@@ -158,7 +180,7 @@ export function TopBar({
                     : 'OK'}
                 </span>
                 {hasLimit && (
-                  <span className="hidden md:inline text-[11px] text-teal-700 dark:text-teal-400 font-medium">
+                  <span className="hidden xl:inline text-[11px] text-teal-700 dark:text-teal-400 font-medium">
                     · Limit
                   </span>
                 )}
@@ -172,14 +194,7 @@ export function TopBar({
             )}
           </button>
 
-          <button
-            type="button"
-            onClick={onToggleLanguage}
-            aria-label={language === 'my' ? 'Switch to English' : 'မြန်မာဘာသာသို့ ပြောင်းမယ်'}
-            className="h-9 px-2 sm:px-2.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-          >
-            {language === 'my' ? 'EN' : 'မြန်မာ'}
-          </button>
+          <LanguageSwitch language={language} onToggle={onToggleLanguage} />
 
           <button
             type="button"
@@ -193,66 +208,86 @@ export function TopBar({
         </div>
       </div>
 
-      {/* Row 2 (Mobile Only): Clean Dedicated Tab Row with 44px touch targets */}
+      {/* Row 2 (Mobile & Tablet <1024px): Clean Dedicated 4-Tab Row with 44px touch targets */}
       <nav
-        aria-label="Mobile navigation"
-        className="sm:hidden border-t border-slate-200/70 dark:border-slate-800/80 grid grid-cols-3"
+        aria-label="Mobile and tablet navigation"
+        className="lg:hidden border-t border-slate-200/70 dark:border-slate-800/80"
       >
-        <button
-          type="button"
-          onClick={() => onNavigate('discover')}
-          title={t.nav.discover}
-          className={`relative h-11 px-1.5 text-[11px] font-semibold flex items-center justify-center transition-colors cursor-pointer ${
-            isDiscoverActive
-              ? 'text-teal-700 dark:text-teal-400'
-              : 'text-slate-500 dark:text-slate-400'
-          }`}
-        >
-          <span className="truncate">{t.nav.discover}</span>
-          {isDiscoverActive && (
-            <span className="absolute inset-x-3 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
-          )}
-        </button>
+        <div className="max-w-6xl mx-auto grid grid-cols-4">
+          <button
+            type="button"
+            onClick={() => onNavigate('discover')}
+            title={t.nav.discover}
+            className={`relative h-11 px-1 sm:px-3 text-[11px] sm:text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer ${
+              isDiscoverActive
+                ? 'text-teal-700 dark:text-teal-400'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <span className="truncate">{t.nav.discover}</span>
+            {isDiscoverActive && (
+              <span className="absolute inset-x-2.5 sm:inset-x-5 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
+            )}
+          </button>
 
-        <button
-          type="button"
-          onClick={() => onNavigate('search_history')}
-          title={t.nav.searchHistory}
-          className={`relative h-11 px-1.5 text-[11px] font-semibold flex items-center justify-center gap-0.5 transition-colors cursor-pointer ${
-            isSearchHistoryActive
-              ? 'text-teal-700 dark:text-teal-400'
-              : 'text-slate-500 dark:text-slate-400'
-          }`}
-        >
-          <span className="truncate">{t.nav.searchHistory}</span>
-          {searchHistoryCount > 0 && (
-            <span className="font-mono-num text-[10px] opacity-75 shrink-0">
-              ({searchHistoryCount})
-            </span>
-          )}
-          {isSearchHistoryActive && (
-            <span className="absolute inset-x-3 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('rank_board')}
+            title={t.nav.rankBoard}
+            className={`relative h-11 px-1 sm:px-3 text-[11px] sm:text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer ${
+              isRankBoardActive
+                ? 'text-teal-700 dark:text-teal-400'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <span className="truncate">{t.nav.rankBoard}</span>
+            {isRankBoardActive && (
+              <span className="absolute inset-x-2.5 sm:inset-x-5 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
+            )}
+          </button>
 
-        <button
-          type="button"
-          onClick={() => onNavigate('history')}
-          title={t.nav.history}
-          className={`relative h-11 px-1.5 text-[11px] font-semibold flex items-center justify-center gap-0.5 transition-colors cursor-pointer ${
-            isHistoryActive
-              ? 'text-teal-700 dark:text-teal-400'
-              : 'text-slate-500 dark:text-slate-400'
-          }`}
-        >
-          <span className="truncate">{t.nav.history}</span>
-          {savedCount > 0 && (
-            <span className="font-mono-num text-[10px] opacity-75 shrink-0">({savedCount})</span>
-          )}
-          {isHistoryActive && (
-            <span className="absolute inset-x-3 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('search_history')}
+            title={t.nav.searchHistory}
+            className={`relative h-11 px-1 sm:px-3 text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-0.5 sm:gap-1 transition-colors cursor-pointer ${
+              isSearchHistoryActive
+                ? 'text-teal-700 dark:text-teal-400'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <span className="truncate">{t.nav.searchHistory}</span>
+            {searchHistoryCount > 0 && (
+              <span className="font-mono-num text-[10px] sm:text-[11px] opacity-75 shrink-0">
+                ({searchHistoryCount})
+              </span>
+            )}
+            {isSearchHistoryActive && (
+              <span className="absolute inset-x-2.5 sm:inset-x-5 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onNavigate('history')}
+            title={t.nav.history}
+            className={`relative h-11 px-1 sm:px-3 text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-0.5 sm:gap-1 transition-colors cursor-pointer ${
+              isHistoryActive
+                ? 'text-teal-700 dark:text-teal-400'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <span className="truncate">{t.nav.history}</span>
+            {savedCount > 0 && (
+              <span className="font-mono-num text-[10px] sm:text-[11px] opacity-75 shrink-0">
+                ({savedCount})
+              </span>
+            )}
+            {isHistoryActive && (
+              <span className="absolute inset-x-2.5 sm:inset-x-5 bottom-0 h-[2px] bg-teal-600 dark:bg-teal-400 rounded-full" />
+            )}
+          </button>
+        </div>
       </nav>
     </header>
   );

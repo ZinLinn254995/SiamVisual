@@ -19,6 +19,7 @@ import {
   explainExistingProducts,
   generateSilentVideoPlan,
   searchSilentVisualProducts,
+  syncThailandRankBoard,
 } from './server/productService.ts';
 import { sanitizeProductPayloadForAi } from './server/productSanitizer.ts';
 
@@ -269,11 +270,35 @@ async function startServer() {
     }
   });
 
+  // Explicit user-triggered Thailand TikTok Shop Product Rank Board sync (~0.4 cr: Top 100 Products + L1 Category Market)
+  app.post('/api/rank-board/sync', async (req, res) => {
+    try {
+      const body = req.body as Record<string, unknown> | undefined;
+      const dateRange: 'last7Day' | 'last30Day' =
+        body?.dateRange === 'last30Day' ? 'last30Day' : 'last7Day';
+      const minBalanceReserve = parseOptionalNumber(body?.minBalanceReserve);
+      const maxSpendRemaining = parseOptionalNumber(body?.maxSpendRemaining);
+
+      const result = await syncThailandRankBoard({
+        dateRange,
+        guardrails: {
+          minBalanceReserve,
+          maxSpendRemaining,
+          estimatedCost: 0.4,
+        },
+      });
+      res.json(result);
+    } catch (err) {
+      const mapped = mapApiError(err);
+      res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
+    }
+  });
+
   // Ultra-lean (~0.2 cr) Kalodata-only Search (Default Best Matches, Keyword, Multi-Category, or Single Product Link)
   app.post('/api/products/search', async (req, res) => {
     try {
       const body = req.body as Record<string, unknown> | undefined;
-      const rawQuery = typeof body?.query === 'string' ? body.query.trim().slice(0, 400) : '';
+      const rawQuery = typeof body?.query === 'string' ? body.query.trim().slice(0, 2048) : '';
       const rawCateIds = Array.isArray(body?.cateIds) ? body.cateIds : [];
       const cateIds = rawCateIds
         .filter((item): item is string => typeof item === 'string')

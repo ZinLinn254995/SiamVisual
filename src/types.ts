@@ -72,6 +72,77 @@ export interface ProductKalodataMetrics {
 
 export type ProductAnalysisDecision = 'strong_go' | 'test_carefully' | 'need_more_data';
 
+export type VideoIdeasPlaybookCategory =
+  | 'problem_solving'
+  | 'impulse_trendy'
+  | 'aesthetic_lifestyle'
+  | 'high_ticket_trust'
+  | 'food_beverage';
+
+export type VideoIdeasAwarenessLevel =
+  | 'unaware'
+  | 'problem_aware'
+  | 'solution_aware'
+  | 'product_aware'
+  | 'most_aware';
+
+export type VideoIdeasFramework = 'PAS' | 'BAB' | 'AIDA' | '3_REASONS_WHY';
+
+export interface VideoIdeaHook3Layer {
+  hookType: BilingualText;
+  visualHook: BilingualText;
+  verbalHook: BilingualText;
+  textHook: BilingualText;
+}
+
+export interface VideoIdeaConcept {
+  title: BilingualText;
+  targetSegment: BilingualText;
+  awarenessLevel: VideoIdeasAwarenessLevel;
+  framework: VideoIdeasFramework;
+  creativeAngle: BilingualText;
+  ugcFormat: BilingualText;
+  recommendedDuration: string;
+  hook3Layer: VideoIdeaHook3Layer;
+  bridgeHold: BilingualText;
+  bodyPlan: BilingualText;
+  ctaAction: BilingualText;
+  muteTestVisual: BilingualText;
+  extraHookVariations: {
+    my: string[];
+    en: string[];
+  };
+}
+
+export interface VideoIdeasStrategyPack {
+  playbookCategory: VideoIdeasPlaybookCategory;
+  playbookReason: BilingualText;
+  productAnalysis: {
+    coreFeature: BilingualText;
+    functionalBenefit: BilingualText;
+    emotionalBenefit: BilingualText;
+    coreUsp: BilingualText;
+    visualProofIdea: BilingualText;
+  };
+  targetAudience: {
+    primaryBuyer: BilingualText;
+    painPointLadder: BilingualText;
+    buyerVoiceInsight: BilingualText;
+  };
+  concepts: VideoIdeaConcept[];
+  scalingPlan: {
+    commentMiningIdeas: {
+      my: string[];
+      en: string[];
+    };
+    iterationRoadmap: BilingualText;
+    watchOuts: {
+      my: string[];
+      en: string[];
+    };
+  };
+}
+
 export interface ProductAiAnalysis {
   analyzedAt: string;
   dataSnapshot: {
@@ -81,6 +152,9 @@ export interface ProductAiAnalysis {
     hasComments: boolean;
   };
   cleanName: BilingualText;
+  /** New 13-lesson trained Video Ideas Strategy Pack (replaces legacy product audit UI). */
+  videoIdeasPack?: VideoIdeasStrategyPack;
+  /** Legacy fields kept optional/populated for backup & prompt backward compatibility. */
   productOverview: BilingualText;
   salesAndPricingAudit: BilingualText;
   profitCalculation: BilingualText;
@@ -243,6 +317,43 @@ export interface SavedDeepInsightRecord {
   savedAt: string;
 }
 
+export interface RankBoardCategoryMarketItem {
+  id: string;
+  label: BilingualText;
+  visualGroup: Exclude<CategoryKey, 'all'>;
+  revenueThb: number | null;
+  salesVolume: number | null;
+  productCountInTop100: number;
+  marketSharePct: number;
+  source: 'kalodata_category_rank' | 'top100_aggregate';
+}
+
+export interface RankBoardMarketSummary {
+  totalRevenueThb: number;
+  totalSalesVolume: number;
+  videoRevenueThb: number;
+  liveRevenueThb: number;
+  shopRevenueThb: number;
+  videoSharePct: number;
+  liveSharePct: number;
+  shopSharePct: number;
+  avgCommissionRate: number | null;
+  avgPayoutThb: number | null;
+  monetizableCount: number;
+  videoProvenCount: number;
+  sweetSpotCount: number;
+}
+
+export interface RankBoardSnapshot {
+  syncedAt: string;
+  dateRange: SearchDateRange;
+  products: ProductItem[];
+  categoryMarket: RankBoardCategoryMarketItem[];
+  marketSummary: RankBoardMarketSummary;
+  creditsUsed: number | null;
+  categorySource: 'kalodata_category_rank' | 'top100_aggregate';
+}
+
 export interface BackupPayload {
   app: 'SiamVisual';
   version: 1 | 2 | 3 | 4 | 5;
@@ -253,5 +364,7 @@ export interface BackupPayload {
   deepInsightsCache?: Record<string, SavedDeepInsightRecord>;
   productAnalysisCache?: Record<string, ProductAiAnalysis>;
   productSnapshots?: Record<string, import('./types/metrics').ProductObservationSnapshot[]>;
+  rankBoardSnapshot?: RankBoardSnapshot | null;
 }
+
 

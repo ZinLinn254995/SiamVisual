@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
-  BarChart3,
   Bookmark,
   Check,
   ChevronDown,
@@ -11,6 +10,7 @@ import {
   Database,
   ExternalLink,
   Info,
+  Lightbulb,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -30,6 +30,7 @@ import type {
   ProductItem,
   ScoreGrade,
   VideoAdPlan,
+  VideoIdeaConcept,
   VisualStyle,
 } from '../types';
 import { ensureProductV2Intelligence } from '../lib/productIntelligenceView.ts';
@@ -53,6 +54,7 @@ interface VideoStudioViewProps {
   analysisError: string | null;
   error: string | null;
   cameFromHistory: boolean;
+  returnTab?: 'discover' | 'rank_board' | 'history';
   language: Language;
   nowMs?: number;
   kalodataStatus: KalodataStatus;
@@ -97,6 +99,7 @@ export function VideoStudioView({
   analysisError,
   error,
   cameFromHistory,
+  returnTab,
   language,
   nowMs,
   kalodataStatus,
@@ -119,6 +122,10 @@ export function VideoStudioView({
   const deep = product.deepInsights;
   const metrics = product.kalodataMetrics;
   const analysis = product.aiAnalysis;
+  const videoIdeas =
+    analysis?.videoIdeasPack && analysis.videoIdeasPack.concepts.length > 0
+      ? analysis.videoIdeasPack
+      : null;
   const tiktokShopUrl = getTikTokShopProductUrl(product);
   const kalodataProductUrl = getKalodataProductUrl(product.id);
 
@@ -146,9 +153,10 @@ export function VideoStudioView({
       (typeof metrics?.reviewCount === 'number' && Number.isFinite(metrics.reviewCount))
   );
 
-  // Detect if newer Kalodata Deep Data or sales metrics were fetched after the saved AI analysis
+  // Detect if newer Kalodata Deep Data or sales metrics were fetched after the saved AI Video Ideas
   const hasNewerDataForAnalysis = Boolean(
-    analysis &&
+    videoIdeas &&
+      analysis &&
       ((hasSalesMetrics && !analysis.dataSnapshot.hasSalesMetrics) ||
         (hasSavedDetails && !analysis.dataSnapshot.hasDetails) ||
         (hasSavedSpecs && !analysis.dataSnapshot.hasSpecs) ||
@@ -158,6 +166,8 @@ export function VideoStudioView({
   // Choice (ခ): Optional Single-Product Kalodata Deep Enrichment controls
   const [isDeepPanelOpen, setIsDeepPanelOpen] = useState(false);
   const [isDescExpanded, setIsDescExpanded] = useState(false);
+  const [activeIdeaIndex, setActiveIdeaIndex] = useState(0);
+  const [isBriefExpanded, setIsBriefExpanded] = useState(false);
   const [enrichOpts, setEnrichOpts] = useState<ProductEnrichOptions>({
     includeDetails: !hasFetchedDetailsLayer,
     includeSpecs: false,
@@ -181,6 +191,8 @@ export function VideoStudioView({
     setCopiedKey(null);
     setConfirmMode(null);
     setIsDeepPanelOpen(false);
+    setActiveIdeaIndex(0);
+    setIsBriefExpanded(false);
   }, [product.id]);
 
   useEffect(() => {
@@ -307,42 +319,85 @@ export function VideoStudioView({
     }, 1800);
   }
 
+  function buildSingleIdeaCopyText(concept: VideoIdeaConcept, idx: number): string {
+    const vi = t.studio.videoIdeas;
+    const lines = [
+      `=== ${product.thaiTitle} ===`,
+      `${vi.ideaTabLabel(idx + 1)}: ${concept.title[language]}`,
+      `Framework: ${vi.frameworks[concept.framework]} | ${vi.awarenessLevels[concept.awarenessLevel]} | ${concept.recommendedDuration}`,
+      `${vi.angleLabel}: ${concept.creativeAngle[language]}`,
+      `${vi.formatLabel}: ${concept.ugcFormat[language]}`,
+      `${vi.targetLabel}: ${concept.targetSegment[language]}`,
+      '',
+      `[${vi.hookSectionLabel} — ${concept.hook3Layer.hookType[language]}]`,
+      `- ${vi.visualHookLabel}: ${concept.hook3Layer.visualHook[language]}`,
+      `- ${vi.verbalHookLabel}: ${concept.hook3Layer.verbalHook[language]}`,
+      `- ${vi.textHookLabel}: ${concept.hook3Layer.textHook[language]}`,
+      '',
+      `[${vi.bridgeSectionLabel}]`,
+      concept.bridgeHold[language],
+      '',
+      `[${vi.bodySectionLabel}]`,
+      concept.bodyPlan[language],
+      '',
+      `[${vi.ctaSectionLabel}]`,
+      concept.ctaAction[language],
+      '',
+      `[${vi.muteTestLabel}]`,
+      concept.muteTestVisual[language],
+    ];
+    if (concept.extraHookVariations[language].length > 0) {
+      lines.push(
+        '',
+        `[${vi.extraHooksLabel}]`,
+        ...concept.extraHookVariations[language].map((h, i) => `${i + 1}. ${h}`)
+      );
+    }
+    return lines.join('\n');
+  }
+
   function buildAnalysisCopyText(currentAnalysis: ProductAiAnalysis): string {
+    const pack = currentAnalysis.videoIdeasPack;
+    if (!pack) return product.thaiTitle;
+    const vi = t.studio.videoIdeas;
     const lines = [
       `=== ${product.thaiTitle} ===`,
       `Product ID: ${product.id}`,
-      `Decision: ${t.studio.analysisDecisions[currentAnalysis.decision]}`,
-      `Summary: ${currentAnalysis.bottomLine[language]}`,
+      `${vi.playbookLabel}: ${vi.playbooks[pack.playbookCategory]}`,
+      pack.playbookReason[language],
       '',
-      `[${t.studio.analysisSecIdentity}]`,
-      currentAnalysis.productOverview[language],
+      `[${vi.briefTitle}]`,
+      `- ${vi.featureLabel}: ${pack.productAnalysis.coreFeature[language]}`,
+      `- ${vi.benefitLabel}: ${pack.productAnalysis.functionalBenefit[language]}`,
+      `- ${vi.emotionLabel}: ${pack.productAnalysis.emotionalBenefit[language]}`,
+      `- ${vi.uspLabel}: ${pack.productAnalysis.coreUsp[language]}`,
+      `- ${vi.visualProofLabel}: ${pack.productAnalysis.visualProofIdea[language]}`,
+      `- ${vi.audienceLabel}: ${pack.targetAudience.primaryBuyer[language]}`,
+      `- ${vi.painLadderLabel}: ${pack.targetAudience.painPointLadder[language]}`,
+      `- ${vi.buyerVoiceLabel}: ${pack.targetAudience.buyerVoiceInsight[language]}`,
       '',
-      `[${t.studio.analysisSecSalesPricing}]`,
-      currentAnalysis.salesAndPricingAudit[language],
-      '',
-      `[${t.studio.analysisSecProfitMath}]`,
-      currentAnalysis.profitCalculation[language],
-      '',
-      `[${t.studio.analysisSecSilentAd}]`,
-      currentAnalysis.silentVideoVerdict[language],
-      ...currentAnalysis.visualAngles[language].map((a) => `- ${a}`),
-      '',
-      `[${t.studio.analysisSecSpecs}]`,
-      currentAnalysis.deepDataSpecsAudit[language],
-      '',
-      `[${t.studio.analysisSecBuyers}]`,
-      currentAnalysis.deepDataBuyerAudit[language],
-      '',
-      `[${t.studio.analysisSecRisks}]`,
-      ...currentAnalysis.risks[language].map((r) => `- ${r}`),
-    ];
-    if (currentAnalysis.missingDataNotes[language].length > 0) {
-      lines.push(
+      ...pack.concepts.flatMap((c, idx) => [
+        `----------------------------------------`,
+        buildSingleIdeaCopyText(c, idx),
         '',
-        `[${t.studio.analysisSecMissing}]`,
-        ...currentAnalysis.missingDataNotes[language].map((n) => `- ${n}`)
-      );
-    }
+      ]),
+      `[${vi.scalingTitle}]`,
+      `${vi.iterationRoadmapLabel}: ${pack.scalingPlan.iterationRoadmap[language]}`,
+      ...(pack.scalingPlan.commentMiningIdeas[language].length > 0
+        ? [
+            '',
+            `${vi.commentMiningLabel}:`,
+            ...pack.scalingPlan.commentMiningIdeas[language].map((item) => `- ${item}`),
+          ]
+        : []),
+      ...(pack.scalingPlan.watchOuts[language].length > 0
+        ? [
+            '',
+            `${vi.watchOutsLabel}:`,
+            ...pack.scalingPlan.watchOuts[language].map((item) => `- ${item}`),
+          ]
+        : []),
+    ];
     return lines.join('\n');
   }
 
@@ -486,12 +541,10 @@ export function VideoStudioView({
     );
   }
 
-  const decisionToneClass =
-    analysis?.decision === 'strong_go'
-      ? 'text-emerald-700 dark:text-emerald-400'
-      : analysis?.decision === 'need_more_data'
-        ? 'text-rose-700 dark:text-rose-400'
-        : 'text-amber-700 dark:text-amber-400';
+  const activeIdea =
+    videoIdeas && videoIdeas.concepts.length > 0
+      ? videoIdeas.concepts[Math.min(activeIdeaIndex, videoIdeas.concepts.length - 1)]
+      : null;
 
   return (
     <motion.div
@@ -508,7 +561,13 @@ export function VideoStudioView({
           className="h-10 px-3 -ml-3 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white inline-flex items-center gap-2 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
         >
           <ArrowLeft className="w-4 h-4 shrink-0" />
-          <span>{cameFromHistory ? t.studio.backToHistory : t.studio.backToResults}</span>
+          <span>
+            {returnTab === 'rank_board'
+              ? t.studio.backToRankBoard
+              : cameFromHistory || returnTab === 'history'
+                ? t.studio.backToHistory
+                : t.studio.backToResults}
+          </span>
         </button>
 
         <button
@@ -1221,16 +1280,16 @@ export function VideoStudioView({
         )}
       </div>
 
-      {/* Section 2: NEW — AI Product Deep Analysis (Between Kalodata Deep Data & Video Ideas) */}
+      {/* Section 2: AI Video Ideas Strategist (13-Lesson Trained Creative Director) */}
       <section className="mt-6 rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 overflow-hidden">
         <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+              <Lightbulb className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
               <h2 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
                 {t.studio.analysisTitle}
               </h2>
-              {analysis && (
+              {videoIdeas && (
                 <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
                   ✓ {t.studio.analysisSavedTag}
                 </span>
@@ -1242,7 +1301,7 @@ export function VideoStudioView({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {analysis && !isAnalyzingProduct && (
+            {videoIdeas && analysis && !isAnalyzingProduct && (
               <button
                 type="button"
                 onClick={() => copyText('full_analysis', buildAnalysisCopyText(analysis))}
@@ -1264,14 +1323,14 @@ export function VideoStudioView({
               disabled={isAnalyzingProduct}
               onClick={onAnalyzeProduct}
               className={`h-10 px-4 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-60 ${
-                analysis
+                videoIdeas
                   ? 'border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70 hover:border-teal-400 dark:hover:border-teal-600 text-slate-800 dark:text-slate-100'
                   : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950'
               }`}
             >
               {isAnalyzingProduct ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-              ) : analysis ? (
+              ) : videoIdeas ? (
                 <RefreshCw className="w-3.5 h-3.5 shrink-0" />
               ) : (
                 <Sparkles className="w-3.5 h-3.5 shrink-0" />
@@ -1279,7 +1338,7 @@ export function VideoStudioView({
               <span>
                 {isAnalyzingProduct
                   ? t.studio.analysisRunningBtn
-                  : analysis
+                  : videoIdeas
                     ? t.studio.analysisReBtn
                     : t.studio.analysisBtn}
               </span>
@@ -1287,7 +1346,7 @@ export function VideoStudioView({
           </div>
         </div>
 
-        {/* Quiet Unboxed Kalodata Data Availability Strip */}
+        {/* Quiet Unboxed Kalodata Data Inputs Strip */}
         <div className="px-5 py-2.5 border-t border-slate-100 dark:border-slate-800/90 bg-slate-50/50 dark:bg-slate-900/30 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <span className="text-slate-500 dark:text-slate-400 font-medium">
             {t.studio.analysisDataSourcesLabel}:
@@ -1343,7 +1402,7 @@ export function VideoStudioView({
           </span>
         </div>
 
-        {/* Notice if user fetched more Kalodata Deep Data after the last analysis */}
+        {/* Notice if user fetched more Kalodata Deep Data after generating Video Ideas */}
         {hasNewerDataForAnalysis && !isAnalyzingProduct && (
           <div className="px-5 py-2.5 border-t border-amber-200/70 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/20 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-800 dark:text-amber-300">
             <span>{t.studio.analysisStaleHint}</span>
@@ -1360,22 +1419,16 @@ export function VideoStudioView({
         {/* Loading State */}
         {isAnalyzingProduct && (
           <div className="p-5 border-t border-slate-100 dark:border-slate-800 space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-              {[1, 2, 3, 4, 5, 6].map((slot) => (
+            <div className="h-12 rounded-lg bg-slate-100 dark:bg-slate-800/70 animate-pulse" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[1, 2, 3].map((slot) => (
                 <div
                   key={slot}
-                  className="h-12 rounded-lg bg-slate-100 dark:bg-slate-800/70 animate-pulse"
+                  className="h-24 rounded-lg bg-slate-100 dark:bg-slate-800/70 animate-pulse"
                 />
               ))}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[1, 2, 3, 4].map((slot) => (
-                <div
-                  key={slot}
-                  className="h-20 rounded-lg bg-slate-100 dark:bg-slate-800/70 animate-pulse"
-                />
-              ))}
-            </div>
+            <div className="h-28 rounded-lg bg-slate-100 dark:bg-slate-800/70 animate-pulse" />
           </div>
         )}
 
@@ -1393,213 +1446,343 @@ export function VideoStudioView({
           </div>
         )}
 
-        {/* Populated AI Product Analysis Result */}
-        {!isAnalyzingProduct && analysis && (
+        {/* Populated 13-Lesson AI Video Ideas Strategy Pack */}
+        {!isAnalyzingProduct && videoIdeas && (
           <div className="border-t border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800/90">
-            {/* Decision Verdict + Bottom Line */}
-            <div className="p-5 space-y-1.5">
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className={`font-semibold ${decisionToneClass}`}>
-                  {t.studio.analysisDecisions[analysis.decision]}
-                </span>
-                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
-                  ·
-                </span>
-                <span className="font-medium text-slate-900 dark:text-slate-100">
-                  {product.thaiTitle}
-                </span>
-              </div>
-              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                {analysis.bottomLine[language]}
-              </p>
-            </div>
-
-            {/* Real Kalodata Tabular Metrics Strip (Explicitly flags missing figures) */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-slate-100 dark:bg-slate-800/90">
-              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisMetricPrice}
-                </div>
-                <div className="mt-1 text-sm font-mono-num font-semibold text-slate-900 dark:text-slate-100">
-                  {product.priceThb !== null ? (
-                    `฿${product.priceThb.toLocaleString()}`
-                  ) : (
-                    <span className="font-sans text-xs font-normal text-amber-700 dark:text-amber-400">
-                      {t.studio.analysisNotAvailable}
+            {/* Playbook Summary & Collapsible Product Strategy Brief (Lessons 1–3 & Playbook) */}
+            <div className="p-5 space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                    <span className="font-semibold text-teal-700 dark:text-teal-400">
+                      {t.studio.videoIdeas.playbooks[videoIdeas.playbookCategory]}
                     </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisMetricCommission}
-                </div>
-                <div className="mt-1 text-sm font-mono-num font-semibold text-teal-700 dark:text-teal-400">
-                  {product.commissionRate !== null ? (
-                    `${product.commissionRate}%${
-                      product.commissionThb !== null ? ` · ฿${product.commissionThb}` : ''
-                    }`
-                  ) : (
-                    <span className="font-sans text-xs font-normal text-amber-700 dark:text-amber-400">
-                      {t.studio.analysisNotAvailable}
+                    <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
+                      ·
                     </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisMetricSales7d}
-                </div>
-                <div className="mt-1 text-sm font-mono-num font-semibold text-slate-900 dark:text-slate-100">
-                  {typeof metrics?.salesVolume7d === 'number' ? (
-                    metrics.salesVolume7d.toLocaleString()
-                  ) : (
-                    <span className="font-sans text-xs font-normal text-amber-700 dark:text-amber-400">
-                      {t.studio.analysisNotAvailable}
+                    <span className="font-medium text-slate-800 dark:text-slate-200">
+                      {product.thaiTitle}
                     </span>
-                  )}
+                  </div>
+                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                    {videoIdeas.playbookReason[language]}
+                  </p>
                 </div>
-              </div>
 
-              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisMetricRevenue7d}
-                </div>
-                <div className="mt-1 text-sm font-mono-num font-semibold text-slate-900 dark:text-slate-100">
-                  {typeof metrics?.revenueThb7d === 'number' ? (
-                    `฿${metrics.revenueThb7d.toLocaleString()}`
+                <button
+                  type="button"
+                  onClick={() => setIsBriefExpanded((prev) => !prev)}
+                  className="text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-teal-700 dark:hover:text-teal-300 inline-flex items-center gap-1 whitespace-nowrap cursor-pointer shrink-0"
+                >
+                  <span>
+                    {isBriefExpanded
+                      ? t.studio.videoIdeas.briefToggleHide
+                      : t.studio.videoIdeas.briefToggleShow}
+                  </span>
+                  {isBriefExpanded ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
                   ) : (
-                    <span className="font-sans text-xs font-normal text-amber-700 dark:text-amber-400">
-                      {t.studio.analysisNotAvailable}
-                    </span>
+                    <ChevronDown className="w-3.5 h-3.5" />
                   )}
+                </button>
+              </div>
+
+              {/* Quick 3-point Strategic Anchor Strip */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs sm:text-sm">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    {t.studio.videoIdeas.emotionLabel}
+                  </div>
+                  <p className="mt-1 text-slate-800 dark:text-slate-200 leading-relaxed">
+                    {videoIdeas.productAnalysis.emotionalBenefit[language]}
+                  </p>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    {t.studio.videoIdeas.uspLabel}
+                  </div>
+                  <p className="mt-1 text-slate-800 dark:text-slate-200 leading-relaxed">
+                    {videoIdeas.productAnalysis.coreUsp[language]}
+                  </p>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    {t.studio.videoIdeas.visualProofLabel}
+                  </div>
+                  <p className="mt-1 text-slate-800 dark:text-slate-200 leading-relaxed">
+                    {videoIdeas.productAnalysis.visualProofIdea[language]}
+                  </p>
                 </div>
               </div>
 
-              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisMetricVideoRev7d}
-                </div>
-                <div className="mt-1 text-sm font-mono-num font-semibold text-slate-900 dark:text-slate-100">
-                  {typeof metrics?.videoRevenueThb7d === 'number' ? (
-                    `฿${metrics.videoRevenueThb7d.toLocaleString()}`
-                  ) : (
-                    <span className="font-sans text-xs font-normal text-amber-700 dark:text-amber-400">
-                      {t.studio.analysisNotAvailable}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-3.5 bg-slate-50/70 dark:bg-[#131B24]">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisMetricGrowth}
-                </div>
-                <div className="mt-1 text-sm font-mono-num font-semibold text-slate-900 dark:text-slate-100">
-                  {typeof metrics?.revenueGrowthRate === 'number' ? (
-                    formatGrowthRate(metrics.revenueGrowthRate)
-                  ) : (
-                    <span className="font-sans text-xs font-normal text-amber-700 dark:text-amber-400">
-                      {t.studio.analysisNotAvailable}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Structured Detailed Analysis Sections */}
-            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 text-sm">
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisSecIdentity}
-                </h3>
-                <p className="mt-2 text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {analysis.productOverview[language]}
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisSecProfitMath}
-                </h3>
-                <p className="mt-2 text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {analysis.profitCalculation[language]}
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisSecSalesPricing}
-                </h3>
-                <p className="mt-2 text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {analysis.salesAndPricingAudit[language]}
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisSecSilentAd}
-                </h3>
-                <p className="mt-2 text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {analysis.silentVideoVerdict[language]}
-                </p>
-                {analysis.visualAngles[language].length > 0 && (
-                  <div className="mt-3">
-                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      {t.studio.analysisSecVisualAngles}
+              {/* Expanded Lesson 1–2 Detail Brief */}
+              {isBriefExpanded && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs sm:text-sm">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      {t.studio.videoIdeas.featureLabel}
                     </div>
-                    <ul className="mt-1.5 space-y-1 text-xs sm:text-sm text-slate-700 dark:text-slate-300 list-disc pl-4">
-                      {analysis.visualAngles[language].map((angle, i) => (
-                        <li key={i}>{angle}</li>
+                    <p className="mt-1 text-slate-700 dark:text-slate-300 leading-relaxed">
+                      {videoIdeas.productAnalysis.coreFeature[language]}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      {t.studio.videoIdeas.benefitLabel}
+                    </div>
+                    <p className="mt-1 text-slate-700 dark:text-slate-300 leading-relaxed">
+                      {videoIdeas.productAnalysis.functionalBenefit[language]}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      {t.studio.videoIdeas.audienceLabel}
+                    </div>
+                    <p className="mt-1 text-slate-700 dark:text-slate-300 leading-relaxed">
+                      {videoIdeas.targetAudience.primaryBuyer[language]}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      {t.studio.videoIdeas.painLadderLabel}
+                    </div>
+                    <p className="mt-1 text-slate-700 dark:text-slate-300 leading-relaxed">
+                      {videoIdeas.targetAudience.painPointLadder[language]}
+                    </p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      {t.studio.videoIdeas.buyerVoiceLabel}
+                    </div>
+                    <p className="mt-1 text-slate-700 dark:text-slate-300 leading-relaxed">
+                      {videoIdeas.targetAudience.buyerVoiceInsight[language]}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Concept Tabs Bar (3 Distinct Creative Angles) */}
+            <div className="px-5 bg-slate-50/60 dark:bg-slate-900/40 flex items-stretch gap-1 overflow-x-auto">
+              {videoIdeas.concepts.map((concept, idx) => {
+                const isActive = idx === Math.min(activeIdeaIndex, videoIdeas.concepts.length - 1);
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setActiveIdeaIndex(idx)}
+                    className={`py-3 px-3.5 text-left border-b-2 transition-colors whitespace-nowrap cursor-pointer shrink-0 ${
+                      isActive
+                        ? 'border-teal-600 dark:border-teal-400 text-slate-900 dark:text-white'
+                        : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold">
+                      {t.studio.videoIdeas.ideaTabLabel(idx + 1)}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 max-w-[200px] truncate">
+                      {concept.creativeAngle[language]}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active Concept Blueprint (4-Part Ad Anatomy + 3-Layer Hook + Extra Hooks) */}
+            {activeIdea && (
+              <div className="p-5 space-y-5">
+                {/* Concept Header + Unboxed Metadata Line */}
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1.5">
+                    <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                      {activeIdea.title[language]}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+                      <span className="font-semibold text-teal-700 dark:text-teal-400">
+                        {t.studio.videoIdeas.frameworks[activeIdea.framework]}
+                      </span>
+                      <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
+                        ·
+                      </span>
+                      <span className="font-medium text-slate-800 dark:text-slate-200">
+                        {t.studio.videoIdeas.awarenessLevels[activeIdea.awarenessLevel]}
+                      </span>
+                      <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
+                        ·
+                      </span>
+                      <span>{activeIdea.ugcFormat[language]}</span>
+                      <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
+                        ·
+                      </span>
+                      <span className="font-mono-num font-medium text-slate-700 dark:text-slate-200">
+                        {activeIdea.recommendedDuration}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      <span className="font-medium text-slate-700 dark:text-slate-300">
+                        {t.studio.videoIdeas.targetLabel}:
+                      </span>{' '}
+                      {activeIdea.targetSegment[language]}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyText(
+                        `idea_${activeIdeaIndex}`,
+                        buildSingleIdeaCopyText(activeIdea, activeIdeaIndex)
+                      )
+                    }
+                    className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shrink-0 self-start"
+                  >
+                    {copiedKey === `idea_${activeIdeaIndex}` ? (
+                      <Check className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                    <span>
+                      {copiedKey === `idea_${activeIdeaIndex}`
+                        ? t.studio.copied
+                        : t.studio.videoIdeas.copyIdeaBtn}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Part 1: 3-Layer Hook (0–3s) */}
+                <div className="rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                      {t.studio.videoIdeas.hookSectionLabel}
+                    </h4>
+                    <span className="text-xs font-medium text-teal-700 dark:text-teal-400">
+                      {activeIdea.hook3Layer.hookType[language]}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs sm:text-sm">
+                    <div>
+                      <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        {t.studio.videoIdeas.visualHookLabel}
+                      </div>
+                      <p className="mt-1 text-slate-800 dark:text-slate-200 leading-relaxed">
+                        {activeIdea.hook3Layer.visualHook[language]}
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        {t.studio.videoIdeas.verbalHookLabel}
+                      </div>
+                      <p className="mt-1 text-slate-900 dark:text-white font-medium leading-relaxed">
+                        “{activeIdea.hook3Layer.verbalHook[language]}”
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        {t.studio.videoIdeas.textHookLabel}
+                      </div>
+                      <p className="mt-1 text-slate-800 dark:text-slate-200 font-medium leading-relaxed">
+                        {activeIdea.hook3Layer.textHook[language]}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Parts 2, 3, 4: Bridge -> Body -> CTA */}
+                <div className="divide-y divide-slate-100 dark:divide-slate-800/80 border-y border-slate-100 dark:border-slate-800/80 text-xs sm:text-sm">
+                  <div className="py-3.5 grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-4">
+                    <div className="sm:col-span-4 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      {t.studio.videoIdeas.bridgeSectionLabel}
+                    </div>
+                    <p className="sm:col-span-8 text-slate-700 dark:text-slate-300 leading-relaxed">
+                      {activeIdea.bridgeHold[language]}
+                    </p>
+                  </div>
+
+                  <div className="py-3.5 grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-4">
+                    <div className="sm:col-span-4 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      {t.studio.videoIdeas.bodySectionLabel}
+                    </div>
+                    <p className="sm:col-span-8 text-slate-700 dark:text-slate-300 leading-relaxed">
+                      {activeIdea.bodyPlan[language]}
+                    </p>
+                  </div>
+
+                  <div className="py-3.5 grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-4">
+                    <div className="sm:col-span-4 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      {t.studio.videoIdeas.ctaSectionLabel}
+                    </div>
+                    <p className="sm:col-span-8 text-slate-800 dark:text-slate-100 font-medium leading-relaxed">
+                      {activeIdea.ctaAction[language]}
+                    </p>
+                  </div>
+
+                  <div className="py-3.5 grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-4">
+                    <div className="sm:col-span-4 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {t.studio.videoIdeas.muteTestLabel}
+                    </div>
+                    <p className="sm:col-span-8 text-slate-600 dark:text-slate-300 leading-relaxed">
+                      {activeIdea.muteTestVisual[language]}
+                    </p>
+                  </div>
+                </div>
+
+                {/* "1 Body, 3–5 Hooks" Extra Hook Variations */}
+                {activeIdea.extraHookVariations[language].length > 0 && (
+                  <div className="space-y-2 text-xs sm:text-sm">
+                    <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      {t.studio.videoIdeas.extraHooksLabel}
+                    </h4>
+                    <ol className="space-y-1.5 list-decimal pl-4 text-slate-700 dark:text-slate-300">
+                      {activeIdea.extraHookVariations[language].map((hookLine, i) => (
+                        <li key={i} className="leading-relaxed">
+                          {hookLine}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Testing, Comment Mining & Scaling Playbook (Lesson 13) */}
+            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5 text-xs sm:text-sm bg-slate-50/40 dark:bg-slate-900/20">
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    {t.studio.videoIdeas.iterationRoadmapLabel}
+                  </h3>
+                  <p className="mt-1.5 text-slate-700 dark:text-slate-300 leading-relaxed">
+                    {videoIdeas.scalingPlan.iterationRoadmap[language]}
+                  </p>
+                </div>
+
+                {videoIdeas.scalingPlan.commentMiningIdeas[language].length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                      {t.studio.videoIdeas.commentMiningLabel}
+                    </h3>
+                    <ul className="mt-1.5 space-y-1.5 text-slate-700 dark:text-slate-300 list-disc pl-4">
+                      {videoIdeas.scalingPlan.commentMiningIdeas[language].map((item, i) => (
+                        <li key={i} className="leading-relaxed">
+                          {item}
+                        </li>
                       ))}
                     </ul>
                   </div>
                 )}
               </div>
 
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisSecSpecs}
-                </h3>
-                <p className="mt-2 text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {analysis.deepDataSpecsAudit[language]}
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisSecBuyers}
-                </h3>
-                <p className="mt-2 text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {analysis.deepDataBuyerAudit[language]}
-                </p>
-              </div>
-            </div>
-
-            {/* Risks & Explicit Missing Kalodata Data Checklist */}
-            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5 text-xs sm:text-sm">
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {t.studio.analysisSecRisks}
-                </h3>
-                <ul className="mt-2 space-y-1.5 text-slate-700 dark:text-slate-300 list-disc pl-4">
-                  {analysis.risks[language].map((risk, i) => (
-                    <li key={i}>{risk}</li>
-                  ))}
-                </ul>
-              </div>
-
-              {analysis.missingDataNotes[language].length > 0 && (
+              {videoIdeas.scalingPlan.watchOuts[language].length > 0 && (
                 <div>
                   <h3 className="text-xs font-semibold text-amber-700 dark:text-amber-400 inline-flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    <span>{t.studio.analysisSecMissing}</span>
+                    <span>{t.studio.videoIdeas.watchOutsLabel}</span>
                   </h3>
                   <ul className="mt-2 space-y-1.5 text-amber-800/90 dark:text-amber-300/90 list-disc pl-4">
-                    {analysis.missingDataNotes[language].map((note, i) => (
-                      <li key={i}>{note}</li>
+                    {videoIdeas.scalingPlan.watchOuts[language].map((mistake, i) => (
+                      <li key={i} className="leading-relaxed">
+                        {mistake}
+                      </li>
                     ))}
                   </ul>
                 </div>

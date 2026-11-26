@@ -222,8 +222,8 @@ function hashKeyPrefix(apiKey: string): string {
 }
 
 /**
- * Safely parses a pasted TikTok Shop / Kalodata product URL or raw numeric Product ID
- * without making any external redirect fetches.
+ * Safely parses a pasted TikTok Shop / Kalodata product URL, TikTok app share text,
+ * or raw numeric Product ID without making any external redirect fetches.
  */
 export function parseProductLinkInput(rawInput: string): {
   isLinkOrId: boolean;
@@ -240,9 +240,22 @@ export function parseProductLinkInput(rawInput: string): {
     return { isLinkOrId: true, productId: trimmed, isShortLink: false };
   }
 
+  const explicitUrlMatch = trimmed.match(/https?:\/\/[^\s<>"'`]+/i);
+  const bareUrlMatch = !explicitUrlMatch
+    ? trimmed.match(
+        /(?:^|[\s(])((?:[a-z0-9-]+\.)?(?:tiktok\.com|tiktokv\.com|kalodata\.com)\/[^\s<>"'`]+)/i
+      )
+    : null;
+  const extractedUrl = explicitUrlMatch?.[0]
+    ? explicitUrlMatch[0].replace(/[.,!?;:)\]}]+$/, '')
+    : bareUrlMatch?.[1]
+      ? `https://${bareUrlMatch[1].replace(/[.,!?;:)\]}]+$/, '')}`
+      : null;
+
   const looksLikeUrl =
+    Boolean(extractedUrl) ||
     /^https?:\/\//i.test(trimmed) ||
-    /(?:tiktok\.com|kalodata\.com)/i.test(trimmed);
+    /(?:tiktok\.com|tiktokv\.com|kalodata\.com)/i.test(trimmed);
 
   if (!looksLikeUrl) {
     return { isLinkOrId: false, productId: null, isShortLink: false };
@@ -250,38 +263,84 @@ export function parseProductLinkInput(rawInput: string): {
 
   // Try structured URL parsing first
   try {
-    const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const normalized =
+      extractedUrl ?? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
     const url = new URL(normalized);
     const host = url.hostname.toLowerCase();
+    const pathname = url.pathname;
 
-    for (const paramKey of ['id', 'product_id', 'productId', 'item_id']) {
+    for (const paramKey of ['product_id', 'productId', 'item_id']) {
       const val = url.searchParams.get(paramKey)?.trim();
       if (val && /^\d{12,24}$/.test(val)) {
         return { isLinkOrId: true, productId: val, isShortLink: false };
       }
     }
 
-    const pathMatch = url.pathname.match(/(\d{12,24})/);
-    if (pathMatch?.[1]) {
-      return { isLinkOrId: true, productId: pathMatch[1], isShortLink: false };
+    const genericId = url.searchParams.get('id')?.trim();
+    if (
+      genericId &&
+      /^\d{12,24}$/.test(genericId) &&
+      (host.includes('kalodata.com') || /\/(?:product|pdp|shop)\b/i.test(pathname))
+    ) {
+      return { isLinkOrId: true, productId: genericId, isShortLink: false };
     }
 
-    if (host.startsWith('vt.tiktok.com') || host.startsWith('vm.tiktok.com')) {
+    const productPathPatterns = [
+      /\/view\/product\/(\d{12,24})(?:\/|$)/i,
+      /\/product\/(\d{12,24})(?:\/|$)/i,
+      /\/shop\/(?:[a-z]{2}\/)?pdp\/(?:[^/]+\/)?(\d{12,24})(?:\/|$)/i,
+      /\/pdp\/(?:[^/]+\/)?(\d{12,24})(?:\/|$)/i,
+    ];
+    for (const pattern of productPathPatterns) {
+      const pathMatch = pathname.match(pattern);
+      if (pathMatch?.[1]) {
+        return { isLinkOrId: true, productId: pathMatch[1], isShortLink: false };
+      }
+    }
+
+    for (const jsonKey of ['ec_search_share_params', 'og_info', 'share_params']) {
+      const rawParam = url.searchParams.get(jsonKey);
+      if (!rawParam) continue;
+      const jsonId = rawParam.match(/"(?:product_id|productId)"\s*:\s*"?(\d{12,24})"?/);
+      if (jsonId?.[1]) {
+        return { isLinkOrId: true, productId: jsonId[1], isShortLink: false };
+      }
+    }
+
+    if (
+      host === 'vt.tiktok.com' ||
+      host === 'vm.tiktok.com' ||
+      ((host === 'tiktok.com' || host.endsWith('.tiktok.com')) &&
+        /^\/t\/[A-Za-z0-9_-]+/i.test(pathname))
+    ) {
       return { isLinkOrId: true, productId: null, isShortLink: true };
+    }
+
+    if (/\/@[^/]+\/video\/\d+/i.test(pathname)) {
+      return { isLinkOrId: true, productId: null, isShortLink: false };
+    }
+
+    const fallbackPathMatch = pathname.match(/(\d{12,24})/);
+    if (fallbackPathMatch?.[1]) {
+      return { isLinkOrId: true, productId: fallbackPathMatch[1], isShortLink: false };
     }
   } catch {
     // Fallback regex extraction if URL has extra pasted text around it
   }
 
+  if (/(?:v[tm]\.tiktok\.com\/|tiktok\.com\/t\/)/i.test(trimmed)) {
+    return { isLinkOrId: true, productId: null, isShortLink: true };
+  }
+
   const anyIdMatch = trimmed.match(/\b(\d{12,24})\b/);
-  if (anyIdMatch?.[1]) {
+  if (anyIdMatch?.[1] && !/\/@[^/]+\/video\/\d+/i.test(trimmed)) {
     return { isLinkOrId: true, productId: anyIdMatch[1], isShortLink: false };
   }
 
   return {
     isLinkOrId: true,
     productId: null,
-    isShortLink: /v[tm]\.tiktok\.com/i.test(trimmed),
+    isShortLink: false,
   };
 }
 
@@ -1060,6 +1119,132 @@ export async function fetchKalodataLiveCategories(
     creditsUsed: post.creditsUsed,
     balance: post.balance,
   };
+}
+
+export interface KalodataCategoryMarketRow {
+  id: string;
+  nameEn: string;
+  nameMy: string;
+  visualGroup: Exclude<CategoryKey, 'all'>;
+  revenueThb: number | null;
+  salesVolume: number | null;
+  revenueSharePct: number | null;
+}
+
+export interface KalodataCategoryMarketRankResponse {
+  categories: KalodataCategoryMarketRow[];
+  creditsUsed: number | null;
+  balance: KalodataCreditBalance | null;
+}
+
+/**
+ * Fetches live Thailand L1 TikTok Shop Category Market Rank (~0.2 cr)
+ * for the Executive Product Rank Board.
+ */
+export async function fetchKalodataCategoryMarketRank(params: {
+  dateRange?: 'last7Day' | 'last30Day';
+  guardrails?: CreditGuardrails;
+  skipGuardrails?: boolean;
+}): Promise<KalodataCategoryMarketRankResponse> {
+  const { key: apiKey } = getActiveKalodataKey();
+  if (!apiKey) {
+    throw new KalodataApiError(
+      'KALODATA_NOT_CONNECTED',
+      'Kalodata API key is not configured on the server.',
+      503
+    );
+  }
+
+  const dateRange = normalizeKalodataDateRange(params.dateRange);
+  const balanceBefore = params.skipGuardrails
+    ? lastKnownBalance
+    : await checkGuardrailsBeforeSpend(apiKey, {
+        ...params.guardrails,
+        estimatedCost: 0.2,
+      });
+
+  const data = await kalodataRequest<unknown>(
+    apiKey,
+    '/tiktok/category/rank',
+    {
+      region: 'TH',
+      language: 'en-US',
+      currency: 'THB',
+      date_range: dateRange,
+      category_level: 1,
+      page_number: 1,
+      page_size: 20,
+      sort_field: { field: 'revenue', type: 'DESC' },
+    },
+    'POST',
+    20000
+  );
+
+  const rows = asList(data);
+  const officialLookup = new Map<string, KalodataCategoryItem>(
+    OFFICIAL_TH_CATEGORIES.filter((c) => c.id).map((c) => [c.id, c])
+  );
+  const seenIds = new Set<string>();
+  const categories: KalodataCategoryMarketRow[] = [];
+
+  for (const row of rows) {
+    const rawId = String(row.category_id ?? row.cate_id ?? row.id ?? '').trim();
+    const rawName = String(row.category_name ?? row.cate_name ?? row.name ?? '').trim();
+    if (!rawId || !/^\d{3,15}$/.test(rawId) || !rawName || seenIds.has(rawId)) {
+      continue;
+    }
+    seenIds.add(rawId);
+    const known = officialLookup.get(rawId);
+    const revenueThb = parseNonNegativeOrNull(
+      row.revenue ?? row.sale_amount ?? row.gmv ?? row.total_revenue ?? row.amount
+    );
+    const salesVolume = parseNonNegativeOrNull(
+      row.sales ?? row.sale_count ?? row.volume ?? row.unit_sales ?? row.sold_count
+    );
+    const rawShare = parseNonNegativeOrNull(
+      row.revenue_share ?? row.market_share ?? row.share ?? row.ratio ?? row.revenue_ratio
+    );
+    const revenueSharePct =
+      rawShare !== null ? (rawShare > 0 && rawShare <= 1 ? rawShare * 100 : rawShare) : null;
+
+    categories.push({
+      id: rawId,
+      nameEn: rawName,
+      nameMy: translateCategoryNameToMyanmar(rawName, rawId),
+      visualGroup: known ? known.visualGroup : inferVisualGroup(rawName),
+      revenueThb,
+      salesVolume,
+      revenueSharePct,
+    });
+  }
+
+  const post = await computePostSpendDiff(apiKey, balanceBefore);
+
+  return {
+    categories,
+    creditsUsed: post.creditsUsed,
+    balance: post.balance,
+  };
+}
+
+/**
+ * Validates combined credit guardrails up front before executing a multi-call Rank Board sync (~0.4 cr).
+ */
+export async function precheckKalodataCombinedGuardrails(
+  guardrails?: CreditGuardrails
+): Promise<KalodataCreditBalance | null> {
+  const { key: apiKey } = getActiveKalodataKey();
+  if (!apiKey) {
+    throw new KalodataApiError(
+      'KALODATA_NOT_CONNECTED',
+      'Kalodata API key is not configured on the server.',
+      503
+    );
+  }
+  return checkGuardrailsBeforeSpend(apiKey, {
+    ...guardrails,
+    estimatedCost: guardrails?.estimatedCost ?? 0.4,
+  });
 }
 
 /**

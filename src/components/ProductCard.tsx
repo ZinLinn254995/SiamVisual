@@ -6,7 +6,6 @@ import {
   Check,
   Copy,
   ExternalLink,
-  SlidersHorizontal,
 } from 'lucide-react';
 import type { Translations } from '../i18n';
 import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
@@ -863,19 +862,11 @@ export function ProductCard({
           {renderChannelAndPoolStrip()}
 
           {/* Mobile Action Footer */}
-          <div className="sm:hidden pt-1 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onOpenScoreDetails(product)}
-              className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
-              <span>{language === 'my' ? 'အသေးစိတ်' : 'Details'}</span>
-            </button>
+          <div className="sm:hidden pt-1">
             <button
               type="button"
               onClick={() => onSelect(product)}
-              className="flex-1 h-9 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
+              className="w-full h-9 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
             >
               <span>{t.discover.openStudioShort}</span>
               <ArrowRight className="w-3.5 h-3.5 shrink-0" />
@@ -906,25 +897,14 @@ export function ProductCard({
             </button>
           </div>
 
-          <div className="w-full space-y-2">
-            <button
-              type="button"
-              onClick={() => onOpenScoreDetails(product)}
-              className="w-full h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 text-xs font-medium inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{language === 'my' ? 'အမှတ်အသေးစိတ်' : 'Score Details'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onSelect(product)}
-              className="w-full h-10 px-3 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-            >
-              <span className="truncate">{t.discover.openStudioShort}</span>
-              <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => onSelect(product)}
+            className="w-full h-10 px-3 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+          >
+            <span className="truncate">{t.discover.openStudioShort}</span>
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+          </button>
         </div>
       </article>
     );
@@ -1160,23 +1140,12 @@ export function ProductCard({
               {renderChannelAndPoolStrip()}
             </div>
 
-            {/* Clean Single-Row Footer: Secondary Breakdown Button + Primary Studio CTA */}
-            <div className="mt-auto pt-3 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onOpenScoreDetails(product)}
-                title={t.score.tooltipBtn}
-                aria-label={t.score.tooltipBtn}
-                className="h-10 px-3 rounded-lg border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/80 text-xs font-medium inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">{language === 'my' ? 'အသေးစိတ်' : 'Details'}</span>
-              </button>
-
+            {/* Clean Single-Action Studio CTA Footer */}
+            <div className="mt-auto pt-3">
               <button
                 type="button"
                 onClick={() => onSelect(product)}
-                className="flex-1 min-w-0 h-10 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#131B24]"
+                className="w-full h-10 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#131B24]"
               >
                 <span className="truncate">{t.discover.openStudioShort}</span>
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />

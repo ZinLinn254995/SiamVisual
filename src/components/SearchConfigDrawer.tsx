@@ -120,8 +120,9 @@ export function SearchConfigDrawer({
   }, [isOpen, onClose]);
 
   const linkInfo = useMemo(() => inspectQueryLink(draft.query), [draft.query]);
-  const isSingleLinkValid = linkInfo.isLinkOrId && Boolean(linkInfo.productId);
-  const isLinkBroken = linkInfo.isLinkOrId && !linkInfo.productId;
+  const isSingleLinkValid =
+    linkInfo.isLinkOrId && (Boolean(linkInfo.productId) || linkInfo.isShortLink);
+  const isLinkBroken = linkInfo.isLinkOrId && !linkInfo.productId && !linkInfo.isShortLink;
 
   const copy = t.v2.searchDrawer;
   const filterCopy = t.v2.discoveryFilter;
@@ -158,14 +159,16 @@ export function SearchConfigDrawer({
 
   const windowTag = draft.dateRange === 'last30Day' ? '30d' : '7d';
   const summaryText =
-    isSingleLinkValid && linkInfo.productId
+    linkInfo.isLinkOrId && linkInfo.productId
       ? copy.summaryLink(linkInfo.productId, leanSearchCost)
-      : copy.summaryRank(
-          draft.pageSize,
-          windowTag,
-          filterCopy.presets[draft.filterState.preset],
-          leanSearchCost
-        );
+      : linkInfo.isLinkOrId && linkInfo.isShortLink
+        ? copy.summaryShortLink(leanSearchCost)
+        : copy.summaryRank(
+            draft.pageSize,
+            windowTag,
+            filterCopy.presets[draft.filterState.preset],
+            leanSearchCost
+          );
 
   return (
     <AnimatePresence>
@@ -279,16 +282,19 @@ export function SearchConfigDrawer({
                     )}
                   </div>
 
-                  {isSingleLinkValid && linkInfo.productId ? (
+                  {linkInfo.isLinkOrId && linkInfo.productId ? (
                     <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-teal-700 dark:text-teal-400">
                       <Link2 className="w-3.5 h-3.5 shrink-0" />
                       <span>{t.search.linkModeNotice(linkInfo.productId)}</span>
                     </p>
+                  ) : linkInfo.isLinkOrId && linkInfo.isShortLink ? (
+                    <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-teal-700 dark:text-teal-400">
+                      <Link2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>{t.search.shortLinkNotice}</span>
+                    </p>
                   ) : isLinkBroken ? (
                     <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
-                      {linkInfo.isShortLink
-                        ? t.search.shortLinkNotice
-                        : t.search.invalidLinkNotice}
+                      {t.search.invalidLinkNotice}
                     </p>
                   ) : (
                     <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">

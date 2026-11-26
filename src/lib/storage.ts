@@ -9,6 +9,7 @@ import type {
   ProductKalodataMetrics,
   ProductObservationSnapshot,
   ProductValidatedMetrics,
+  RankBoardSnapshot,
   RecentSearchEntry,
   ResultGridCols,
   ResultListZoom,
@@ -46,6 +47,7 @@ const KALO_CATEGORIES_KEY = 'siamvisual_kalo_categories_v1';
 const RESULT_VIEW_KEY = 'siamvisual_result_view_v1';
 const RESULT_GRID_COLS_KEY = 'siamvisual_result_grid_cols_v1';
 const RESULT_LIST_ZOOM_KEY = 'siamvisual_result_list_zoom_v1';
+const RANK_BOARD_SNAPSHOT_KEY = 'siamvisual_rank_board_snapshot_v1';
 
 const MAX_RECENT_SEARCHES = 30;
 
@@ -1263,3 +1265,42 @@ export function saveResultListZoom(level: ResultListZoom): void {
     // ignore
   }
 }
+
+export function loadRankBoardSnapshot(): RankBoardSnapshot | null {
+  try {
+    const raw = localStorage.getItem(RANK_BOARD_SNAPSHOT_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const obj = parsed as Record<string, unknown>;
+    if (
+      typeof obj.syncedAt !== 'string' ||
+      !Array.isArray(obj.products) ||
+      !Array.isArray(obj.categoryMarket) ||
+      !obj.marketSummary ||
+      typeof obj.marketSummary !== 'object'
+    ) {
+      return null;
+    }
+    return parsed as RankBoardSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+export function saveRankBoardSnapshot(snapshot: RankBoardSnapshot): void {
+  try {
+    localStorage.setItem(RANK_BOARD_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore quota errors gracefully
+  }
+}
+
+export function clearRankBoardSnapshot(): void {
+  try {
+    localStorage.removeItem(RANK_BOARD_SNAPSHOT_KEY);
+  } catch {
+    // ignore
+  }
+}
+

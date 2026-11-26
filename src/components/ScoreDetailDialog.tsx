@@ -117,7 +117,11 @@ export function ScoreDetailContent({
     validated,
     nowMs !== undefined ? { nowMs } : undefined
   );
-  const detailTrend = analyzeDetailRevenueTrend(product.kalodataMetrics);
+  const detailTrend = analyzeDetailRevenueTrend({
+    dailyValues: product.kalodataMetrics?.revenueTrendThb,
+    reportedRevenueThb: product.kalodataMetrics?.revenueThb7d,
+    dateRange: product.kalodataMetrics?.dateRange,
+  });
 
   const copy = t.v2.searchScore;
   const gradeToneClass = searchGradeToTextClass(searchScore.grade);
@@ -208,11 +212,16 @@ export function ScoreDetailContent({
       ? Math.max(0, Math.min(100 - videoPct, Math.round(m.liveSharePct)))
       : 0;
   const mallPct =
-    m.videoSharePct !== null || m.liveSharePct !== null || m.showcaseSharePct !== null
-      ? Math.max(0, 100 - videoPct - livePct)
-      : 0;
+    m.showcaseSharePct !== null
+      ? Math.max(0, Math.min(100 - videoPct - livePct, Math.round(m.showcaseSharePct)))
+      : m.revenueThb !== null &&
+          m.revenueThb > 0 &&
+          (m.videoSharePct !== null || m.liveSharePct !== null)
+        ? Math.max(0, 100 - videoPct - livePct)
+        : 0;
   const hasChannelData =
-    m.videoSharePct !== null || m.liveSharePct !== null || m.showcaseSharePct !== null;
+    (m.videoSharePct !== null || m.liveSharePct !== null || m.showcaseSharePct !== null) &&
+    videoPct + livePct + mallPct > 0;
 
   const est100SalesThb =
     m.payoutPerSaleThb !== null && m.payoutPerSaleThb > 0
@@ -350,9 +359,11 @@ export function ScoreDetailContent({
                 {copy.compositionTitle}
               </h3>
               <span className="font-mono-num tabular-nums text-xs font-semibold text-slate-800 dark:text-slate-200">
-                {searchScore.rawWeightedScore !== null
-                  ? `${Math.round(searchScore.rawWeightedScore)} / 100`
-                  : '—'}
+                {isCapped
+                  ? `${Math.round(searchScore.rawWeightedScore!)} → ${searchScore.score} / 100`
+                  : searchScore.rawWeightedScore !== null
+                    ? `${Math.round(searchScore.rawWeightedScore)} / 100`
+                    : '—'}
               </span>
             </div>
 
@@ -691,6 +702,24 @@ export function ScoreDetailContent({
                   className="stroke-teal-600 dark:stroke-teal-400"
                 />
               </svg>
+
+              <div className="flex items-center justify-between gap-2 text-[10px] font-mono-num tabular-nums text-slate-400 dark:text-slate-500">
+                <span>
+                  {detailTrend.minDayThb !== null
+                    ? `Min ${formatCompactThb(detailTrend.minDayThb)}`
+                    : ''}
+                </span>
+                <span>
+                  {detailTrend.dailyAvgThb !== null
+                    ? `Avg ${formatCompactThb(detailTrend.dailyAvgThb)}/d`
+                    : ''}
+                </span>
+                <span>
+                  {detailTrend.maxDayThb !== null
+                    ? `Max ${formatCompactThb(detailTrend.maxDayThb)}`
+                    : ''}
+                </span>
+              </div>
             </div>
           );
         })()}

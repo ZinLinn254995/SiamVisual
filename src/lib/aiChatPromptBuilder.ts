@@ -285,29 +285,48 @@ export function buildExternalAiChatPrompt(product: ProductItem): string {
   }
 
   if (inv.hasSavedAiAnalysis && a) {
-    lines.push(
-      `- Saved SiamVisual AI Analysis [Analytical Summary — generated ${a.analyzedAt}]:`,
-      `  - Decision Indicator: ${a.decision}`,
-      `  - Snapshot Coverage at Analysis Time: Sales=${a.dataSnapshot.hasSalesMetrics ? 'Yes' : 'No'}, Details=${a.dataSnapshot.hasDetails ? 'Yes' : 'No'}, Specs=${a.dataSnapshot.hasSpecs ? 'Yes' : 'No'}, Comments=${a.dataSnapshot.hasComments ? 'Yes' : 'No'}`,
-      `  - Overview (EN): ${a.productOverview.en}`,
-      `  - Overview (MY): ${a.productOverview.my}`,
-      `  - Sales & Pricing Audit (EN): ${a.salesAndPricingAudit.en}`,
-      `  - Profit Calculation Note (EN): ${a.profitCalculation.en}`,
-      `  - Silent Video Verdict (EN): ${a.silentVideoVerdict.en}`,
-      ...(a.deepDataSpecsAudit?.en ? [`  - Specs Audit (EN): ${a.deepDataSpecsAudit.en}`] : []),
-      ...(a.deepDataBuyerAudit?.en ? [`  - Buyer Audit (EN): ${a.deepDataBuyerAudit.en}`] : []),
-      ...(a.visualAngles?.en?.length
-        ? [`  - Saved Visual Angle Ideas (EN): ${a.visualAngles.en.join(' | ')}`]
-        : []),
-      ...(a.risks?.en?.length ? [`  - Noted Risks (EN): ${a.risks.en.join(' | ')}`] : []),
-      ...(a.missingDataNotes?.en?.length
-        ? [`  - Missing Data Notes: ${a.missingDataNotes.en.join(' | ')}`]
-        : []),
-      `  - Bottom Line (MY): ${a.bottomLine.my}`,
-      `  - Bottom Line (EN): ${a.bottomLine.en}`
-    );
+    if (a.videoIdeasPack) {
+      const vp = a.videoIdeasPack;
+      lines.push(
+        `- Saved SiamVisual AI Video Ideas Strategy [Generated ${a.analyzedAt}]:`,
+        `  - Playbook Category: ${vp.playbookCategory} — ${vp.playbookReason.en}`,
+        `  - Core USP (EN): ${vp.productAnalysis.coreUsp.en}`,
+        `  - Emotional Benefit (EN): ${vp.productAnalysis.emotionalBenefit.en}`,
+        `  - Primary Target Buyer (EN): ${vp.targetAudience.primaryBuyer.en}`,
+        `  - Visual Proof Shot (EN): ${vp.productAnalysis.visualProofIdea.en}`,
+        ...vp.concepts.map(
+          (c, idx) =>
+            `  - Video Concept ${idx + 1}: ${c.title.en} [${c.framework} | ${c.awarenessLevel} | ${c.creativeAngle.en}] — Hook: ${c.hook3Layer.verbalHook.en}`
+        ),
+        ...(vp.scalingPlan.watchOuts.en.length
+          ? [`  - Watch-Outs (EN): ${vp.scalingPlan.watchOuts.en.join(' | ')}`]
+          : [])
+      );
+    } else {
+      lines.push(
+        `- Saved SiamVisual AI Analysis [Analytical Summary — generated ${a.analyzedAt}]:`,
+        `  - Decision Indicator: ${a.decision}`,
+        `  - Snapshot Coverage at Analysis Time: Sales=${a.dataSnapshot.hasSalesMetrics ? 'Yes' : 'No'}, Details=${a.dataSnapshot.hasDetails ? 'Yes' : 'No'}, Specs=${a.dataSnapshot.hasSpecs ? 'Yes' : 'No'}, Comments=${a.dataSnapshot.hasComments ? 'Yes' : 'No'}`,
+        `  - Overview (EN): ${a.productOverview.en}`,
+        `  - Overview (MY): ${a.productOverview.my}`,
+        `  - Sales & Pricing Audit (EN): ${a.salesAndPricingAudit.en}`,
+        `  - Profit Calculation Note (EN): ${a.profitCalculation.en}`,
+        `  - Silent Video Verdict (EN): ${a.silentVideoVerdict.en}`,
+        ...(a.deepDataSpecsAudit?.en ? [`  - Specs Audit (EN): ${a.deepDataSpecsAudit.en}`] : []),
+        ...(a.deepDataBuyerAudit?.en ? [`  - Buyer Audit (EN): ${a.deepDataBuyerAudit.en}`] : []),
+        ...(a.visualAngles?.en?.length
+          ? [`  - Saved Visual Angle Ideas (EN): ${a.visualAngles.en.join(' | ')}`]
+          : []),
+        ...(a.risks?.en?.length ? [`  - Noted Risks (EN): ${a.risks.en.join(' | ')}`] : []),
+        ...(a.missingDataNotes?.en?.length
+          ? [`  - Missing Data Notes: ${a.missingDataNotes.en.join(' | ')}`]
+          : []),
+        `  - Bottom Line (MY): ${a.bottomLine.my}`,
+        `  - Bottom Line (EN): ${a.bottomLine.en}`
+      );
+    }
   } else {
-    lines.push('- Saved SiamVisual AI Analysis: [Not generated / Not available]');
+    lines.push('- Saved SiamVisual AI Video Ideas Strategy: [Not generated / Not available]');
   }
 
   lines.push(

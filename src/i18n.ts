@@ -28,6 +28,7 @@ import type {
 export interface Translations {
   nav: {
     discover: string;
+    rankBoard: string;
     searchHistory: string;
     history: string;
     toggleThemeLight: string;
@@ -179,6 +180,7 @@ export interface Translations {
   };
   studio: {
     backToResults: string;
+    backToRankBoard: string;
     backToHistory: string;
     copyFullKit: string;
     copied: string;
@@ -299,6 +301,59 @@ export interface Translations {
       strong_go: string;
       test_carefully: string;
       need_more_data: string;
+    };
+    videoIdeas: {
+      briefTitle: string;
+      briefToggleShow: string;
+      briefToggleHide: string;
+      playbookLabel: string;
+      playbooks: {
+        problem_solving: string;
+        impulse_trendy: string;
+        aesthetic_lifestyle: string;
+        high_ticket_trust: string;
+        food_beverage: string;
+      };
+      awarenessLevels: {
+        unaware: string;
+        problem_aware: string;
+        solution_aware: string;
+        product_aware: string;
+        most_aware: string;
+      };
+      frameworks: {
+        PAS: string;
+        BAB: string;
+        AIDA: string;
+        '3_REASONS_WHY': string;
+      };
+      featureLabel: string;
+      benefitLabel: string;
+      emotionLabel: string;
+      uspLabel: string;
+      visualProofLabel: string;
+      audienceLabel: string;
+      painLadderLabel: string;
+      buyerVoiceLabel: string;
+      ideaTabLabel: (index: number) => string;
+      copyIdeaBtn: string;
+      angleLabel: string;
+      formatLabel: string;
+      targetLabel: string;
+      durationLabel: string;
+      hookSectionLabel: string;
+      visualHookLabel: string;
+      verbalHookLabel: string;
+      textHookLabel: string;
+      bridgeSectionLabel: string;
+      bodySectionLabel: string;
+      ctaSectionLabel: string;
+      muteTestLabel: string;
+      extraHooksLabel: string;
+      scalingTitle: string;
+      commentMiningLabel: string;
+      iterationRoadmapLabel: string;
+      watchOutsLabel: string;
     };
     chatPrompt: {
       title: string;
@@ -637,6 +692,7 @@ export interface Translations {
       submitLinkBtn: (cost: number) => string;
       summaryRank: (count: number, windowTag: string, presetLabel: string, cost: number) => string;
       summaryLink: (productId: string, cost: number) => string;
+      summaryShortLink: (cost: number) => string;
       activeScopeSummary: (count: number, windowTag: string, presetLabel: string) => string;
       openDrawerBtn: string;
     };
@@ -681,12 +737,88 @@ export interface Translations {
       caps: Record<SearchScoreCapCode, string>;
     };
   };
+  rankBoard: {
+    title: string;
+    subtitle: string;
+    syncBtn: (cost: number) => string;
+    syncingBtn: string;
+    timeframe7d: string;
+    timeframe30d: string;
+    lastSyncedLabel: string;
+    productsUnit: (n: number) => string;
+    categoriesUnit: (n: number) => string;
+    staleNotice: string;
+    emptyTitle: string;
+    emptyDesc: string;
+    emptyBullets: string[];
+    emptyCtaBtn: (cost: number) => string;
+    connectPromptNote: string;
+    loadingNote: string;
+    syncedToast: (count: number, catCount: number) => string;
+    kpiGmvTitle: string;
+    kpiGmvSub: (windowTag: string) => string;
+    kpiUnitsTitle: string;
+    kpiUnitsSub: (monetizable: number, total: number) => string;
+    kpiVideoShareTitle: string;
+    kpiVideoShareSub: (provenCount: number) => string;
+    kpiAvgCommTitle: string;
+    kpiAvgCommSub: (avgPayout: string, sweetSpot: number) => string;
+    channelSectionTitle: string;
+    channelSectionSub: string;
+    channelVideo: string;
+    channelLive: string;
+    channelShop: string;
+    channelDominantLabel: string;
+    channelClickHint: string;
+    categorySectionTitle: string;
+    categorySectionSubLive: string;
+    categorySectionSubAgg: string;
+    categorySourceLiveTag: string;
+    categorySourceAggTag: string;
+    categoryTop100Count: (n: number) => string;
+    categoryClickHint: string;
+    matrixSectionTitle: string;
+    matrixSectionSub: string;
+    matrixSweetSpotLabel: string;
+    matrixLegendVideo: string;
+    matrixLegendLive: string;
+    matrixLegendOther: string;
+    matrixAxisPrice: string;
+    matrixAxisComm: string;
+    matrixTapHint: string;
+    matrixInspectorEmpty: string;
+    matrixOpenStudioBtn: string;
+    tableSectionTitle: string;
+    tableSectionSub: (shown: number, total: number) => string;
+    searchPlaceholder: string;
+    filterAll: string;
+    filterVideoProven: string;
+    filterHighComm: string;
+    filterSweetSpot: string;
+    clearAllFilters: string;
+    activeCategoryFilter: (name: string) => string;
+    activeChannelFilter: (name: string) => string;
+    colRank: string;
+    colProduct: string;
+    colPrice: string;
+    colRevenue: string;
+    colUnits: string;
+    colCommission: string;
+    colPayout: string;
+    colChannels: string;
+    colScore: string;
+    openStudioAction: string;
+    noMatchesTitle: string;
+    noMatchesDesc: string;
+    sortLabel: string;
+  };
 }
 
 export const TRANSLATIONS: Record<Language, Translations> = {
   my: {
     nav: {
       discover: 'ရှာဖွေမယ်',
+      rankBoard: 'အဆင့်ဇယား',
       searchHistory: 'ရှာဖွေမှုမှတ်တမ်း',
       history: 'သိမ်းထားပစ္စည်းများ',
       toggleThemeLight: 'Light Mode ပြောင်းမယ်',
@@ -710,7 +842,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       linkModeNotice: (productId: string) =>
         `Product Link (ID: ${productId}) — ဒီပစ္စည်း ၁ ခုတည်းကိုသာ ရှာပေးပါမည် (~0.2 cr · Product Detail)`,
       shortLinkNotice:
-        'Short link (vt.tiktok.com) ထဲမှာ Product ID မပါသဖြင့် Browser တွင်ဖွင့်ပြီး Product ID ပါသော Link အပြည့်အစုံ (သို့) Product ID ကို ထည့်ပေးပါ။',
+        'TikTok Shop App Short Link တွေ့ရှိပြီး — ရှာဖွေနှိပ်လိုက်ပါက Product ID ကို အလိုအလျောက် ဖွင့်ထုတ်ပြီး ဒီပစ္စည်း ၁ ခုတည်းကိုသာ စစ်ပေးပါမည် (~0.2 cr)',
       invalidLinkNotice:
         'ဒီ Link ထဲမှာ TikTok Shop Product ID မတွေ့ပါ — Product ID ပါသော Link အပြည့်အစုံ (သို့) ဂဏန်း ID ထည့်ပေးပါ။',
     },
@@ -851,6 +983,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     },
     studio: {
       backToResults: 'ရှာဖွေမှုရလဒ်သို့ ပြန်သွားမယ်',
+      backToRankBoard: 'အဆင့်ဇယားသို့ ပြန်သွားမယ်',
       backToHistory: 'သိမ်းထားသော ပစ္စည်းများသို့ ပြန်သွားမယ်',
       copyFullKit: 'အားလုံးကူးယူမယ်',
       copied: 'ကူးယူပြီးပါပြီ',
@@ -939,15 +1072,15 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       videoSectionTitle: 'Silent AI Video Ideas ဖန်တီးရန်',
       commercialStudioNotice:
         'Commercial Score သည် ဈေးကွက်အလားအလာကိုသာ တိုင်းတာပြီး Video Studio အကြံပြုချက်များနှင့် သီးခြားဖြစ်သည်။ Score မြင့်ခြင်း သို့မဟုတ် ယခင် Video ရောင်းအားရှိခြင်းသည် သင့် Video အတွက် ရောင်းအားအာမခံချက် မဟုတ်ပါ။',
-      analysisTitle: 'AI ဖြင့် Product အသေးစိတ် သုံးသပ်ချက်',
-      analysisSubtitle: 'လက်ရှိရရှိထားသော Kalodata အချက်အလက်များ (နာမည်၊ ဈေးနှုန်း၊ ရောင်းအား၊ ကော်မရှင်၊ Deep Data) ပေါ်မူတည်၍ တွက်ချက်သုံးသပ်ပေးပါမည်။ Data မရှိသေးသောအချက်များကို အတိအကျ ဖော်ပြပေးပါမည်။',
-      analysisBtn: 'AI ဖြင့် Product သုံးသပ်မယ် (0 cr)',
-      analysisReBtn: 'ပြန်လည်သုံးသပ်မယ် (0 cr)',
-      analysisRunningBtn: 'Kalodata Data များကို AI သုံးသပ်တွက်ချက်နေသည်...',
-      analysisCopyBtn: 'သုံးသပ်ချက်ကူးမယ်',
+      analysisTitle: 'AI ဖြင့် Video Ideas စဉ်းစားမယ် (Creative Strategist)',
+      analysisSubtitle: 'သင်ခန်းစာ ၁၃ ခုအပေါ် အခြေခံ၍ ဤကုန်ပစ္စည်းနှင့် အကိုက်ညီဆုံး Video Concept ၃ မျိုး၊ 3-Layer Hook၊ 4-Part ဖွဲ့စည်းပုံနှင့် Scaling နည်းဗျူဟာများကို ဖန်တီးပေးပါမည်။',
+      analysisBtn: 'Video Ideas စဉ်းစားမယ် (0 cr)',
+      analysisReBtn: 'Idea အသစ်ပြန်စဉ်းစားမယ် (0 cr)',
+      analysisRunningBtn: 'ကုန်ပစ္စည်းနှင့်လိုက်ဖက်မည့် Video Ideas များ စဉ်းစားနေသည်...',
+      analysisCopyBtn: 'Ideas အားလုံးကူးမယ်',
       analysisSavedTag: 'Storage တွင် သိမ်းပြီး',
-      analysisStaleHint: 'Kalodata Deep Data အသစ်ထပ်ယူထားသဖြင့် ပြန်လည်သုံးသပ်ပါက ပိုမိုပြည့်စုံသော ရလဒ်ရရှိပါမည်။',
-      analysisDataSourcesLabel: 'လက်ရှိ Kalodata Data အခြေအနေ',
+      analysisStaleHint: 'Kalodata Deep Data အသစ်ထပ်ယူထားသဖြင့် Idea အသစ်ပြန်စဉ်းစားပါက ပိုမိုတိကျသော Concept များ ရရှိပါမည်။',
+      analysisDataSourcesLabel: 'အခြေခံမည့် Kalodata Data',
       analysisSrcSales: '7d ရောင်းအား/ဝင်ငွေ',
       analysisSrcDetails: 'Seller Details',
       analysisSrcSpecs: 'Selling Specs',
@@ -973,6 +1106,59 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         strong_go: 'ရောင်းချရန် အထူးသင့်တော်',
         test_carefully: 'သတိထားစမ်းသပ်သင့်',
         need_more_data: 'Data ထပ်စစ်ရန်လိုအပ်',
+      },
+      videoIdeas: {
+        briefTitle: 'Product Strategy Brief (Lesson 1–3 & Playbook)',
+        briefToggleShow: 'Strategy အသေးစိတ်ကြည့်မယ်',
+        briefToggleHide: 'ပြန်သိမ်းမယ်',
+        playbookLabel: 'ကုန်ပစ္စည်း Playbook',
+        playbooks: {
+          problem_solving: 'Problem-Solving (Visual Proof & Contrast)',
+          impulse_trendy: 'Impulse & Trendy (15–30s Wow & FOMO)',
+          aesthetic_lifestyle: 'Aesthetic & Lifestyle (Identity & Vibe)',
+          high_ticket_trust: 'High-Ticket & Trust (4 Pillars of Trust)',
+          food_beverage: 'Food & Beverage (Sensory & Craving)',
+        },
+        awarenessLevels: {
+          unaware: 'L1 · Unaware',
+          problem_aware: 'L2 · Problem Aware',
+          solution_aware: 'L3 · Solution Aware',
+          product_aware: 'L4 · Product Aware',
+          most_aware: 'L5 · Most Aware',
+        },
+        frameworks: {
+          PAS: 'PAS (Problem–Agitate–Solve)',
+          BAB: 'BAB (Before–After–Bridge)',
+          AIDA: 'AIDA (Attention–Interest–Desire–Action)',
+          '3_REASONS_WHY': '3 Reasons Why (Listicle)',
+        },
+        featureLabel: 'Feature (သက်သေ)',
+        benefitLabel: 'Functional Benefit',
+        emotionLabel: 'Emotional Benefit (ဦးစားပေး)',
+        uspLabel: 'Core USP',
+        visualProofLabel: 'အဓိက Visual Proof ပြကွက်',
+        audienceLabel: 'ပစ်မှတ်ဝယ်သူ (Target Audience)',
+        painLadderLabel: 'Pain Point အဆင့်ဆင့် & Desire',
+        buyerVoiceLabel: 'ဝယ်သူအသံနှင့် သံသယ (Buyer Voice)',
+        ideaTabLabel: (index: number) => `Video Idea ${index}`,
+        copyIdeaBtn: 'ဒီ Idea ကူးမယ်',
+        angleLabel: 'Creative Angle',
+        formatLabel: 'ရိုက်ကူးပုံ (Format)',
+        targetLabel: 'ရည်ရွယ်သူ',
+        durationLabel: 'ကြာချိန်',
+        hookSectionLabel: '၁။ 3-Layer Hook (0–3s)',
+        visualHookLabel: 'Visual Hook (0–1s မြင်ကွင်း)',
+        verbalHookLabel: 'Verbal Hook (အဖွင့်စကား)',
+        textHookLabel: 'Text Hook (မျက်နှာပြင်စာသား)',
+        bridgeSectionLabel: '၂။ Bridge / Hold (3–10s)',
+        bodySectionLabel: '၃။ Body — Demo, Benefit & Objection (10–45s)',
+        ctaSectionLabel: '၄။ CTA — Clear Action + Reason Why Now',
+        muteTestLabel: 'Mute Test (အသံပိတ်ကြည့်ရုံဖြင့် နားလည်မှု)',
+        extraHooksLabel: '1 Body, 3 Hooks — ထပ်စမ်းသင့်သော Hook အပိုများ',
+        scalingTitle: 'Testing, Comment Mining & Scaling (Lesson 13)',
+        commentMiningLabel: 'Comment မှ ပြန်ရိုက်သင့်သော Reply Video များ',
+        iterationRoadmapLabel: 'Winning ဖြစ်လာပါက Scaling လုပ်ရန် အဆင့် ၃ ဆင့်',
+        watchOutsLabel: 'ဤကုန်ပစ္စည်း Video ရိုက်ရာတွင် ရှောင်ရန်အမှားများ',
       },
       chatPrompt: {
         title: 'AI Chat တွေမှာ Paste ချဖို့ Product Prompt ကူးမယ်',
@@ -1513,7 +1699,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         closeAria: 'ရှာဖွေမှု Drawer ပိတ်မယ်',
         keywordOrLinkLabel: 'Keyword သို့မဟုတ် Product Link / ID',
         keywordOrLinkPlaceholder: 'ပစ္စည်းနာမည် ရိုက်ရှာပါ သို့မဟုတ် TikTok Shop / Kalodata Link ထည့်ပါ...',
-        keywordOrLinkHint: 'Link သို့မဟုတ် ဂဏန်း Product ID ထည့်ပါက ထိုပစ္စည်း ၁ ခုတည်းကိုသာ တိုက်ရိုက်စစ်ပေးပါမည်',
+        keywordOrLinkHint: 'TikTok Shop App Short Link (vt.tiktok.com)၊ Link အပြည့်အစုံ သို့မဟုတ် ဂဏန်း Product ID ထည့်ပါက ထိုပစ္စည်း ၁ ခုတည်းကိုသာ တိုက်ရိုက်စစ်ပေးပါမည်',
         categoriesLabel: 'Categories (တစ်ခုထက်ပိုရွေးနိုင်)',
         categoriesDisabledInLinkMode: 'Product Link စစ်နေချိန်တွင် Category နှင့် အရေအတွက် ရွေးချယ်မှုကို အလိုအလျောက် ပိတ်ထားပါသည်',
         countLabel: 'ရှာမည့် ပစ္စည်းအရေအတွက်',
@@ -1536,6 +1722,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
           `${count} ခု · ${windowTag} · ${presetLabel} · ~${cost} cr`,
         summaryLink: (productId: string, cost: number) =>
           `Product ID ${productId} · ~${cost} cr`,
+        summaryShortLink: (cost: number) =>
+          `TikTok Short Link (အလိုအလျောက် ဖွင့်ထုတ်မည်) · ~${cost} cr`,
         activeScopeSummary: (count: number, windowTag: string, presetLabel: string) =>
           `Default: ${count} ခု · ${windowTag} · ${presetLabel}`,
         openDrawerBtn: 'Filter & ရှာမယ်',
@@ -1601,10 +1789,97 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         },
       },
     },
+    rankBoard: {
+      title: 'Thailand TikTok Shop အဆင့်ဇယား',
+      subtitle:
+        'ထိုင်း TikTok Shop ဈေးကွက်တစ်ခုလုံး၏ ထိပ်တန်းပစ္စည်း ၁၀၀ နှင့် Category အလိုက် ရောင်းအားဝေစုကို Chart နှင့် ခွဲခြမ်းစိတ်ဖြာမှုများဖြင့် ကြည့်ရှုပါ။',
+      syncBtn: (cost: number) => `Data အသစ်ဆွဲမယ် (~${cost} cr)`,
+      syncingBtn: 'TikTok Shop Data ဆွဲနေသည်...',
+      timeframe7d: '၇ ရက် (7d)',
+      timeframe30d: '၃၀ ရက် (30d)',
+      lastSyncedLabel: 'နောက်ဆုံး Sync',
+      productsUnit: (n: number) => `ပစ္စည်း ${n} ခု`,
+      categoriesUnit: (n: number) => `Category ${n} ခု`,
+      staleNotice: 'ဤအဆင့်ဇယားသည် ၂၄ နာရီကျော်ကြာပြီဖြစ်၍ နောက်ဆုံးဈေးကွက်အတွက် Update Sync နှိပ်ပေးပါ။',
+      emptyTitle: 'ထိုင်း TikTok Shop ပင်မဈေးကွက် Data ကို စတင်ဆွဲယူပါ',
+      emptyDesc:
+        'Update Sync ခလုတ်နှိပ်လိုက်သည်နှင့် Kalodata မှ ထိပ်တန်းပစ္စည်း ၁၀၀ နှင့် L1 Category Market Share ကို တစ်ခါတည်း ဆွဲယူပြီး Browser တွင် အလိုအလျောက် သိမ်းပေးထားပါမည် (Tab ပြောင်းရုံဖြင့် Credit လုံးဝမကုန်ပါ)။',
+      emptyBullets: [
+        'Video vs Live vs Shop ချန်နယ်အလိုက် ဝင်ငွေခွဲခြမ်းမှု (Donut Chart & Stacked Bar)',
+        'Category အလိုက် ဈေးကွက်ဝေစု Progress Bars — နှိပ်၍ ဇယားနှင့် Matrix ကို ချက်ချင်းစစ်နိုင်သည်',
+        'ဈေးနှုန်း (฿) × ကော်မရှင် (%) Opportunity Matrix — Sweet Spot (฿100–฿600 · ≥10%) ပစ္စည်းများကို တန်းမြင်နိုင်သည်',
+        'ကြိုက်နှစ်သက်ရာ ပစ္စည်းကို နှိပ်၍ Video Studio သို့ တိုက်ရိုက်ဖွင့်နိုင်သည် (0 cr)',
+      ],
+      emptyCtaBtn: (cost: number) => `Update Sync စတင်မယ် (~${cost} cr)`,
+      connectPromptNote: 'Data ဆွဲယူရန် အပေါ်ညာဘက်မှ Kalodata API Key ကို ဦးစွာချိတ်ဆက်ပေးပါ။',
+      loadingNote: 'ထိုင်း TikTok Shop ထိပ်တန်းပစ္စည်း ၁၀၀ နှင့် Category Market Share ကို Kalodata မှ ဆွဲယူနေပါသည်...',
+      syncedToast: (count: number, catCount: number) =>
+        `TikTok Shop ပစ္စည်း ${count} ခု နှင့် Category ${catCount} ခုကို Update Sync လုပ်ပြီးပါပြီ။`,
+      kpiGmvTitle: 'Top 100 စုစုပေါင်းဝင်ငွေ',
+      kpiGmvSub: (windowTag: string) => `${windowTag} ထိုင်းဈေးကွက် GMV`,
+      kpiUnitsTitle: 'စုစုပေါင်း ရောင်းအား',
+      kpiUnitsSub: (monetizable: number, total: number) =>
+        `ကော်မရှင်ရ ပစ္စည်း ${monetizable} / ${total}`,
+      kpiVideoShareTitle: 'Short Video ဝေစု',
+      kpiVideoShareSub: (provenCount: number) => `Video ရောင်းအားသက်သေ ${provenCount} ခု`,
+      kpiAvgCommTitle: 'ပျမ်းမျှ ကော်မရှင်',
+      kpiAvgCommSub: (avgPayout: string, sweetSpot: number) =>
+        `ပျမ်းမျှ ${avgPayout}/ခု · Sweet Spot ${sweetSpot} ခု`,
+      channelSectionTitle: 'ရောင်းအားချန်နယ် ခွဲခြမ်းမှု',
+      channelSectionSub: 'Video၊ Live နှင့် Shop/Mall ဝင်ငွေအချိုး (နှိပ်၍ ဇယားစစ်နိုင်သည်)',
+      channelVideo: 'Short Video',
+      channelLive: 'Live Stream',
+      channelShop: 'Shop / Mall',
+      channelDominantLabel: 'အများဆုံးချန်နယ်',
+      channelClickHint: 'ချန်နယ်တစ်ခုကို နှိပ်၍ ထိုချန်နယ်ဦးဆောင်ပစ္စည်းများ စစ်ကြည့်နိုင်သည်',
+      categorySectionTitle: 'Category အလိုက် ဈေးကွက်ဝေစု',
+      categorySectionSubLive: 'Kalodata ထိုင်း L1 Category ဈေးကွက်ဝင်ငွေအဆင့် (နှိပ်၍ Filter လုပ်နိုင်သည်)',
+      categorySectionSubAgg: 'Top 100 ပစ္စည်းများ၏ ဝင်ငွေအပေါ် စုစည်းတွက်ချက်ထားသည် (နှိပ်၍ Filter လုပ်နိုင်သည်)',
+      categorySourceLiveTag: 'TH Market L1',
+      categorySourceAggTag: 'Top 100 စုစည်းမှု',
+      categoryTop100Count: (n: number) => `Top 100 ထဲ ${n} ခု`,
+      categoryClickHint: 'Category နှိပ်၍ အောက်ပါ Matrix နှင့် ဇယားကို ချက်ချင်း Filter လုပ်ပါ',
+      matrixSectionTitle: 'ဈေးနှုန်း × ကော်မရှင် Opportunity Matrix',
+      matrixSectionSub: 'အစက်အရွယ်အစား = ဝင်ငွေပမာဏ · အစက်ကို နှိပ်၍ ပစ္စည်းအသေးစိတ်ကြည့်ပြီး Video Studio ဖွင့်ပါ',
+      matrixSweetSpotLabel: 'Sweet Spot (฿100–฿600 · ≥10%)',
+      matrixLegendVideo: 'Video ဦးဆောင်',
+      matrixLegendLive: 'Live ဦးဆောင်',
+      matrixLegendOther: 'Shop / အခြား',
+      matrixAxisPrice: 'ဈေးနှုန်း (THB)',
+      matrixAxisComm: 'ကော်မရှင် (%)',
+      matrixTapHint: 'အစက်တစ်ခုကို နှိပ်ပါ',
+      matrixInspectorEmpty: 'Chart ထဲမှ ပစ္စည်းအစက်တစ်ခုကို နှိပ်လိုက်ပါက အချက်အလက်အပြည့်အစုံနှင့် Video Studio ခလုတ် ပေါ်လာပါမည်။',
+      matrixOpenStudioBtn: 'Video Studio ဖွင့်မယ်',
+      tableSectionTitle: 'ထိပ်တန်းပစ္စည်း အဆင့်ဇယား',
+      tableSectionSub: (shown: number, total: number) =>
+        `ပစ္စည်း ${shown} / ${total} ခု ပြသနေသည် · နှိပ်၍ Video Studio သို့ တိုက်ရိုက်ဖွင့်နိုင်သည် (0 cr)`,
+      searchPlaceholder: 'ပစ္စည်းနာမည်၊ ဆိုင် သို့မဟုတ် Category ရှာမယ် (0 cr)...',
+      filterAll: 'အားလုံး',
+      filterVideoProven: 'Video သက်သေရှိ',
+      filterHighComm: 'ကော်မရှင် ≥10%',
+      filterSweetSpot: 'Sweet Spot',
+      clearAllFilters: 'Filter အားလုံးဖြုတ်မယ်',
+      activeCategoryFilter: (name: string) => `Category: ${name}`,
+      activeChannelFilter: (name: string) => `ချန်နယ်: ${name}`,
+      colRank: '#',
+      colProduct: 'ပစ္စည်းနှင့် ဆိုင်',
+      colPrice: 'ဈေးနှုန်း',
+      colRevenue: 'ဝင်ငွေ (GMV)',
+      colUnits: 'ရောင်းအား',
+      colCommission: 'ကော်မရှင်',
+      colPayout: '၁ ခုအမြတ်',
+      colChannels: 'Video / Live / Shop',
+      colScore: 'အမှတ်',
+      openStudioAction: 'Studio',
+      noMatchesTitle: 'ရွေးထားသော Filter နှင့် ကိုက်ညီသည့် ပစ္စည်းမတွေ့ပါ',
+      noMatchesDesc: 'Category၊ ချန်နယ် သို့မဟုတ် ရှာဖွေမှုစာသားကို ပြန်ဖြုတ်၍ အားလုံးကြည့်နိုင်ပါသည်။',
+      sortLabel: 'စီစဉ်ပုံ',
+    },
   },
   en: {
     nav: {
       discover: 'Discover',
+      rankBoard: 'Rank Board',
       searchHistory: 'Search History',
       history: 'Saved Products',
       toggleThemeLight: 'Switch to Light Mode',
@@ -1628,7 +1903,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       linkModeNotice: (productId: string) =>
         `Product Link (ID: ${productId}) — searching this 1 product only (~0.2 cr · Product Detail)`,
       shortLinkNotice:
-        'Short links (vt.tiktok.com) hide the Product ID. Open the link once and paste the full Product URL or numeric Product ID.',
+        'TikTok Shop app short link detected — Product ID will be resolved automatically to check this 1 product (~0.2 cr)',
       invalidLinkNotice:
         'No TikTok Shop Product ID found in that link. Please paste the full product link or numeric Product ID.',
     },
@@ -1769,6 +2044,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     },
     studio: {
       backToResults: 'Back to Results',
+      backToRankBoard: 'Back to Rank Board',
       backToHistory: 'Back to Saved Products',
       copyFullKit: 'Copy Full Plan',
       copied: 'Copied',
@@ -1857,15 +2133,15 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       videoSectionTitle: 'Silent AI Video Ideas Generator',
       commercialStudioNotice:
         'Commercial Opportunity measures market signals separately from Video Studio suitability. Neither a high score nor past video sales guarantees your affiliate video results.',
-      analysisTitle: 'AI Product Deep Analysis',
-      analysisSubtitle: 'Analyzes product identity, pricing, sales velocity, commission math, and deep data strictly from available Kalodata records. Clearly flags any missing data.',
-      analysisBtn: 'Analyze Product with AI (0 cr)',
-      analysisReBtn: 'Re-analyze (0 cr)',
-      analysisRunningBtn: 'Calculating & analyzing Kalodata product data...',
-      analysisCopyBtn: 'Copy Analysis',
+      analysisTitle: 'AI Video Ideas Strategist',
+      analysisSubtitle: 'Applies your 13-lesson Ad Creative curriculum to design 3 distinct product-matched video concepts with 3-Layer Hooks, 4-Part Anatomy, UGC formats, and scaling steps.',
+      analysisBtn: 'Generate Video Ideas (0 cr)',
+      analysisReBtn: 'Regenerate Ideas (0 cr)',
+      analysisRunningBtn: 'Brainstorming product-matched video concepts...',
+      analysisCopyBtn: 'Copy All Ideas',
       analysisSavedTag: 'Saved in Storage',
-      analysisStaleHint: 'New Kalodata Deep Data was fetched after this analysis — click Re-analyze to include it.',
-      analysisDataSourcesLabel: 'Available Kalodata data',
+      analysisStaleHint: 'New Kalodata Deep Data was fetched after these ideas — click Regenerate Ideas to incorporate it.',
+      analysisDataSourcesLabel: 'Kalodata data inputs',
       analysisSrcSales: '7d Sales/Revenue',
       analysisSrcDetails: 'Seller Details',
       analysisSrcSpecs: 'Selling Specs',
@@ -1891,6 +2167,59 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         strong_go: 'Strong Pick',
         test_carefully: 'Test Carefully',
         need_more_data: 'Fetch More Data First',
+      },
+      videoIdeas: {
+        briefTitle: 'Product Strategy Brief (Lessons 1–3 & Playbook)',
+        briefToggleShow: 'Show Strategy Brief',
+        briefToggleHide: 'Hide Brief',
+        playbookLabel: 'Category Playbook',
+        playbooks: {
+          problem_solving: 'Problem-Solving (Visual Proof & Contrast)',
+          impulse_trendy: 'Impulse & Trendy (15–30s Wow & FOMO)',
+          aesthetic_lifestyle: 'Aesthetic & Lifestyle (Identity & Vibe)',
+          high_ticket_trust: 'High-Ticket & Trust (4 Pillars of Trust)',
+          food_beverage: 'Food & Beverage (Sensory & Craving)',
+        },
+        awarenessLevels: {
+          unaware: 'L1 · Unaware',
+          problem_aware: 'L2 · Problem Aware',
+          solution_aware: 'L3 · Solution Aware',
+          product_aware: 'L4 · Product Aware',
+          most_aware: 'L5 · Most Aware',
+        },
+        frameworks: {
+          PAS: 'PAS (Problem–Agitate–Solve)',
+          BAB: 'BAB (Before–After–Bridge)',
+          AIDA: 'AIDA (Attention–Interest–Desire–Action)',
+          '3_REASONS_WHY': '3 Reasons Why (Listicle)',
+        },
+        featureLabel: 'Feature (Proof)',
+        benefitLabel: 'Functional Benefit',
+        emotionLabel: 'Emotional Benefit (Lead)',
+        uspLabel: 'Core USP',
+        visualProofLabel: 'Primary Visual Proof Shot',
+        audienceLabel: 'Primary Target Audience',
+        painLadderLabel: 'Pain Point Ladder & Core Desire',
+        buyerVoiceLabel: 'Buyer Voice & Doubts',
+        ideaTabLabel: (index: number) => `Video Idea ${index}`,
+        copyIdeaBtn: 'Copy This Idea',
+        angleLabel: 'Creative Angle',
+        formatLabel: 'UGC Format',
+        targetLabel: 'Target Buyer',
+        durationLabel: 'Duration',
+        hookSectionLabel: '1. 3-Layer Hook (0–3s)',
+        visualHookLabel: 'Visual Hook (0–1s Action)',
+        verbalHookLabel: 'Verbal Hook (Opening Line)',
+        textHookLabel: 'Text Hook (On-Screen)',
+        bridgeSectionLabel: '2. Bridge / Hold (3–10s)',
+        bodySectionLabel: '3. Body — Demo, Benefit & Objection (10–45s)',
+        ctaSectionLabel: '4. CTA — Clear Action + Reason Why Now',
+        muteTestLabel: 'Mute Test (Silent Comprehension)',
+        extraHooksLabel: '1 Body, 3 Hooks — Extra Hook Variations to Test',
+        scalingTitle: 'Testing, Comment Mining & Scaling (Lesson 13)',
+        commentMiningLabel: 'Comment Reply Video Opportunities',
+        iterationRoadmapLabel: '3-Step Winning Scaling Roadmap',
+        watchOutsLabel: 'Category Mistakes to Avoid',
       },
       chatPrompt: {
         title: 'Copy Product Prompt for AI Chat',
@@ -2432,7 +2761,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         closeAria: 'Close search drawer',
         keywordOrLinkLabel: 'Keyword or Product Link / ID',
         keywordOrLinkPlaceholder: 'Search keyword or paste TikTok Shop / Kalodata link or Product ID...',
-        keywordOrLinkHint: 'Pasting a product URL or numeric ID switches automatically to single-product check',
+        keywordOrLinkHint: 'Pasting a TikTok Shop app short link (vt.tiktok.com), full product URL, or numeric ID switches automatically to single-product check',
         categoriesLabel: 'Categories (Multi-select)',
         categoriesDisabledInLinkMode: 'Category and batch count controls are paused while checking a single product link',
         countLabel: 'Products per Search',
@@ -2455,6 +2784,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
           `${count} items · ${windowTag} · ${presetLabel} · ~${cost} cr`,
         summaryLink: (productId: string, cost: number) =>
           `Product ID ${productId} · ~${cost} cr`,
+        summaryShortLink: (cost: number) =>
+          `TikTok Short Link (Auto-resolve) · ~${cost} cr`,
         activeScopeSummary: (count: number, windowTag: string, presetLabel: string) =>
           `Default: ${count} items · ${windowTag} · ${presetLabel}`,
         openDrawerBtn: 'Search & Filter',
@@ -2519,6 +2850,92 @@ export const TRANSLATIONS: Record<Language, Translations> = {
           MISSING_VIDEO_DATA_CAP: 'Capped at 75 because video revenue breakdown is missing',
         },
       },
+    },
+    rankBoard: {
+      title: 'Thailand TikTok Shop Rank Board',
+      subtitle:
+        'Macro market intelligence across the Top 100 Thailand TikTok Shop products and L1 Category shares with interactive charts and drilldowns.',
+      syncBtn: (cost: number) => `Update Sync (~${cost} cr)`,
+      syncingBtn: 'Syncing Market Data...',
+      timeframe7d: '7 Days (7d)',
+      timeframe30d: '30 Days (30d)',
+      lastSyncedLabel: 'Last synced',
+      productsUnit: (n: number) => `${n} Products`,
+      categoriesUnit: (n: number) => `${n} Categories`,
+      staleNotice: 'Snapshot is >24h old — click Update Sync to refresh current Thailand TikTok Shop market rankings.',
+      emptyTitle: 'Sync Thailand TikTok Shop Market Data',
+      emptyDesc:
+        'Press Update Sync to pull the Top 100 Thailand TikTok Shop products plus Live L1 Category market shares in one batch. Saved locally so switching tabs always costs 0 cr.',
+      emptyBullets: [
+        'Video vs Live vs Shop channel revenue split (interactive Donut Chart & 100% stacked bar)',
+        'L1 Category market share progress bars — click any category to cross-filter the matrix and leaderboard',
+        'Price (THB) × Commission (%) Opportunity Matrix highlighting Sweet Spot products (฿100–฿600 · ≥10% Comm)',
+        'Click any product row or scatter dot to open directly in Video Studio (0 cr)',
+      ],
+      emptyCtaBtn: (cost: number) => `Start Update Sync (~${cost} cr)`,
+      connectPromptNote: 'Connect your Kalodata API key from the top-right bar before running Update Sync.',
+      loadingNote: 'Pulling Top 100 Thailand TikTok Shop products and L1 category shares from Kalodata...',
+      syncedToast: (count: number, catCount: number) =>
+        `Synced ${count} ranked products and ${catCount} categories from Thailand TikTok Shop.`,
+      kpiGmvTitle: 'Top 100 Total GMV',
+      kpiGmvSub: (windowTag: string) => `${windowTag} Thailand market volume`,
+      kpiUnitsTitle: 'Total Units Sold',
+      kpiUnitsSub: (monetizable: number, total: number) =>
+        `${monetizable} / ${total} monetizable items`,
+      kpiVideoShareTitle: 'Short Video Share',
+      kpiVideoShareSub: (provenCount: number) => `${provenCount} video-proven products`,
+      kpiAvgCommTitle: 'Avg Commission',
+      kpiAvgCommSub: (avgPayout: string, sweetSpot: number) =>
+        `Avg ${avgPayout}/sale · ${sweetSpot} Sweet Spot`,
+      channelSectionTitle: 'Channel Revenue Split',
+      channelSectionSub: 'Video, Live, and Shop/Mall GMV breakdown (click to cross-filter)',
+      channelVideo: 'Short Video',
+      channelLive: 'Live Stream',
+      channelShop: 'Shop / Mall',
+      channelDominantLabel: 'Dominant',
+      channelClickHint: 'Click a channel row to filter products led by that channel',
+      categorySectionTitle: 'Category Market Share',
+      categorySectionSubLive: 'Live Kalodata Thailand L1 category revenue rank (click to cross-filter)',
+      categorySectionSubAgg: 'Aggregated from Top 100 products revenue share (click to cross-filter)',
+      categorySourceLiveTag: 'TH Market L1',
+      categorySourceAggTag: 'Top 100 Aggregate',
+      categoryTop100Count: (n: number) => `${n} in Top 100`,
+      categoryClickHint: 'Click any category bar to cross-filter the matrix & table',
+      matrixSectionTitle: 'Price × Commission Opportunity Matrix',
+      matrixSectionSub: 'Bubble size = GMV · Tap any dot to inspect metrics and launch Video Studio',
+      matrixSweetSpotLabel: 'Sweet Spot (฿100–฿600 · ≥10%)',
+      matrixLegendVideo: 'Video-Led',
+      matrixLegendLive: 'Live-Led',
+      matrixLegendOther: 'Shop / Other',
+      matrixAxisPrice: 'Price (THB)',
+      matrixAxisComm: 'Commission (%)',
+      matrixTapHint: 'Tap a dot to inspect',
+      matrixInspectorEmpty: 'Select any dot on the chart to inspect its revenue, channel mix, and jump directly to Video Studio.',
+      matrixOpenStudioBtn: 'Open Video Studio',
+      tableSectionTitle: 'Ranked Product Leaderboard',
+      tableSectionSub: (shown: number, total: number) =>
+        `Showing ${shown} of ${total} products · Click any row to open Video Studio (0 cr)`,
+      searchPlaceholder: 'Filter by product name, shop, or category (0 cr)...',
+      filterAll: 'All',
+      filterVideoProven: 'Video-Proven',
+      filterHighComm: 'High Comm ≥10%',
+      filterSweetSpot: 'Sweet Spot',
+      clearAllFilters: 'Clear filters',
+      activeCategoryFilter: (name: string) => `Category: ${name}`,
+      activeChannelFilter: (name: string) => `Channel: ${name}`,
+      colRank: '#',
+      colProduct: 'Product & Shop',
+      colPrice: 'Price',
+      colRevenue: 'Revenue (GMV)',
+      colUnits: 'Units',
+      colCommission: 'Comm %',
+      colPayout: 'Payout',
+      colChannels: 'Video / Live / Shop',
+      colScore: 'Score',
+      openStudioAction: 'Studio',
+      noMatchesTitle: 'No ranked products match these filters',
+      noMatchesDesc: 'Reset your category, channel, or search filters to view the full leaderboard.',
+      sortLabel: 'Sort by',
     },
   },
 };

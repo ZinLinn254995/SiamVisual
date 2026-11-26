@@ -8,8 +8,6 @@ import {
   Search,
   SlidersHorizontal,
   X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CompactFilterBar } from './components/CompactFilterBar';
@@ -17,6 +15,7 @@ import { DiscoveryFilterBar } from './components/DiscoveryFilterBar';
 import { HistoryView } from './components/HistoryView';
 import { KalodataBar } from './components/KalodataBar';
 import { ProductCard } from './components/ProductCard';
+import { ProductRankBoardView, RANK_BOARD_SYNC_COST } from './components/ProductRankBoardView';
 import { ScoreDetailDialog } from './components/ScoreDetailDialog';
 import { SearchConfigDrawer } from './components/SearchConfigDrawer';
 import { SearchHistoryView } from './components/SearchHistoryView';
@@ -64,6 +63,7 @@ import {
   loadKalodataLimits,
   loadLanguagePreference,
   loadProductAnalysisCache,
+  loadRankBoardSnapshot,
   loadRecentSearches,
   loadResultGridCols,
   loadResultListZoom,
@@ -85,6 +85,7 @@ import {
   saveKalodataLimits,
   saveLanguagePreference,
   saveProductAnalysisForProduct,
+  saveRankBoardSnapshot,
   saveResultGridCols,
   saveResultListZoom,
   saveResultViewMode,
@@ -109,11 +110,13 @@ import type {
   ProductKalodataMetrics,
   ProductObservationSnapshot,
   ProductValidatedMetrics,
+  RankBoardSnapshot,
   RecentSearchEntry,
   ResultGridCols,
   ResultListZoom,
   ResultViewMode,
   SavedHistoryEntry,
+  SearchDateRange,
   Theme,
   VideoAdPlan,
   VisualStyle,
@@ -294,6 +297,7 @@ export default function App() {
   });
   const resultsGridRef = useRef<HTMLDivElement | null>(null);
   const zoomHudTimerRef = useRef<number | null>(null);
+  const lastPinchEndedAtRef = useRef<number>(0);
   const [zoomHudText, setZoomHudText] = useState<string | null>(null);
   const [zoomDirection, setZoomDirection] = useState<1 | -1 | 0>(0);
 
@@ -347,6 +351,24 @@ export default function App() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [cameFromHistory, setCameFromHistory] = useState(false);
+  const [studioReturnTab, setStudioReturnTab] = useState<'discover' | 'rank_board' | 'history'>(
+    'discover'
+  );
+
+  // Executive Thailand TikTok Shop Product Rank Board state (restored locally at 0 cr, synced manually)
+  const [rankBoardSnapshot, setRankBoardSnapshot] = useState<RankBoardSnapshot | null>(() => {
+    const stored = loadRankBoardSnapshot();
+    if (!stored) return null;
+    return {
+      ...stored,
+      products: hydrateProductsFromStorage(stored.products, { nowMs: evaluationNowMs }),
+    };
+  });
+  const [rankBoardDateRange, setRankBoardDateRange] = useState<SearchDateRange>(
+    () => rankBoardSnapshot?.dateRange ?? 'last7Day'
+  );
+  const [isSyncingRankBoard, setIsSyncingRankBoard] = useState(false);
+  const [rankBoardError, setRankBoardError] = useState<string | null>(null);
 
   // Local history state
   const [history, setHistory] = useState<SavedHistoryEntry[]>(() => loadSavedHistory());
@@ -414,6 +436,64 @@ export default function App() {
     return null;
   }, [kalodataStatus, kalodataLimits, t]);
 
+  const rankBoardLimitWarning = useMemo(() => {
+    if (!kalodataStatus.connected) return null;
+    if (
+      kalodataLimits.maxSpendCredits !== null &&
+      kalodataLimits.trackedSpentCredits + RANK_BOARD_SYNC_COST >
+        kalodataLimits.maxSpendCredits + 0.0001
+    ) {
+      return t.kalodata.limitExceededMaxSpend(
+        kalodataLimits.trackedSpentCredits,
+        RANK_BOARD_SYNC_COST,
+        kalodataLimits.maxSpendCredits
+      );
+    }
+    const avail = kalodataStatus.balance?.available;
+    if (
+      kalodataLimits.minBalanceReserve !== null &&
+      avail !== null &&
+      avail !== undefined &&
+      avail - RANK_BOARD_SYNC_COST < kalodataLimits.minBalanceReserve - 0.0001
+    ) {
+      return t.kalodata.limitExceededReserve(
+        avail,
+        RANK_BOARD_SYNC_COST,
+        kalodataLimits.minBalanceReserve
+      );
+    }
+    return null;
+  }, [kalodataStatus, kalodataLimits, t]);
+
+  const rankBoardLimitWarning = useMemo(() => {
+    if (!kalodataStatus.connected) return null;
+    if (
+      kalodataLimits.maxSpendCredits !== null &&
+      kalodataLimits.trackedSpentCredits + RANK_BOARD_SYNC_COST >
+        kalodataLimits.maxSpendCredits + 0.0001
+    ) {
+      return t.kalodata.limitExceededMaxSpend(
+        kalodataLimits.trackedSpentCredits,
+        RANK_BOARD_SYNC_COST,
+        kalodataLimits.maxSpendCredits
+      );
+    }
+    const avail = kalodataStatus.balance?.available;
+    if (
+      kalodataLimits.minBalanceReserve !== null &&
+      avail !== null &&
+      avail !== undefined &&
+      avail - RANK_BOARD_SYNC_COST < kalodataLimits.minBalanceReserve - 0.0001
+    ) {
+      return t.kalodata.limitExceededReserve(
+        avail,
+        RANK_BOARD_SYNC_COST,
+        kalodataLimits.minBalanceReserve
+      );
+    }
+    return null;
+  }, [kalodataStatus, kalodataLimits, t]);
+
   useEffect(() => {
     let active = true;
     fetch('/api/kalodata/status')
@@ -458,6 +538,39 @@ export default function App() {
     document.documentElement.lang = language === 'my' ? 'my' : 'en';
     saveLanguagePreference(language);
   }, [language]);
+
+  // Suppress native browser long-press menus, text-selection popups, and image/link drag previews
+  // across the entire app while preserving typing & paste inside input/textarea fields.
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof Element)) return false;
+      return Boolean(target.closest('input, textarea, [contenteditable="true"]'));
+    };
+
+    const handleContextMenu = (e: MouseEvent) => {
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+    };
+
+    const handleSelectStart = (e: Event) => {
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+    };
+
+    const handleDragStart = (e: DragEvent) => {
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+    };
+
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('selectstart', handleSelectStart);
+    document.addEventListener('dragstart', handleDragStart);
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('selectstart', handleSelectStart);
+      document.removeEventListener('dragstart', handleDragStart);
+    };
+  }, []);
 
   // Measure live TopBar height so CompactFilterBar docks edge-to-edge on every viewport
   useEffect(() => {
@@ -878,6 +991,186 @@ export default function App() {
     }
   }
 
+  // Manual Update Sync (~0.4 cr) for the Thailand TikTok Shop Executive Product Rank Board
+  async function handleSyncRankBoard(targetDateRange?: SearchDateRange): Promise<void> {
+    const effectiveRange: SearchDateRange =
+      targetDateRange ?? rankBoardDateRange ?? 'last7Day';
+
+    if (!kalodataStatus.connected) {
+      setIsKalodataPanelOpen(true);
+      setRankBoardError(t.kalodata.connectRequiredError);
+      showToast(t.kalodata.connectRequiredError, 'error');
+      return;
+    }
+
+    if (rankBoardLimitWarning) {
+      setRankBoardError(rankBoardLimitWarning);
+      showToast(rankBoardLimitWarning, 'error');
+      return;
+    }
+
+    setIsSyncingRankBoard(true);
+    setRankBoardError(null);
+    try {
+      const response = await fetch('/api/rank-board/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dateRange: effectiveRange,
+          minBalanceReserve: kalodataLimits.minBalanceReserve,
+          maxSpendRemaining,
+        }),
+      });
+      const data = await parseApiJson<{
+        snapshot?: RankBoardSnapshot;
+        creditsUsed?: number | null;
+        balance?: KalodataCreditBalance | null;
+        code?: string;
+        error?: string;
+      }>(response, language);
+
+      if (!response.ok || !data.snapshot) {
+        if (data.code === 'KALODATA_NOT_CONNECTED') {
+          setKalodataStatus((prev) => ({ ...prev, connected: false, balance: null }));
+          setIsKalodataPanelOpen(true);
+          throw new Error(t.kalodata.connectRequiredError);
+        }
+        throw new Error(data.error || 'Could not sync Thailand TikTok Shop Rank Board.');
+      }
+
+      const nowMs = Date.now();
+      setEvaluationNowMs(nowMs);
+      const hydratedProducts = hydrateProductsFromStorage(data.snapshot.products, { nowMs });
+
+      if (hydratedProducts.length > 0) {
+        const snapshotUpdate = recordProductSnapshotsInStorage(hydratedProducts, { nowMs });
+        if (snapshotUpdate.addedCount > 0 || snapshotUpdate.updatedCount > 0) {
+          setProductSnapshots(snapshotUpdate.snapshotsByProductId);
+        }
+      }
+
+      const nextSnapshot: RankBoardSnapshot = {
+        ...data.snapshot,
+        products: hydratedProducts,
+      };
+      setRankBoardSnapshot(nextSnapshot);
+      setRankBoardDateRange(nextSnapshot.dateRange);
+      saveRankBoardSnapshot(nextSnapshot);
+
+      if (data.balance) {
+        setKalodataStatus((prev) => ({ ...prev, balance: data.balance ?? prev.balance }));
+      }
+      const spent =
+        typeof data.creditsUsed === 'number' ? data.creditsUsed : RANK_BOARD_SYNC_COST;
+      recordSpentCredits(spent);
+
+      showToast(
+        t.rankBoard.syncedToast(
+          nextSnapshot.products.length,
+          nextSnapshot.categoryMarket.length
+        ),
+        'neutral'
+      );
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : 'Could not sync Thailand TikTok Shop Rank Board.';
+      setRankBoardError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setIsSyncingRankBoard(false);
+    }
+  }
+
+  // Manual Update Sync (~0.4 cr) for the Thailand TikTok Shop Executive Product Rank Board
+  async function handleSyncRankBoard(targetDateRange?: SearchDateRange): Promise<void> {
+    const effectiveRange: SearchDateRange =
+      targetDateRange ?? rankBoardDateRange ?? 'last7Day';
+
+    if (!kalodataStatus.connected) {
+      setIsKalodataPanelOpen(true);
+      setRankBoardError(t.kalodata.connectRequiredError);
+      showToast(t.kalodata.connectRequiredError, 'error');
+      return;
+    }
+
+    if (rankBoardLimitWarning) {
+      setRankBoardError(rankBoardLimitWarning);
+      showToast(rankBoardLimitWarning, 'error');
+      return;
+    }
+
+    setIsSyncingRankBoard(true);
+    setRankBoardError(null);
+    try {
+      const response = await fetch('/api/rank-board/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dateRange: effectiveRange,
+          minBalanceReserve: kalodataLimits.minBalanceReserve,
+          maxSpendRemaining,
+        }),
+      });
+      const data = await parseApiJson<{
+        snapshot?: RankBoardSnapshot;
+        creditsUsed?: number | null;
+        balance?: KalodataCreditBalance | null;
+        code?: string;
+        error?: string;
+      }>(response, language);
+
+      if (!response.ok || !data.snapshot) {
+        if (data.code === 'KALODATA_NOT_CONNECTED') {
+          setKalodataStatus((prev) => ({ ...prev, connected: false, balance: null }));
+          setIsKalodataPanelOpen(true);
+          throw new Error(t.kalodata.connectRequiredError);
+        }
+        throw new Error(data.error || 'Could not sync Thailand TikTok Shop Rank Board.');
+      }
+
+      const nowMs = Date.now();
+      setEvaluationNowMs(nowMs);
+      const hydratedProducts = hydrateProductsFromStorage(data.snapshot.products, { nowMs });
+
+      if (hydratedProducts.length > 0) {
+        const snapshotUpdate = recordProductSnapshotsInStorage(hydratedProducts, { nowMs });
+        if (snapshotUpdate.addedCount > 0 || snapshotUpdate.updatedCount > 0) {
+          setProductSnapshots(snapshotUpdate.snapshotsByProductId);
+        }
+      }
+
+      const nextSnapshot: RankBoardSnapshot = {
+        ...data.snapshot,
+        products: hydratedProducts,
+      };
+      setRankBoardSnapshot(nextSnapshot);
+      setRankBoardDateRange(nextSnapshot.dateRange);
+      saveRankBoardSnapshot(nextSnapshot);
+
+      if (data.balance) {
+        setKalodataStatus((prev) => ({ ...prev, balance: data.balance ?? prev.balance }));
+      }
+      const spent =
+        typeof data.creditsUsed === 'number' ? data.creditsUsed : RANK_BOARD_SYNC_COST;
+      recordSpentCredits(spent);
+
+      showToast(
+        t.rankBoard.syncedToast(
+          nextSnapshot.products.length,
+          nextSnapshot.categoryMarket.length
+        ),
+        'neutral'
+      );
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : 'Could not sync Thailand TikTok Shop Rank Board.';
+      setRankBoardError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setIsSyncingRankBoard(false);
+    }
+  }
+
   // Kalodata API Search (reuses 10-min server cache unless forceRefresh=true; supports pageSize & dateRange)
   async function runProductSearch(options?: {
     pageNumber?: number;
@@ -917,12 +1210,14 @@ export default function App() {
       return;
     }
 
-    if (effectiveLinkInfo.isLinkOrId && !effectiveLinkInfo.productId) {
+    if (
+      effectiveLinkInfo.isLinkOrId &&
+      !effectiveLinkInfo.productId &&
+      !effectiveLinkInfo.isShortLink
+    ) {
       setHasSearched(true);
       setProducts([]);
-      setSearchError(
-        effectiveLinkInfo.isShortLink ? t.search.shortLinkNotice : t.search.invalidLinkNotice
-      );
+      setSearchError(t.search.invalidLinkNotice);
       return;
     }
 
@@ -1333,7 +1628,7 @@ export default function App() {
     setIsAnalyzingProduct(true);
     setAnalysisError(null);
     const controller = new AbortController();
-    const clientTimer = window.setTimeout(() => controller.abort(), 90000);
+    const clientTimer = window.setTimeout(() => controller.abort(), 105000);
     try {
       const response = await fetch('/api/products/analyze', {
         method: 'POST',
@@ -1346,7 +1641,7 @@ export default function App() {
         language
       );
       if (!data.analysis) {
-        throw new Error('Unable to analyze product right now.');
+        throw new Error('Unable to generate video ideas right now.');
       }
 
       saveProductAnalysisForProduct(targetProductId, data.analysis);
@@ -1372,12 +1667,12 @@ export default function App() {
         if (err instanceof Error && err.name === 'AbortError') {
           setAnalysisError(
             language === 'my'
-              ? 'AI သုံးသပ်ချက် ဖန်တီးချိန် ကြာသွားပါသည် — ထပ်မံကြိုးစားပေးပါ။'
-              : 'AI product analysis timed out. Please try again.'
+              ? 'AI Video Ideas စဉ်းစားချိန် ကြာသွားပါသည် — ထပ်မံကြိုးစားပေးပါ။'
+              : 'AI Video Ideas generation timed out. Please try again.'
           );
         } else {
           setAnalysisError(
-            err instanceof Error ? err.message : 'Unable to analyze product right now.'
+            err instanceof Error ? err.message : 'Unable to generate video ideas right now.'
           );
         }
       }
@@ -1404,7 +1699,12 @@ export default function App() {
   }
 
   // Opens Video Studio cleanly — NEVER auto-generates Video Ideas!
-  function handleSelectProduct(product: ProductItem) {
+  function handleSelectProduct(
+    product: ProductItem,
+    sourceTab: 'discover' | 'rank_board' = 'discover'
+  ) {
+    // Ignore stray click synthesized right after lifting two fingers from a pinch gesture
+    if (sourceTab === 'discover' && Date.now() - lastPinchEndedAtRef.current < 280) return;
     const hydrated = hydrateProductFromStorage(product, { nowMs: evaluationNowMs });
     const defaultStyle: VisualStyle = 'cinematic';
     const existingSavedPlan = findSavedPlanFor(hydrated.id, defaultStyle);
@@ -1420,6 +1720,7 @@ export default function App() {
     setIsEnrichingProduct(false);
     setIsAnalyzingProduct(false);
     setCameFromHistory(false);
+    setStudioReturnTab(sourceTab);
     setActiveTab('studio');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -1440,6 +1741,7 @@ export default function App() {
     setIsEnrichingProduct(false);
     setIsAnalyzingProduct(false);
     setCameFromHistory(true);
+    setStudioReturnTab('history');
     setActiveTab('studio');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -1537,8 +1839,9 @@ export default function App() {
   }
 
   const hasLiveSyncedCategories = categories.some((c) => c.source === 'kalodata_live');
-  const isSingleLinkValid = linkInfo.isLinkOrId && Boolean(linkInfo.productId);
-  const isLinkBroken = linkInfo.isLinkOrId && !linkInfo.productId;
+  const isSingleLinkValid =
+    linkInfo.isLinkOrId && (Boolean(linkInfo.productId) || linkInfo.isShortLink);
+  const isLinkBroken = linkInfo.isLinkOrId && !linkInfo.productId && !linkInfo.isShortLink;
   const activeRecentEntry = useMemo(
     () => recentSearches.find((entry) => entry.id === activeRecentId) ?? null,
     [recentSearches, activeRecentId]
@@ -1683,7 +1986,7 @@ export default function App() {
       viewportTier === 'mobile'
         ? [3, 2, 1]
         : viewportTier === 'tablet'
-          ? [4, 3, 2]
+          ? [4, 3, 2, 1]
           : [5, 4, 3, 2],
     [viewportTier]
   );
@@ -1701,10 +2004,6 @@ export default function App() {
   })();
 
   const zoomIndex = Math.max(0, zoomColsSequence.indexOf(effectiveGridCols));
-  const maxZoomIndex = zoomColsSequence.length - 1;
-
-  const activeZoomIndex = resultViewMode === 'list' ? listZoomLevel : zoomIndex;
-  const activeMaxZoomIndex = resultViewMode === 'list' ? 2 : maxZoomIndex;
 
   const gridCardDensity: CardDensity = (() => {
     if (zoomIndex === 0) return 'micro';
@@ -1717,6 +2016,7 @@ export default function App() {
     }
     if (
       (viewportTier === 'desktop' && effectiveGridCols === 2) ||
+      (viewportTier === 'tablet' && effectiveGridCols === 1) ||
       (viewportTier === 'mobile' && effectiveGridCols === 1)
     ) {
       return 'spacious';
@@ -1759,48 +2059,6 @@ export default function App() {
   const layoutTransitionKey =
     resultViewMode === 'list' ? `list-${listZoomLevel}` : `grid-${effectiveGridCols}`;
 
-  const flashZoomHud = (label: string) => {
-    setZoomHudText(label);
-    if (zoomHudTimerRef.current !== null) {
-      window.clearTimeout(zoomHudTimerRef.current);
-    }
-    zoomHudTimerRef.current = window.setTimeout(() => {
-      setZoomHudText(null);
-      zoomHudTimerRef.current = null;
-    }, 900);
-  };
-
-  const getListZoomHudLabel = (level: ResultListZoom) => {
-    if (level === 0) return `List · ${t.discover.microViewTag}`;
-    if (level === 1) return `List · ${t.discover.listCompactTag}`;
-    return `List · ${t.discover.listDetailedTag}`;
-  };
-
-  const applyActiveZoomIndex = (nextIndex: number, announceHud = true) => {
-    if (resultViewMode === 'list') {
-      const clamped = Math.max(0, Math.min(2, nextIndex)) as ResultListZoom;
-      if (clamped === listZoomLevel) return false;
-      setZoomDirection(clamped > listZoomLevel ? 1 : -1);
-      setListZoomLevel(clamped);
-      saveResultListZoom(clamped);
-      if (announceHud) {
-        flashZoomHud(getListZoomHudLabel(clamped));
-      }
-      return true;
-    }
-
-    const clamped = Math.max(0, Math.min(zoomColsSequence.length - 1, nextIndex));
-    const nextCols = zoomColsSequence[clamped];
-    if (nextCols === effectiveGridCols) return false;
-    setZoomDirection(clamped > zoomIndex ? 1 : -1);
-    setStoredGridCols(nextCols);
-    saveResultGridCols(nextCols);
-    if (announceHud) {
-      flashZoomHud(clamped === 0 ? `${nextCols}× · ${t.discover.microViewTag}` : `${nextCols}×`);
-    }
-    return true;
-  };
-
   // Keep latest zoom state in refs so Android Gallery two-finger pinch never tears down mid-gesture
   const zoomGestureStateRef = useRef({
     viewMode: resultViewMode,
@@ -1824,23 +2082,54 @@ export default function App() {
   const canPinchResults =
     activeTab === 'discover' &&
     !isSearching &&
+    !isSearchDrawerOpen &&
+    !scoreDialogProduct &&
     (resultViewMode === 'list'
-      ? intelligenceView.rankedEntries.length > 0
-      : intelligenceView.rankedEntries.length > 1);
+      ? displayedRankedEntries.length > 0
+      : displayedRankedEntries.length > 1);
 
-  // Android Gallery-style two-finger pinch-to-zoom + desktop trackpad pinch (Ctrl+Wheel) for BOTH Grid & List
+  // Android Gallery-style two-finger pinch-to-zoom + iOS Safari gesture + desktop trackpad pinch (Ctrl+Wheel)
+  // Attached at window level with touch-action: pan-y lock so Android Chrome / tablets never hijack
+  // two-finger pinches into native browser page zoom or drop listeners across conditional mounts.
   useEffect(() => {
-    const containerEl = resultsGridRef.current;
-    if (!canPinchResults || !containerEl) return;
+    if (!canPinchResults) return;
+
+    const rootEl = document.documentElement;
+    const bodyEl = document.body;
+    rootEl.classList.add('pinch-zoom-surface');
+    bodyEl.classList.add('pinch-zoom-surface');
 
     let pinchActive = false;
     let anchorDistance = 0;
+    let lastStepAt = 0;
     let wheelAccum = 0;
+    let safariAnchorScale = 1;
 
     const getTouchDistance = (touches: TouchList) => {
       const dx = touches[0].clientX - touches[1].clientX;
       const dy = touches[0].clientY - touches[1].clientY;
       return Math.hypot(dx, dy);
+    };
+
+    const isTargetInsideHeaderOrOverlay = (target: EventTarget | null): boolean => {
+      if (!(target instanceof Element)) return false;
+      return Boolean(target.closest('header, [role="dialog"], input, textarea'));
+    };
+
+    const isPinchOverResultsArea = (e: TouchEvent): boolean => {
+      const containerEl = resultsGridRef.current;
+      if (!containerEl) return false;
+      if (isTargetInsideHeaderOrOverlay(e.target)) return false;
+      if (containerEl.contains(e.target as Node)) return true;
+
+      // Also capture pinches where fingers rest in tablet/desktop side gutters next to the grid
+      const rect = containerEl.getBoundingClientRect();
+      if (rect.height <= 0) return false;
+      const t0 = e.touches[0];
+      const t1 = e.touches[1];
+      if (!t0 || !t1) return false;
+      const midY = (t0.clientY + t1.clientY) / 2;
+      return midY >= Math.max(0, rect.top - 120) && midY <= rect.bottom + 120;
     };
 
     const triggerHapticAndHud = (label: string) => {
@@ -1861,12 +2150,32 @@ export default function App() {
       }, 900);
     };
 
+    const pulseContainerFeedback = (direction: 1 | -1) => {
+      const containerEl = resultsGridRef.current;
+      if (!containerEl) return;
+      containerEl.style.transition = 'none';
+      containerEl.style.transform = direction === 1 ? 'scale(0.965)' : 'scale(1.035)';
+      requestAnimationFrame(() => {
+        if (!resultsGridRef.current) return;
+        resultsGridRef.current.style.transition =
+          'transform 200ms cubic-bezier(0.16, 1, 0.3, 1)';
+        resultsGridRef.current.style.transform = 'scale(1)';
+      });
+    };
+
     const stepZoomFromGesture = (direction: 1 | -1) => {
+      const now = Date.now();
+      if (now - lastStepAt < 130) return false;
+
       const state = zoomGestureStateRef.current;
 
       if (state.viewMode === 'list') {
-        const nextLevel = Math.max(0, Math.min(2, state.listZoomLevel + direction)) as ResultListZoom;
+        const nextLevel = Math.max(
+          0,
+          Math.min(2, state.listZoomLevel + direction)
+        ) as ResultListZoom;
         if (nextLevel === state.listZoomLevel) return false;
+        lastStepAt = now;
         state.listZoomLevel = nextLevel;
         setZoomDirection(direction);
         setListZoomLevel(nextLevel);
@@ -1878,11 +2187,16 @@ export default function App() {
               ? `List · ${state.listCompactLabel}`
               : `List · ${state.listDetailedLabel}`;
         triggerHapticAndHud(label);
+        pulseContainerFeedback(direction);
         return true;
       }
 
-      const nextIdx = Math.max(0, Math.min(state.sequence.length - 1, state.zoomIndex + direction));
+      const nextIdx = Math.max(
+        0,
+        Math.min(state.sequence.length - 1, state.zoomIndex + direction)
+      );
       if (nextIdx === state.zoomIndex) return false;
+      lastStepAt = now;
       const nextCols = state.sequence[nextIdx];
       state.zoomIndex = nextIdx;
       setZoomDirection(direction);
@@ -1890,80 +2204,143 @@ export default function App() {
       saveResultGridCols(nextCols);
       const label = nextIdx === 0 ? `${nextCols}× · ${state.microLabel}` : `${nextCols}×`;
       triggerHapticAndHud(label);
+      pulseContainerFeedback(direction);
       return true;
     };
 
+    const resetContainerTransform = () => {
+      const containerEl = resultsGridRef.current;
+      if (!containerEl) return;
+      containerEl.style.transition = 'transform 180ms cubic-bezier(0.16, 1, 0.3, 1)';
+      containerEl.style.transform = '';
+    };
+
     const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
+      if (e.touches.length === 2 && isPinchOverResultsArea(e)) {
         pinchActive = true;
-        anchorDistance = Math.max(getTouchDistance(e.touches), 24);
-        containerEl.style.transition = 'none';
-      } else {
+        anchorDistance = Math.max(getTouchDistance(e.touches), 20);
+        if (e.cancelable) e.preventDefault();
+        const containerEl = resultsGridRef.current;
+        if (containerEl) {
+          containerEl.style.transition = 'none';
+        }
+      } else if (e.touches.length !== 2 && pinchActive) {
         pinchActive = false;
-        containerEl.style.transform = '';
+        lastPinchEndedAtRef.current = Date.now();
+        resetContainerTransform();
       }
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (!pinchActive || e.touches.length !== 2) return;
-      e.preventDefault();
+      if (e.touches.length !== 2) return;
+
+      // Auto-initialize pinch if the 2nd finger landed mid-scroll or after touchstart
+      if (!pinchActive) {
+        if (!isPinchOverResultsArea(e)) return;
+        pinchActive = true;
+        anchorDistance = Math.max(getTouchDistance(e.touches), 20);
+      }
+
+      if (e.cancelable) e.preventDefault();
+
       const dist = getTouchDistance(e.touches);
-      const ratio = dist / anchorDistance;
+      const delta = dist - anchorDistance;
+      const ratio = dist / Math.max(anchorDistance, 20);
 
       // Subtle tactile elastic scale feedback during pinch
-      const previewScale = Math.max(0.95, Math.min(1.05, 1 + (ratio - 1) * 0.16));
-      containerEl.style.transform = `scale(${previewScale.toFixed(3)})`;
+      const containerEl = resultsGridRef.current;
+      if (containerEl) {
+        const previewScale = Math.max(0.94, Math.min(1.06, 1 + (ratio - 1) * 0.18));
+        containerEl.style.transition = 'none';
+        containerEl.style.transform = `scale(${previewScale.toFixed(3)})`;
+      }
 
-      if (ratio >= 1.22) {
+      if (ratio >= 1.14 || delta >= 34) {
         if (stepZoomFromGesture(1)) {
-          anchorDistance = Math.max(dist, 24);
-          containerEl.style.transition = 'none';
-          containerEl.style.transform = 'scale(1)';
+          anchorDistance = Math.max(dist, 20);
         }
-      } else if (ratio <= 0.8) {
+      } else if (ratio <= 0.88 || delta <= -34) {
         if (stepZoomFromGesture(-1)) {
-          anchorDistance = Math.max(dist, 24);
-          containerEl.style.transition = 'none';
-          containerEl.style.transform = 'scale(1)';
+          anchorDistance = Math.max(dist, 20);
         }
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
+      if (pinchActive && e.touches.length < 2) {
         pinchActive = false;
-        containerEl.style.transition = 'transform 200ms cubic-bezier(0.16, 1, 0.3, 1)';
-        containerEl.style.transform = '';
+        lastPinchEndedAtRef.current = Date.now();
+        resetContainerTransform();
       }
     };
 
+    // Safari / iPadOS gesture events fallback
+    const onGestureStart = (e: Event) => {
+      if (isTargetInsideHeaderOrOverlay(e.target)) return;
+      e.preventDefault();
+      const ge = e as Event & { scale?: number };
+      safariAnchorScale = typeof ge.scale === 'number' && ge.scale > 0 ? ge.scale : 1;
+    };
+
+    const onGestureChange = (e: Event) => {
+      if (isTargetInsideHeaderOrOverlay(e.target)) return;
+      e.preventDefault();
+      const ge = e as Event & { scale?: number };
+      const scale = typeof ge.scale === 'number' && ge.scale > 0 ? ge.scale : 1;
+      const rel = scale / safariAnchorScale;
+      if (rel >= 1.14) {
+        if (stepZoomFromGesture(1)) {
+          safariAnchorScale = scale;
+        }
+      } else if (rel <= 0.88) {
+        if (stepZoomFromGesture(-1)) {
+          safariAnchorScale = scale;
+        }
+      }
+    };
+
+    const onGestureEnd = () => {
+      safariAnchorScale = 1;
+      lastPinchEndedAtRef.current = Date.now();
+      resetContainerTransform();
+    };
+
+    // Desktop trackpad pinch (Ctrl/Cmd + Wheel)
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
+      if (isTargetInsideHeaderOrOverlay(e.target)) return;
       e.preventDefault();
       wheelAccum += e.deltaY;
-      if (wheelAccum <= -36) {
+      if (wheelAccum <= -30) {
         stepZoomFromGesture(1);
         wheelAccum = 0;
-      } else if (wheelAccum >= 36) {
+      } else if (wheelAccum >= 30) {
         stepZoomFromGesture(-1);
         wheelAccum = 0;
       }
     };
 
-    containerEl.addEventListener('touchstart', onTouchStart, { passive: true });
-    containerEl.addEventListener('touchmove', onTouchMove, { passive: false });
-    containerEl.addEventListener('touchend', onTouchEnd, { passive: true });
-    containerEl.addEventListener('touchcancel', onTouchEnd, { passive: true });
-    containerEl.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('touchstart', onTouchStart, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    window.addEventListener('gesturestart', onGestureStart, { passive: false });
+    window.addEventListener('gesturechange', onGestureChange, { passive: false });
+    window.addEventListener('gestureend', onGestureEnd, { passive: true });
+    window.addEventListener('wheel', onWheel, { passive: false });
 
     return () => {
-      containerEl.style.transform = '';
-      containerEl.style.transition = '';
-      containerEl.removeEventListener('touchstart', onTouchStart);
-      containerEl.removeEventListener('touchmove', onTouchMove);
-      containerEl.removeEventListener('touchend', onTouchEnd);
-      containerEl.removeEventListener('touchcancel', onTouchEnd);
-      containerEl.removeEventListener('wheel', onWheel);
+      rootEl.classList.remove('pinch-zoom-surface');
+      bodyEl.classList.remove('pinch-zoom-surface');
+      resetContainerTransform();
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
+      window.removeEventListener('gesturestart', onGestureStart);
+      window.removeEventListener('gesturechange', onGestureChange);
+      window.removeEventListener('gestureend', onGestureEnd);
+      window.removeEventListener('wheel', onWheel);
     };
   }, [canPinchResults]);
 
@@ -2021,6 +2398,7 @@ export default function App() {
           headerHiddenRef.current = false;
           setIsHeaderHidden(false);
         }}
+        studioReturnTab={studioReturnTab}
         t={t}
       />
 
@@ -2301,46 +2679,6 @@ export default function App() {
                                   <span className="hidden sm:inline">List</span>
                                 </button>
                               </div>
-
-                              {(resultViewMode === 'list' || filteredProducts.length > 1) && (
-                                <div
-                                  role="group"
-                                  aria-label={t.discover.pinchZoomHint}
-                                  title={t.discover.pinchZoomHint}
-                                  className="inline-flex items-center gap-1 h-9 px-1 rounded-lg bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/75 dark:border-slate-700/70"
-                                >
-                                  <button
-                                    type="button"
-                                    disabled={activeZoomIndex <= 0}
-                                    onClick={() => applyActiveZoomIndex(activeZoomIndex - 1)}
-                                    aria-label={t.discover.zoomOut}
-                                    title={t.discover.zoomOut}
-                                    className="h-8 w-8 rounded-md inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-[#131B24] hover:text-slate-900 dark:hover:text-white transition-colors disabled:opacity-35 cursor-pointer disabled:cursor-default"
-                                  >
-                                    <ZoomOut className="w-3.5 h-3.5" />
-                                  </button>
-                                  <input
-                                    type="range"
-                                    min={0}
-                                    max={activeMaxZoomIndex}
-                                    step={1}
-                                    value={activeZoomIndex}
-                                    onChange={(e) => applyActiveZoomIndex(Number(e.target.value))}
-                                    aria-label={t.discover.pinchZoomHint}
-                                    className="w-14 sm:w-20 h-1.5 accent-teal-600 dark:accent-teal-400 cursor-pointer"
-                                  />
-                                  <button
-                                    type="button"
-                                    disabled={activeZoomIndex >= activeMaxZoomIndex}
-                                    onClick={() => applyActiveZoomIndex(activeZoomIndex + 1)}
-                                    aria-label={t.discover.zoomIn}
-                                    title={t.discover.zoomIn}
-                                    className="h-8 w-8 rounded-md inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-[#131B24] hover:text-slate-900 dark:hover:text-white transition-colors disabled:opacity-35 cursor-pointer disabled:cursor-default"
-                                  >
-                                    <ZoomIn className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              )}
                             </div>
                           )}
                         </div>
@@ -2492,23 +2830,7 @@ export default function App() {
                                   : undefined
                               }
                             >
-                              <motion.div
-                                key={`${layoutTransitionKey}-${discoveryFilter.sortMode}`}
-                                initial={{
-                                  opacity: 0.35,
-                                  scale:
-                                    zoomDirection === 1
-                                      ? 0.94
-                                      : zoomDirection === -1
-                                        ? 1.06
-                                        : 0.985,
-                                }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-                                style={{
-                                  transformOrigin: 'center top',
-                                  willChange: 'transform, opacity',
-                                }}
+                              <div
                                 className={
                                   resultViewMode === 'list'
                                     ? `flex flex-col ${activeListGapClass} ${
@@ -2538,7 +2860,7 @@ export default function App() {
                                     onOpenScoreDetails={setScoreDialogProduct}
                                   />
                                 ))}
-                              </motion.div>
+                              </div>
 
                               {/* Multi-Page Kalodata Rank Exploration Control */}
                               {lastSearchMode === 'rank' && hasMorePages && (
@@ -2666,6 +2988,34 @@ export default function App() {
             </motion.div>
           )}
 
+          {activeTab === 'rank_board' && (
+            <motion.div
+              key="rank_board"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16 }}
+            >
+              <ProductRankBoardView
+                snapshot={rankBoardSnapshot}
+                dateRange={rankBoardDateRange}
+                isSyncing={isSyncingRankBoard}
+                syncError={rankBoardError}
+                limitWarning={rankBoardLimitWarning}
+                kalodataStatus={kalodataStatus}
+                savedProductIds={savedProductIds}
+                language={language}
+                nowMs={evaluationNowMs}
+                t={t}
+                onChangeDateRange={setRankBoardDateRange}
+                onSync={handleSyncRankBoard}
+                onOpenConnectPanel={() => setIsKalodataPanelOpen(true)}
+                onSelectProduct={(p) => handleSelectProduct(p, 'rank_board')}
+                onToggleSaveProduct={handleToggleSaveProduct}
+              />
+            </motion.div>
+          )}
+
           {activeTab === 'search_history' && (
             <motion.div
               key="search_history"
@@ -2710,12 +3060,13 @@ export default function App() {
                 analysisError={analysisError}
                 error={planError}
                 cameFromHistory={cameFromHistory}
+                returnTab={studioReturnTab}
                 language={language}
                 nowMs={evaluationNowMs}
                 kalodataStatus={kalodataStatus}
                 kalodataLimits={kalodataLimits}
                 t={t}
-                onBack={() => setActiveTab(cameFromHistory ? 'history' : 'discover')}
+                onBack={() => setActiveTab(studioReturnTab)}
                 onToggleSave={handleToggleSaveProduct}
                 onSelectStyle={handleStyleChange}
                 onConfirmGenerate={handleConfirmGeneratePlan}
