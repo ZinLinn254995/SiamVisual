@@ -1,6 +1,7 @@
 import type {
   BilingualText,
   CommercialScoreV2Result,
+  HistoricalProductTrendReport,
   ProductDiscoveryShortlistResult,
   ProductItem,
   ProductObservationSnapshot,
@@ -8,7 +9,12 @@ import type {
   SnapshotTrendDerivation,
 } from '../types.ts';
 import { classifyProductDiscoveryShortlist } from './discoveryShortlist.ts';
+import { analyzeProductHistoricalTrends } from './historicalTrendIntelligence.ts';
 import { isUsableScoringMetric } from './metricFoundation.ts';
+import {
+  analyzeDetailRevenueTrend,
+  type RevenueTrendAnalysis,
+} from './revenueTrendAnalyzer.ts';
 import { deriveSnapshotTrend } from './snapshotStore.ts';
 
 export type ProductQualificationBucket =
@@ -40,7 +46,9 @@ export interface ProductEvidenceSummary {
     importedUnverifiedCount: number;
     multiDayTrendAvailable: boolean;
     trend: SnapshotTrendDerivation | null;
+    trendReport: HistoricalProductTrendReport;
   };
+  detailRevenueTrend: RevenueTrendAnalysis;
   nonGuaranteeNotice: BilingualText;
 }
 
@@ -91,6 +99,17 @@ export function buildProductEvidenceSummary(params: {
     dateRange: validated.dateRange ?? 'last7Day',
     nowMs,
     includeImportedReference: false,
+  });
+  const trendReport = analyzeProductHistoricalTrends(snapshots, {
+    productId: product.id,
+    dateRange: validated.dateRange ?? 'last7Day',
+    nowMs,
+  });
+  const detailRevenueTrend = analyzeDetailRevenueTrend({
+    dailyValues: product.kalodataMetrics?.revenueTrendThb,
+    reportedRevenueThb:
+      product.kalodataMetrics?.revenueThb7d ?? validated.revenueThb7d.value ?? null,
+    dateRange: product.kalodataMetrics?.dateRange ?? validated.dateRange ?? 'last7Day',
   });
 
   // 2. VERIFIED FACTS (Strictly usable SOURCE observations only)
@@ -263,11 +282,29 @@ export function buildProductEvidenceSummary(params: {
       },
     });
   } else {
+    const rawCreatorNum =
+      typeof validated.creatorCount.rawInput === 'number' &&
+      Number.isFinite(validated.creatorCount.rawInput) &&
+      validated.creatorCount.rawInput > 0
+        ? Math.round(validated.creatorCount.rawInput)
+        : null;
+    const windowTag =
+      (product.kalodataMetrics?.dateRange ?? validated.dateRange) === 'last30Day' ? '30d' : '7d';
+    const rawRevForRpc =
+      product.kalodataMetrics?.revenueThb7d ?? validated.revenueThb7d.value ?? null;
+    const rawRpcNoteEn =
+      rawCreatorNum !== null && rawRevForRpc !== null && rawRevForRpc > 0
+        ? ` (~${formatThb(rawRevForRpc / rawCreatorNum)}/active creator)`
+        : '';
+    const rawRpcNoteMy =
+      rawCreatorNum !== null && rawRevForRpc !== null && rawRevForRpc > 0
+        ? ` (ပျမ်းမျှ ${formatThb(rawRevForRpc / rawCreatorNum)}/active creator)`
+        : '';
     const rawCreatorNote =
       validated.creatorCount.unit === 'UNVERIFIED' && validated.creatorCount.rawInput !== null
         ? {
-            en: `Creator competition is UNKNOWN — upstream count (${validated.creatorCount.rawInput}) has unverified scope (active vs lifetime creators) and is excluded from scoring.`,
-            my: `Creator ပြိုင်ဆိုင်မှုကို မသိရသေးပါ — မူရင်းဂဏန်း (${validated.creatorCount.rawInput}) ၏ အချိန်အတိုင်းအတာ အတည်မပြုနိုင်သေးသဖြင့် အမှတ်မတွက်ပါ။`,
+            en: `Window-verified ${windowTag} active creators (${validated.creatorCount.rawInput})${rawRpcNoteEn}, but posting vs. selling creator split and top-creator concentration are unverified — excluded from Competition Score.`,
+            my: `${windowTag} အတွင်း active creator အရေအတွက် (${validated.creatorCount.rawInput})${rawRpcNoteMy} ကို အတည်ပြုထားသော်လည်း ရောင်းထွက်သူအရေအတွက်နှင့် Top Creator ခွဲဝေမှု မသိရသေးသဖြင့် Competition Score တွင် မထည့်တွက်ပါ။`,
           }
         : {
             en: 'Creator competition is UNKNOWN — not returned on /rank discovery rows. Never assume low competition.',
@@ -298,14 +335,26 @@ export function buildProductEvidenceSummary(params: {
       },
     });
   } else {
+    const rawLifetimeReviews =
+      typeof validated.reviewCount.rawInput === 'number' &&
+      Number.isFinite(validated.reviewCount.rawInput) &&
+      validated.reviewCount.rawInput >= 0
+        ? Math.round(validated.reviewCount.rawInput)
+        : null;
     unavailableEvidence.push({
       id: 'quality_unavailable',
       label: { en: 'Customer Quality', my: 'ဝယ်သူအရည်အသွေး' },
       value: validated.rating.state === 'UNAVAILABLE' ? 'UNAVAILABLE' : 'UNVERIFIED',
-      detail: {
-        en: 'Verified product rating and review semantics are unavailable on tested Kalodata endpoints.',
-        my: 'Kalodata မှ Rating နှင့် Review အတည်ပြုဒေတာ မရရှိနိုင်သေးပါ။',
-      },
+      detail:
+        rawLifetimeReviews !== null
+          ? {
+              en: `Cumulative lifetime PDP reviews (${rawLifetimeReviews.toLocaleString()}) observed on /detail, but Star Rating is confirmed UNAVAILABLE on Kalodata /rank & /detail.`,
+              my: `/detail တွင် တစ်သက်တာ စုစုပေါင်း PDP Review (${rawLifetimeReviews.toLocaleString()}) တွေ့ရသော်လည်း ကြယ်အဆင့် (Star Rating) မပါဝင်သဖြင့် Customer Quality အမှတ် မတွက်ပါ။`,
+            }
+          : {
+              en: 'Verified product star rating is confirmed UNAVAILABLE on tested Kalodata endpoints.',
+              my: 'Kalodata မှ ကြယ်အဆင့် (Star Rating) အတည်ပြုဒေတာ မရရှိနိုင်သေးပါ။',
+            },
     });
   }
 
@@ -359,18 +408,53 @@ export function buildProductEvidenceSummary(params: {
     });
   }
 
-  if (localTrend) {
-    const revDelta =
-      localTrend.revenueDeltaPct !== null
-        ? `${localTrend.revenueDeltaPct > 0 ? '+' : ''}${localTrend.revenueDeltaPct}%`
-        : '—';
+  if (detailRevenueTrend.status === 'VERIFIED_30D') {
+    const growthDisplay =
+      detailRevenueTrend.growth7dBaselineStatus === 'ZERO_BASELINE'
+        ? `Zero Base (+${formatThb(detailRevenueTrend.growth7dAbsThb ?? 0)})`
+        : detailRevenueTrend.growth7dBaselineStatus === 'ALL_ZERO'
+          ? 'All 0'
+          : detailRevenueTrend.growth7dPct !== null
+            ? `${detailRevenueTrend.growth7dPct > 0 ? '+' : ''}${detailRevenueTrend.growth7dPct}%`
+            : '—';
+    derivedCalculations.push({
+      id: 'derived_30d_revenue_trend',
+      label: { en: '30d Daily Trend (7d vs Prev 7d)', my: '၃၀ ရက် နေ့စဉ်လမ်းကြောင်း (7d vs ရှေ့ 7d)' },
+      value: `${detailRevenueTrend.classification} · ${growthDisplay}`,
+      detail: detailRevenueTrend.explanation,
+    });
+  }
+
+  if (
+    trendReport.overallTrend === 'RISING' ||
+    trendReport.overallTrend === 'STABLE' ||
+    trendReport.overallTrend === 'DECLINING' ||
+    trendReport.overallTrend === 'VOLATILE'
+  ) {
+    const revMetric = trendReport.metrics.revenue;
+    const revDeltaLabel =
+      revMetric.baselineStatus === 'ZERO_BASELINE'
+        ? `0→${formatThb(revMetric.latestValue ?? 0)} (Zero Base)`
+        : revMetric.deltaPct !== null
+          ? `${revMetric.deltaPct > 0 ? '+' : ''}${revMetric.deltaPct}%`
+          : '—';
     derivedCalculations.push({
       id: 'derived_local_trend',
       label: { en: 'Observed Multi-Day Trend', my: 'ရက်ပေါင်းစုံ လေ့လာတွေ့ရှိမှု' },
-      value: `${localTrend.observationCount}d · Rev ${revDelta}`,
+      value: `${trendReport.overallTrend} · ${trendReport.comparableSnapshotCount}d · Rev ${revDeltaLabel}`,
       detail: {
-        en: `Derived from ${localTrend.observationCount} trusted local observations over ${localTrend.spanDays} days.`,
-        my: `${localTrend.spanDays} ရက်အတွင်း စစ်မှန်သော local မှတ်တမ်း ${localTrend.observationCount} ခုမှ တွက်ချက်ထားသည်။`,
+        en: `${trendReport.overallExplanation} (${trendReport.comparableSnapshotCount} trusted local observations over ${trendReport.spanDays ?? 0}d).`,
+        my: `${trendReport.spanDays ?? 0} ရက်အတွင်း စစ်မှန်သော local မှတ်တမ်း ${trendReport.comparableSnapshotCount} ခုမှ တွက်ချက်ထားသည် (${trendReport.overallTrend})။`,
+      },
+    });
+  } else if (trendReport.overallTrend === 'INCOMPARABLE_DATA') {
+    unavailableEvidence.push({
+      id: 'historical_trend_unavailable',
+      label: { en: 'Multi-Day Historical Trend', my: 'ရက်ပေါင်းစုံ ရောင်းအားလမ်းကြောင်း' },
+      value: 'INCOMPARABLE_DATA',
+      detail: {
+        en: trendReport.overallExplanation,
+        my: `သိမ်းထားသော မှတ်တမ်းများသည် နှိုင်းယှဉ်၍မရသော ဒေတာများဖြစ်နေပါသည် (${trendReport.incomparabilityReasons.join(', ')})။`,
       },
     });
   } else {
@@ -494,7 +578,9 @@ export function buildProductEvidenceSummary(params: {
       importedUnverifiedCount,
       multiDayTrendAvailable: Boolean(localTrend),
       trend: localTrend,
+      trendReport,
     },
+    detailRevenueTrend,
     nonGuaranteeNotice: {
       en: 'Market demand and historical video sales indicate commercial potential only — no product is guaranteed to sell.',
       my: 'ဝယ်လိုအားနှင့် ယခင်ဗီဒီယိုရောင်းအားများသည် အခွင့်အလမ်းအရိပ်အမြွက်သာဖြစ်ပြီး မည်သည့်ပစ္စည်းမျှ ရောင်းထွက်မည်ဟု အာမမခံပါ။',

@@ -282,6 +282,16 @@ async function startServer() {
         .slice(0, 12);
 
       const forceRefresh = body?.forceRefresh === true;
+      const rawPageNumber = parseOptionalNumber(body?.pageNumber);
+      const pageNumber =
+        rawPageNumber !== null ? Math.max(1, Math.min(10, Math.floor(rawPageNumber))) : 1;
+      const rawPageSize = parseOptionalNumber(body?.pageSize);
+      const pageSize =
+        rawPageSize !== null && rawPageSize > 0
+          ? Math.max(1, Math.min(100, Math.floor(rawPageSize)))
+          : 20;
+      const dateRange: 'last7Day' | 'last30Day' =
+        body?.dateRange === 'last30Day' ? 'last30Day' : 'last7Day';
       const minBalanceReserve = parseOptionalNumber(body?.minBalanceReserve);
       const maxSpendRemaining = parseOptionalNumber(body?.maxSpendRemaining);
 
@@ -302,6 +312,9 @@ async function startServer() {
         query: rawQuery,
         cateIds,
         selectedCategoryMeta,
+        pageNumber,
+        pageSize,
+        dateRange,
         forceRefresh,
         guardrails: {
           minBalanceReserve,
@@ -352,6 +365,9 @@ async function startServer() {
         includeDetails: rawOptions.includeDetails === true,
         includeSpecs: rawOptions.includeSpecs === true,
         includeComments: rawOptions.includeComments === true,
+        ...(rawOptions.dateRange === 'last30Day' || rawOptions.dateRange === 'last7Day'
+          ? { dateRange: rawOptions.dateRange as 'last7Day' | 'last30Day' }
+          : {}),
       };
 
       const minBalanceReserve = parseOptionalNumber(body?.minBalanceReserve);

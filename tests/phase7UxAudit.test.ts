@@ -15,7 +15,6 @@ import {
 } from '../src/lib/metricFoundation.ts';
 import { mergeRestoredRecentSearches } from '../src/lib/storage.ts';
 import { TopBar } from '../src/components/TopBar.tsx';
-import { StrategyExplorerBar } from '../src/components/StrategyExplorerBar.tsx';
 import { ProductCard } from '../src/components/ProductCard.tsx';
 import { ScoreDetailContent } from '../src/components/ScoreDetailDialog.tsx';
 import { VideoStudioView } from '../src/components/VideoStudioView.tsx';
@@ -362,7 +361,7 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
     assert.equal(merged[2].id, 'srch_shared');
   });
 
-  it('surfaces inline exclusion reason and verified metric count on ProductCard without requiring dialog clicks', () => {
+  it('surfaces Search Score pillars, video commission pool, and 0% commission gate clearly on ProductCard', () => {
     const strongProd = buildTestProduct('strong-1', {
       priceThb: 499,
       commissionRate: 20,
@@ -386,20 +385,19 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
 
     const viewModel = buildProductIntelligenceView(
       [strongProd, zeroCommProd],
-      'profit_maximizer',
+      'overall',
       { nowMs: NOW_MS }
     );
 
-    const rankedEntry = viewModel.rankedEntries[0];
-    const excludedEntry = viewModel.excludedEntries.find((e) => e.product.id === 'zero-comm');
-    assert.ok(rankedEntry, 'Expected strong product to qualify for profit_maximizer');
-    assert.ok(excludedEntry, 'Expected 0% commission product to be excluded');
+    const strongEntry = viewModel.rankedEntries.find((e) => e.product.id === 'strong-1');
+    const zeroEntry = viewModel.rankedEntries.find((e) => e.product.id === 'zero-comm');
+    assert.ok(strongEntry, 'Expected strong product in ranked entries');
+    assert.ok(zeroEntry, 'Expected zero-commission product in ranked entries');
 
     const rankedHtml = renderToStaticMarkup(
       React.createElement(ProductCard, {
-        product: rankedEntry.product,
-        intelligenceItem: rankedEntry,
-        activeStrategyView: 'profit_maximizer',
+        product: strongEntry.product,
+        intelligenceItem: strongEntry,
         index: 0,
         language: 'en',
         isSaved: false,
@@ -413,15 +411,15 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
       })
     );
 
-    assert.match(rankedHtml, /Verified \d+\/11/);
-    assert.match(rankedHtml, /Strategy/);
+    assert.ok(rankedHtml.includes(TRANSLATIONS.en.v2.searchScore.videoPoolLabel));
+    assert.ok(rankedHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.videoProof.short));
+    assert.ok(rankedHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.priceFit.short));
 
-    const excludedHtml = renderToStaticMarkup(
+    const zeroHtml = renderToStaticMarkup(
       React.createElement(ProductCard, {
-        product: excludedEntry.product,
-        intelligenceItem: excludedEntry,
-        activeStrategyView: 'profit_maximizer',
-        index: 0,
+        product: zeroEntry.product,
+        intelligenceItem: zeroEntry,
+        index: 1,
         language: 'en',
         isSaved: false,
         viewMode: 'grid',
@@ -434,15 +432,9 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
       })
     );
 
-    // Inline exclusion reason must be visible directly on the collapsed card
-    const expectedReason =
-      excludedEntry.failedRequirements[0]?.detail ||
-      excludedEntry.missingEvidence[0] ||
-      excludedEntry.explanation;
-    assert.ok(expectedReason, 'Expected non-empty exclusion explanation');
     assert.ok(
-      excludedHtml.includes(expectedReason),
-      `Expected collapsed excluded card to display inline exclusion reason: ${expectedReason}`
+      zeroHtml.includes(TRANSLATIONS.en.v2.searchScore.grades.NOT_MONETIZABLE),
+      'Zero-commission card should clearly surface Not Monetizable'
     );
   });
 
@@ -451,7 +443,6 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
     const html = renderToStaticMarkup(
       React.createElement(ProductCard, {
         product: prod,
-        activeStrategyView: 'overall',
         index: 0,
         language: 'my',
         isSaved: false,
@@ -470,7 +461,7 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
     assert.ok(!html.includes('xs:inline'), 'Dead Tailwind xs:inline class should be removed');
   });
 
-  it('renders 4-signal distinction, non-guarantee disclaimer, and Myanmar table headers in ScoreDetailContent', () => {
+  it('renders visual Search Score composition, channel split, price sweet spot, and earning snapshot in ScoreDetailContent', () => {
     const prod = buildTestProduct('dialog-1', { unverifiedCore: true });
 
     const enHtml = renderToStaticMarkup(
@@ -483,10 +474,12 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
       })
     );
 
-    assert.ok(enHtml.includes(TRANSLATIONS.en.v2.dialog.pillarsSummaryTitle));
-    assert.ok(enHtml.includes(TRANSLATIONS.en.v2.dialog.nonGuaranteeDisclaimer));
-    assert.ok(enHtml.includes(TRANSLATIONS.en.v2.provenance.metricCol));
-    assert.ok(enHtml.includes(TRANSLATIONS.en.v2.provenance.statusCol));
+    assert.ok(enHtml.includes(TRANSLATIONS.en.v2.searchScore.compositionTitle));
+    assert.ok(enHtml.includes(TRANSLATIONS.en.v2.searchScore.channelsTitle));
+    assert.ok(enHtml.includes(TRANSLATIONS.en.v2.searchScore.priceSweetSpotTitle));
+    assert.ok(enHtml.includes(TRANSLATIONS.en.v2.searchScore.earningSnapshotTitle));
+    assert.ok(!enHtml.includes('Data Confidence'));
+    assert.ok(!enHtml.includes('Studio Visual Reference'));
 
     const myHtml = renderToStaticMarkup(
       React.createElement(ScoreDetailContent, {
@@ -498,10 +491,10 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
       })
     );
 
-    assert.ok(myHtml.includes(TRANSLATIONS.my.v2.dialog.pillarsSummaryTitle));
-    assert.ok(myHtml.includes(TRANSLATIONS.my.v2.dialog.nonGuaranteeDisclaimer));
-    assert.ok(myHtml.includes(TRANSLATIONS.my.v2.provenance.metricCol));
-    assert.ok(myHtml.includes(TRANSLATIONS.my.v2.provenance.statusCol));
+    assert.ok(myHtml.includes(TRANSLATIONS.my.v2.searchScore.compositionTitle));
+    assert.ok(myHtml.includes(TRANSLATIONS.my.v2.searchScore.channelsTitle));
+    assert.ok(myHtml.includes(TRANSLATIONS.my.v2.searchScore.priceSweetSpotTitle));
+    assert.ok(myHtml.includes(TRANSLATIONS.my.v2.searchScore.earningSnapshotTitle));
   });
 
   it('does not leak Burmese labels into English VideoStudioView and translates categories in Myanmar mode', () => {
@@ -620,9 +613,8 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
     );
   });
 
-  it('renders TopBar, StrategyExplorerBar, SearchHistoryView, KalodataBar, and AiChatPromptCard cleanly in both languages', () => {
+  it('renders TopBar, SearchHistoryView, KalodataBar, and AiChatPromptCard cleanly in both languages', () => {
     const prod = buildTestProduct('smoke-1');
-    const viewModel = buildProductIntelligenceView([prod], 'overall', { nowMs: NOW_MS });
 
     for (const lang of ['en', 'my'] as const) {
       const t = TRANSLATIONS[lang];
@@ -658,18 +650,6 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
         })
       );
       assert.ok(topBarHtml.includes('h-11'), 'TopBar mobile nav tabs should use 44px touch targets');
-
-      const explorerHtml = renderToStaticMarkup(
-        React.createElement(StrategyExplorerBar, {
-          viewModel,
-          activeView: 'overall',
-          showExcluded: false,
-          t,
-          onSelectView: () => {},
-          onToggleShowExcluded: () => {},
-        })
-      );
-      assert.ok(explorerHtml.includes(t.v2.rankingTransparencyNote));
 
       const searchHistHtml = renderToStaticMarkup(
         React.createElement(SearchHistoryView, {

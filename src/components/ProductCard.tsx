@@ -10,18 +10,17 @@ import {
 } from 'lucide-react';
 import type { Translations } from '../i18n';
 import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
-import { classifyProductDiscoveryShortlist } from '../lib/discoveryShortlist.ts';
 import { getStudioFallbackImage } from '../lib/media';
 import {
-  type ActiveStrategyView,
   ensureProductV2Intelligence,
   type ExcludedIntelligenceCardItem,
-  getClassificationTone,
-  getDimensionBarClass,
-  getToneClasses,
   type RankedIntelligenceCardItem,
-  summarizeProductProvenance,
 } from '../lib/productIntelligenceView.ts';
+import {
+  evaluateSearchOpportunityScore,
+  type SearchScoreCapCode,
+  type SearchScoreGrade,
+} from '../lib/searchScoreEngine.ts';
 import { getTikTokShopProductUrl } from '../lib/tiktokLink';
 import type {
   CardDensity,
@@ -29,14 +28,12 @@ import type {
   ProductItem,
   ResultViewMode,
   ScoreGrade,
-  V2DimensionStatus,
 } from '../types';
 import { ScoreRing } from './ScoreRing';
 
 interface ProductCardProps {
   product: ProductItem;
   intelligenceItem?: RankedIntelligenceCardItem | ExcludedIntelligenceCardItem;
-  activeStrategyView?: ActiveStrategyView;
   index: number;
   language: Language;
   isSaved: boolean;
@@ -48,17 +45,6 @@ interface ProductCardProps {
   onToggleSave: (product: ProductItem) => void;
   onOpenScoreDetails: (product: ProductItem) => void;
 }
-
-const SEVERE_VERIFIED_RISKS = new Set([
-  'EXTREME_COMPETITION',
-  'HIGH_COMPETITION',
-  'POOR_CUSTOMER_QUALITY',
-  'NEGATIVE_GROWTH',
-  'STALE_DATA',
-  'ZERO_COMMISSION',
-  'NOT_MONETIZABLE',
-  'ZERO_CREATORS_POSITIVE_REVENUE',
-]);
 
 function formatCompactThb(amount: number): string {
   if (amount >= 1_000_000) {
@@ -80,29 +66,57 @@ function formatCompactCount(count: number): string {
   return Math.round(count).toLocaleString();
 }
 
-function scoreToGrade(score: number | null): ScoreGrade {
-  if (score === null) return 'low';
-  if (score >= 75) return 'top';
-  if (score >= 58) return 'strong';
-  if (score >= 40) return 'fair';
-  return 'low';
+function searchGradeToScoreGrade(grade: SearchScoreGrade): ScoreGrade {
+  switch (grade) {
+    case 'TOP':
+      return 'top';
+    case 'STRONG':
+      return 'strong';
+    case 'MODERATE':
+      return 'fair';
+    case 'WEAK':
+    case 'NOT_MONETIZABLE':
+    case 'INSUFFICIENT':
+    default:
+      return 'low';
+  }
 }
 
-function formatCompactDimensionScore(
-  score: number | null,
-  status: V2DimensionStatus
-): string {
-  if (status === 'NOT_MONETIZABLE') return '0%';
-  if (score === null || status === 'INSUFFICIENT' || status === 'INVALID') {
-    return '—';
+function searchGradeToTextClass(grade: SearchScoreGrade): string {
+  switch (grade) {
+    case 'TOP':
+      return 'text-emerald-700 dark:text-emerald-400';
+    case 'STRONG':
+      return 'text-teal-700 dark:text-teal-400';
+    case 'MODERATE':
+      return 'text-amber-700 dark:text-amber-400';
+    case 'WEAK':
+    case 'NOT_MONETIZABLE':
+      return 'text-rose-700 dark:text-rose-400';
+    case 'INSUFFICIENT':
+    default:
+      return 'text-slate-600 dark:text-slate-400';
   }
-  return `${Math.round(score)}`;
+}
+
+function formatCapChip(cap: SearchScoreCapCode, language: Language): string {
+  switch (cap) {
+    case 'NO_VIDEO_SALES_CAP':
+      return language === 'my' ? 'Video ฿0' : '฿0 Video';
+    case 'LIVE_DEPENDENT_CAP':
+      return language === 'my' ? 'Live အဓိက' : 'Live-Led';
+    case 'WEAK_DEMAND_CAP':
+      return language === 'my' ? 'ရောင်းအားနည်း' : 'Low Sales';
+    case 'MISSING_VIDEO_DATA_CAP':
+      return language === 'my' ? 'Video Data မပါ' : 'No Video Data';
+    default:
+      return language === 'my' ? 'ကန့်သတ်ချက်' : 'Capped';
+  }
 }
 
 export function ProductCard({
   product: rawProduct,
   intelligenceItem,
-  activeStrategyView = 'overall',
   index,
   language,
   isSaved,
@@ -126,41 +140,61 @@ export function ProductCard({
   const [usingFallback, setUsingFallback] = useState<boolean>(!product.imageUrl);
   const [copiedField, setCopiedField] = useState<'thai' | 'id' | null>(null);
 
-  const commercial = product.commercialScoreV2!;
-  const strategyReport = product.strategyIntelligenceV2!;
   const validated = product.validatedMetrics!;
-  const provenanceSummary = useMemo(
-    () => intelligenceItem?.provenanceSummary ?? summarizeProductProvenance(validated),
-    [intelligenceItem, validated]
-  );
-  const discoveryShortlist = useMemo(
+  const historicalTrend = intelligenceItem?.historicalTrend;
+  const compactTrendChip = useMemo(() => {
+    if (!historicalTrend) return null;
+    const cls = historicalTrend.overallTrend;
+    const count = historicalTrend.comparableSnapshotCount;
+    if (cls === 'RISING') {
+      return {
+        text: `↗ ${count}d`,
+        tone: 'text-emerald-600 dark:text-emerald-400',
+        title: historicalTrend.overallExplanation,
+      };
+    }
+    if (cls === 'DECLINING') {
+      return {
+        text: `↘ ${count}d`,
+        tone: 'text-rose-600 dark:text-rose-400',
+        title: historicalTrend.overallExplanation,
+      };
+    }
+    if (cls === 'VOLATILE') {
+      return {
+        text: `↕ ${count}d`,
+        tone: 'text-amber-600 dark:text-amber-400',
+        title: historicalTrend.overallExplanation,
+      };
+    }
+    if (cls === 'STABLE') {
+      return {
+        text: `→ ${count}d`,
+        tone: 'text-slate-500 dark:text-slate-400',
+        title: historicalTrend.overallExplanation,
+      };
+    }
+    return null;
+  }, [historicalTrend]);
+
+  const searchScore = useMemo(
     () =>
-      intelligenceItem?.discoveryShortlist ??
-      classifyProductDiscoveryShortlist(validated, commercial),
-    [intelligenceItem, validated, commercial]
+      intelligenceItem?.searchScore ??
+      evaluateSearchOpportunityScore(validated, nowMs !== undefined ? { nowMs } : undefined),
+    [intelligenceItem, validated, nowMs]
   );
-  const snapshotCount = intelligenceItem?.snapshotCount ?? 0;
 
-  const isExcluded = intelligenceItem?.kind === 'excluded';
-  const isStrategyView = activeStrategyView !== 'overall';
-  const strategyEval = isStrategyView
-    ? strategyReport.strategies[activeStrategyView]
-    : strategyReport.bestStrategyId
-      ? strategyReport.strategies[strategyReport.bestStrategyId]
-      : null;
+  const displayedScore: number | null = searchScore.score;
+  const scoreGrade = searchGradeToScoreGrade(searchScore.grade);
+  const statusToneTextClass = searchGradeToTextClass(searchScore.grade);
+  const scoreRingCaption = t.v2.searchScore.badgeShort;
+  const headerStatusText = t.v2.searchScore.grades[searchScore.grade];
+  const scoreTooltipTitle = `${t.v2.searchScore.badgeShort}: ${headerStatusText} (${
+    displayedScore ?? '—'
+  }/100) — ${t.score.tooltipBtn}`;
 
-  const displayedScore: number | null = isExcluded
-    ? intelligenceItem.strategyScore ?? intelligenceItem.commercialOpportunityScore
-    : isStrategyView
-      ? strategyEval?.strategyScore ?? commercial.commercialOpportunityScore
-      : commercial.commercialOpportunityScore;
-
-  const scoreGrade = scoreToGrade(displayedScore);
-  const classification = strategyReport.opportunityClassification;
-  const classTone = getToneClasses(getClassificationTone(classification));
   const metrics = product.kalodataMetrics;
   const tiktokShopUrl = getTikTokShopProductUrl(product);
-
   const primaryTitle = product.thaiTitle;
 
   const displayCategoryLabel =
@@ -263,8 +297,7 @@ export function ProductCard({
   const isSpacious = density === 'spacious';
 
   const isZeroCommission =
-    validated.commissionRate.state === 'ZERO' ||
-    commercial.earningScore.status === 'NOT_MONETIZABLE';
+    validated.commissionRate.state === 'ZERO' || searchScore.status === 'NOT_MONETIZABLE';
 
   const commissionText =
     product.commissionRate !== null
@@ -285,142 +318,62 @@ export function ProductCard({
       ? formatCompactThb(metrics!.revenueThb7d!)
       : '—';
 
-  // 4 independent visual dimensions (clean numeric bars; dashed empty tracks for missing/unverified)
-  const dimensions = [
+  // 4 Unified Search Score Pillars — all computed directly from real search data
+  const pillars = [
     {
       key: 'demand',
-      label: t.v2.dimensions.demand.short,
-      score: commercial.demandScore.score,
-      status: commercial.demandScore.status,
-      verifiedTag:
-        commercial.demandScore.growthStatus === 'VERIFIED' &&
-        commercial.demandScore.subcomponents.verifiedGrowthPercent !== null
-          ? `${commercial.demandScore.subcomponents.verifiedGrowthPercent > 0 ? '+' : ''}${Math.round(
-              commercial.demandScore.subcomponents.verifiedGrowthPercent
-            )}%`
-          : null,
-      tooltip: `${t.v2.dimensions.demand.label}: ${
-        commercial.demandScore.score !== null
-          ? `${Math.round(commercial.demandScore.score)}/100`
-          : t.v2.dimensionStatus[commercial.demandScore.status]
-      }`,
+      label: t.v2.searchScore.pillars.demand.short,
+      score: searchScore.pillars.demand.score,
+      barClass: 'bg-emerald-500 dark:bg-emerald-400',
+      textClass: 'text-emerald-700 dark:text-emerald-400',
     },
     {
       key: 'earning',
-      label: t.v2.dimensions.earning.short,
-      score: commercial.earningScore.score,
-      status: commercial.earningScore.status,
-      verifiedTag: null,
-      tooltip: `${t.v2.dimensions.earning.label}: ${
-        commercial.earningScore.score !== null
-          ? `${Math.round(commercial.earningScore.score)}/100`
-          : t.v2.dimensionStatus[commercial.earningScore.status]
-      }`,
+      label: t.v2.searchScore.pillars.earning.short,
+      score: isZeroCommission ? 0 : searchScore.pillars.earning.score,
+      barClass: isZeroCommission ? 'bg-rose-500 dark:bg-rose-400' : 'bg-teal-500 dark:bg-teal-400',
+      textClass: isZeroCommission
+        ? 'text-rose-700 dark:text-rose-400'
+        : 'text-teal-700 dark:text-teal-400',
     },
     {
-      key: 'competition',
-      label: t.v2.dimensions.competition.short,
-      score: commercial.competitionScore.score,
-      status: commercial.competitionScore.status,
-      verifiedTag:
-        commercial.competitionScore.creatorCount !== null
-          ? `${commercial.competitionScore.creatorCount}c`
-          : null,
-      tooltip: `${t.v2.dimensions.competition.label}: ${
-        commercial.competitionScore.score !== null
-          ? `${Math.round(commercial.competitionScore.score)}/100 (${commercial.competitionScore.creatorCount ?? '—'} creators)`
-          : validated.creatorCount.unit === 'UNVERIFIED'
-            ? t.v2.metricsShort.unverified
-            : t.v2.metricsShort.missing
-      }`,
+      key: 'videoProof',
+      label: t.v2.searchScore.pillars.videoProof.short,
+      score: searchScore.pillars.videoProof.score,
+      barClass: 'bg-sky-500 dark:bg-sky-400',
+      textClass: 'text-sky-700 dark:text-sky-400',
     },
     {
-      key: 'quality',
-      label: t.v2.dimensions.quality.short,
-      score: commercial.customerQualityScore.score,
-      status: commercial.customerQualityScore.status,
-      verifiedTag:
-        commercial.customerQualityScore.bayesianRating !== null
-          ? `${commercial.customerQualityScore.bayesianRating.toFixed(1)}★`
-          : null,
-      tooltip: `${t.v2.dimensions.quality.label}: ${
-        commercial.customerQualityScore.score !== null
-          ? `${Math.round(commercial.customerQualityScore.score)}/100 (${commercial.customerQualityScore.bayesianRating?.toFixed(2)}★)`
-          : validated.rating.unit === 'UNVERIFIED' || validated.reviewCount.unit === 'UNVERIFIED'
-            ? t.v2.metricsShort.unverified
-            : t.v2.metricsShort.missing
-      }`,
+      key: 'priceFit',
+      label: t.v2.searchScore.pillars.priceFit.short,
+      score: searchScore.pillars.priceFit.score,
+      barClass: 'bg-indigo-500 dark:bg-indigo-400',
+      textClass: 'text-indigo-700 dark:text-indigo-400',
     },
   ];
 
   // Channel split percentages for proportional Video / Live / Mall visual bar
-  const convEvidence = commercial.conversionEvidence;
   const videoSharePct =
-    convEvidence.videoRevenueShare !== null
-      ? Math.max(0, Math.min(100, Math.round(convEvidence.videoRevenueShare * 100)))
+    searchScore.metrics.videoSharePct !== null
+      ? Math.max(0, Math.min(100, Math.round(searchScore.metrics.videoSharePct)))
       : null;
   const liveSharePct =
-    convEvidence.liveRevenueShare !== null
+    searchScore.metrics.liveSharePct !== null
       ? Math.max(
           0,
           Math.min(
             videoSharePct !== null ? 100 - videoSharePct : 100,
-            Math.round(convEvidence.liveRevenueShare * 100)
+            Math.round(searchScore.metrics.liveSharePct)
           )
         )
       : null;
-  const otherSharePct =
+  const mallSharePct =
     videoSharePct !== null
       ? Math.max(0, 100 - videoSharePct - (liveSharePct ?? 0))
       : null;
 
-  // Confidence 5-segment visual meter
-  const confidenceScore = Math.round(commercial.dataConfidence.score);
-  const confidenceSegmentsFilled = Math.max(1, Math.min(5, Math.round(confidenceScore / 20)));
-  const verifiedCount = provenanceSummary.verifiedSourceCount + provenanceSummary.zeroCount;
-  const confidenceBarColor =
-    commercial.dataConfidence.level === 'HIGH'
-      ? 'bg-emerald-500 dark:bg-emerald-400'
-      : commercial.dataConfidence.level === 'MEDIUM'
-        ? 'bg-teal-500 dark:bg-teal-400'
-        : commercial.dataConfidence.level === 'LOW'
-          ? 'bg-amber-500 dark:bg-amber-400'
-          : 'bg-rose-500 dark:bg-rose-400';
-  const confidenceTextColor =
-    commercial.dataConfidence.level === 'HIGH'
-      ? 'text-emerald-700 dark:text-emerald-400'
-      : commercial.dataConfidence.level === 'MEDIUM'
-        ? 'text-teal-700 dark:text-teal-400'
-        : commercial.dataConfidence.level === 'LOW'
-          ? 'text-amber-700 dark:text-amber-400'
-          : 'text-rose-700 dark:text-rose-400';
-
-  // Only surface genuinely actionable verified warnings (avoid repeating "Missing Competition" text)
-  const severeRisks = (intelligenceItem?.riskTags ?? commercial.riskTags)
-    .filter((tag) => SEVERE_VERIFIED_RISKS.has(tag))
-    .slice(0, 2);
-  const formattedSevereRisks = severeRisks.map(
-    (tag) => t.v2.riskLabels[tag] ?? t.v2.formatRiskTag(tag)
-  );
-
-  // Only show strategy subtitle when in a Strategy tab OR when a strategy actually qualified
-  const activeStrategyLabel = isStrategyView
-    ? `${t.v2.strategies[activeStrategyView].shortName} · ${
-        t.v2.strategyEligibility[
-          intelligenceItem?.kind === 'excluded'
-            ? intelligenceItem.eligibilityStatus
-            : strategyEval?.eligibilityStatus ?? 'INSUFFICIENT_DATA'
-        ]
-      }`
-    : strategyReport.bestStrategyId
-      ? t.v2.strategies[strategyReport.bestStrategyId].shortName
-      : null;
-
-  // Compact header status: omit noisy "Insufficient Evidence" text when score ring already shows dashed "—"
-  const headerStatusText =
-    classification === 'INSUFFICIENT_EVIDENCE'
-      ? null
-      : t.v2.classifications[classification];
+  const videoPoolThb = searchScore.metrics.videoCommissionPoolThb;
+  const primaryCap = searchScore.capsApplied[0] ?? null;
 
   const renderUtilityButtons = (compactMode: boolean) => (
     <div className={`flex items-center shrink-0 ${compactMode ? 'gap-0.5' : 'gap-1'}`}>
@@ -530,201 +483,140 @@ export function ProductCard({
     </div>
   );
 
-  // Visual 4-dimension bars (solid colored bars for scored, dashed tracks for missing/unverified)
-  const renderVisualDimensionBars = (columnsClass: string) => (
+  // 4 Real Search Score Pillar Bars (Demand · Earning · Video · Price)
+  const renderPillarBars = (columnsClass: string) => (
     <div
       className={`grid ${columnsClass} gap-x-3.5 gap-y-2 pt-2.5 border-t border-slate-100 dark:border-slate-800/80`}
     >
-      {dimensions.map((dim) => {
-        const tone = getDimensionBarClass(dim.score, dim.status);
-        const isScored =
-          dim.score !== null && dim.status !== 'INSUFFICIENT' && dim.status !== 'INVALID';
-        const pct = isScored ? Math.max(6, Math.min(100, dim.score!)) : 0;
+      {pillars.map((pillar) => {
+        const hasScore = pillar.score !== null;
+        const rounded = hasScore ? Math.round(pillar.score!) : null;
+        const widthPct = rounded !== null ? Math.max(rounded > 0 ? 5 : 0, Math.min(100, rounded)) : 0;
 
         return (
-          <div key={dim.key} className="min-w-0" title={dim.tooltip}>
+          <div
+            key={pillar.key}
+            className="min-w-0"
+            title={`${pillar.label}: ${rounded !== null ? `${rounded}/100` : '—'}`}
+          >
             <div className="flex items-baseline justify-between gap-1.5">
               <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 truncate">
-                {dim.label}
+                {pillar.label}
               </span>
-              <span className="inline-flex items-baseline gap-1 shrink-0 font-mono-num tabular-nums">
-                {dim.verifiedTag && (
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                    {dim.verifiedTag}
-                  </span>
-                )}
-                <span className={`text-xs font-semibold ${tone.textClass}`}>
-                  {formatCompactDimensionScore(dim.score, dim.status)}
-                </span>
+              <span
+                className={`text-xs font-semibold font-mono-num tabular-nums shrink-0 ${
+                  rounded !== null ? pillar.textClass : 'text-slate-400 dark:text-slate-500'
+                }`}
+              >
+                {rounded !== null ? (pillar.key === 'earning' && isZeroCommission ? '0%' : rounded) : '—'}
               </span>
             </div>
 
-            {isScored ? (
-              <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800/90 overflow-hidden">
+            <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800/90 overflow-hidden">
+              {rounded !== null && widthPct > 0 && (
                 <div
-                  className={`h-full rounded-full transition-all duration-200 ${tone.barClass}`}
-                  style={{ width: `${pct}%` }}
+                  className={`h-full rounded-full transition-all duration-200 ${pillar.barClass}`}
+                  style={{ width: `${widthPct}%` }}
                 />
-              </div>
-            ) : (
-              <div
-                aria-label={dim.tooltip}
-                className="mt-1.5 h-0.5 w-full border-t border-dashed border-slate-300 dark:border-slate-700"
-              />
-            )}
+              )}
+            </div>
           </div>
         );
       })}
     </div>
   );
 
-  // Visual Channel Split Bar (Video vs Live vs Mall) + 5-Block Confidence Meter (replaces 6+ lines of text!)
-  const renderVisualSignalsBlock = () => {
-    const failedReqs =
-      intelligenceItem?.kind === 'excluded'
-        ? intelligenceItem.failedRequirements
-        : strategyEval?.failedRequirements ?? [];
-    const inlineExclusionSummary = isExcluded
-      ? failedReqs[0]
-        ? `${failedReqs[0].label}: ${failedReqs[0].detail}`
-        : intelligenceItem?.explanation ?? null
-      : null;
-
-    const channelLegendText =
+  // Clean Visual Channel Split Bar + Affiliate Video Pool / Cap Signal
+  const renderChannelAndPoolStrip = () => {
+    const channelLegend =
       videoSharePct !== null
-        ? `Video ${videoSharePct}%${
-            liveSharePct !== null && liveSharePct >= 10 ? ` · Live ${liveSharePct}%` : ''
+        ? `${t.v2.searchScore.channelShort.video} ${videoSharePct}%${
+            liveSharePct !== null && liveSharePct >= 10
+              ? ` · ${t.v2.searchScore.channelShort.live} ${liveSharePct}%`
+              : ''
           }`
-        : convEvidence.evidenceLevel === 'INSUFFICIENT'
-          ? '—'
-          : t.v2.conversionChannels[convEvidence.dominantChannel];
-
-    const shortlistToneClass =
-      discoveryShortlist.primaryClassification === 'STRONG_DEMAND_LOW_COMPETITION' ||
-      discoveryShortlist.primaryClassification === 'EMERGING_OPPORTUNITY'
-        ? 'text-emerald-700 dark:text-emerald-400'
-        : discoveryShortlist.primaryClassification === 'STRONG_DEMAND_STRONG_VIDEO_SALES' ||
-            discoveryShortlist.primaryClassification === 'STRONG_AFFILIATE_EARNINGS'
-          ? 'text-teal-700 dark:text-teal-400'
-          : discoveryShortlist.primaryClassification === 'HIGH_DEMAND_HIGH_COMPETITION'
-            ? 'text-amber-700 dark:text-amber-400'
-            : 'text-slate-500 dark:text-slate-400';
+        : '—';
 
     return (
-      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 space-y-2">
-        {/* Visual Conversion Channel Split Bar + 5-Block Confidence Meter */}
-        <div className="grid grid-cols-2 gap-x-3.5 items-end">
-          {/* Left: Proportional Video / Live / Mall Channel Bar */}
-          <div
-            className="min-w-0"
-            title={`${t.v2.conversionLabel}: ${channelLegendText} — ${t.v2.conversionDisclaimerShort}`}
-            aria-label={`${t.v2.conversionLabel}: ${channelLegendText}`}
-          >
-            <div className="flex items-baseline justify-between gap-1 text-[10px]">
-              <span className="text-slate-500 dark:text-slate-400 truncate">
-                {videoSharePct !== null ? 'Video' : t.v2.conversionLabel}
-              </span>
-              <span className="font-mono-num tabular-nums font-semibold text-slate-700 dark:text-slate-200 shrink-0">
-                {videoSharePct !== null ? `${videoSharePct}%` : '—'}
-              </span>
-            </div>
-            {videoSharePct !== null ? (
-              <div className="mt-1 h-1.5 w-full rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden flex">
-                {videoSharePct > 0 && (
-                  <div
-                    className="h-full bg-teal-500 dark:bg-teal-400"
-                    style={{ width: `${videoSharePct}%` }}
-                  />
-                )}
-                {liveSharePct !== null && liveSharePct > 0 && (
-                  <div
-                    className="h-full bg-amber-400 dark:bg-amber-400/90"
-                    style={{ width: `${liveSharePct}%` }}
-                  />
-                )}
-                {otherSharePct !== null && otherSharePct > 0 && (
-                  <div
-                    className="h-full bg-slate-300 dark:bg-slate-600"
-                    style={{ width: `${otherSharePct}%` }}
-                  />
-                )}
-              </div>
-            ) : (
-              <div className="mt-1.5 h-0.5 w-full border-t border-dashed border-slate-300 dark:border-slate-700" />
-            )}
+      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-2 gap-x-3.5 items-end">
+        {/* Left: Proportional Video / Live / Mall Channel Bar */}
+        <div
+          className="min-w-0"
+          title={`${t.v2.searchScore.channelsTitle}: ${channelLegend}`}
+          aria-label={`${t.v2.searchScore.channelsTitle}: ${channelLegend}`}
+        >
+          <div className="flex items-baseline justify-between gap-1 text-[10px]">
+            <span className="text-slate-500 dark:text-slate-400 truncate">
+              {t.v2.searchScore.channelShort.video}
+            </span>
+            <span className="font-mono-num tabular-nums font-semibold text-slate-700 dark:text-slate-200 shrink-0">
+              {videoSharePct !== null ? `${videoSharePct}%` : '—'}
+            </span>
           </div>
+          {videoSharePct !== null ? (
+            <div className="mt-1 h-1.5 w-full rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden flex">
+              {videoSharePct > 0 && (
+                <div
+                  className="h-full bg-sky-500 dark:bg-sky-400"
+                  style={{ width: `${videoSharePct}%` }}
+                />
+              )}
+              {liveSharePct !== null && liveSharePct > 0 && (
+                <div
+                  className="h-full bg-amber-400 dark:bg-amber-400/90"
+                  style={{ width: `${liveSharePct}%` }}
+                />
+              )}
+              {mallSharePct !== null && mallSharePct > 0 && (
+                <div
+                  className="h-full bg-slate-300 dark:bg-slate-600"
+                  style={{ width: `${mallSharePct}%` }}
+                />
+              )}
+            </div>
+          ) : (
+            <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800" />
+          )}
+        </div>
 
-          {/* Right: 5-Segment Data Confidence Meter + Verified Ratio */}
-          <div
-            className="min-w-0"
-            title={`${t.v2.confidenceLabel}: ${confidenceScore}/100 (${t.v2.confidenceLevels[commercial.dataConfidence.level]}) · ${t.v2.provenance.verifiedCountLabel(verifiedCount, 11)}${
-              provenanceSummary.hasUnverifiedCoreMetrics ? ` · ${t.v2.metricsShort.unverified}` : ''
-            }`}
-            aria-label={`${t.v2.confidenceLabel}: ${confidenceScore}/100, ${t.v2.provenance.verifiedCountLabel(verifiedCount, 11)}`}
-          >
-            <div className="flex items-baseline justify-between gap-1 text-[10px]">
-              <span className={`font-mono-num tabular-nums font-semibold truncate ${confidenceTextColor}`}>
-                {t.v2.provenance.verifiedCountLabel(verifiedCount, 11)}
-              </span>
-              {provenanceSummary.hasUnverifiedCoreMetrics && (
-                <span className="text-[9px] text-slate-400 dark:text-slate-500 shrink-0">
-                  {t.v2.metricsShort.unverified}
+        {/* Right: Video Commission Pool OR Active Cap / Zero Commission Alert */}
+        <div className="min-w-0 text-right">
+          {isZeroCommission ? (
+            <div className="inline-flex items-center justify-end gap-1 text-[11px] font-semibold text-rose-700 dark:text-rose-400">
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              <span className="truncate">{t.v2.searchScore.grades.NOT_MONETIZABLE}</span>
+            </div>
+          ) : primaryCap ? (
+            <div className="inline-flex items-center justify-end gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              <span className="truncate">{formatCapChip(primaryCap, language)}</span>
+              {compactTrendChip && (
+                <span className={`font-mono-num tabular-nums text-[10px] font-semibold ${compactTrendChip.tone}`}>
+                  {compactTrendChip.text}
                 </span>
               )}
             </div>
-            <div className="mt-1 grid grid-cols-5 gap-1">
-              {[0, 1, 2, 3, 4].map((seg) => (
-                <div
-                  key={seg}
-                  className={`h-1.5 rounded-full ${
-                    seg < confidenceSegmentsFilled
-                      ? confidenceBarColor
-                      : 'bg-slate-100 dark:bg-slate-800'
-                  }`}
-                />
-              ))}
+          ) : (
+            <div className="min-w-0">
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                {t.v2.searchScore.videoPoolLabel}
+              </div>
+              <div className="mt-0.5 flex items-baseline justify-end gap-1.5 font-mono-num tabular-nums">
+                <span className="text-xs font-semibold text-teal-700 dark:text-teal-400 truncate">
+                  {videoPoolThb !== null && videoPoolThb > 0 ? formatCompactThb(videoPoolThb) : '—'}
+                </span>
+                {compactTrendChip && (
+                  <span
+                    className={`text-[10px] font-semibold shrink-0 ${compactTrendChip.tone}`}
+                    title={compactTrendChip.title}
+                  >
+                    {compactTrendChip.text}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
-
-        {/* Single Concise Status Strip (ONLY when excluded, severe verified risk, or clear shortlist signal) */}
-        {inlineExclusionSummary ? (
-          <div className="flex items-start gap-1.5 text-[11px] text-rose-700 dark:text-rose-400 leading-snug">
-            {formattedSevereRisks.length > 0 && (
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            )}
-            <p className="min-w-0 line-clamp-2">
-              {formattedSevereRisks.length > 0 ? (
-                <>
-                  <span className="font-semibold">{formattedSevereRisks.join(' · ')}</span>
-                  <span aria-hidden="true"> · </span>
-                </>
-              ) : null}
-              {inlineExclusionSummary}
-            </p>
-          </div>
-        ) : formattedSevereRisks.length > 0 ? (
-          <div className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 leading-snug truncate">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate font-medium">{formattedSevereRisks.join(' · ')}</span>
-          </div>
-        ) : discoveryShortlist.primaryClassification !== 'INSUFFICIENT_EVIDENCE' ? (
-          <div
-            className="flex items-center justify-between gap-2 text-[11px] leading-snug"
-            title={discoveryShortlist.cautionNote}
-          >
-            <span className={`font-medium truncate ${shortlistToneClass}`}>
-              {t.v2.discoveryShortlist.categories[discoveryShortlist.primaryClassification]}
-            </span>
-            <span className="font-mono-num tabular-nums text-[10px] text-slate-400 dark:text-slate-500 shrink-0">
-              {snapshotCount >= 2
-                ? `${snapshotCount}d`
-                : discoveryShortlist.isPreliminaryCandidate
-                  ? t.v2.discoveryShortlist.preliminaryTag
-                  : ''}
-            </span>
-          </div>
-        ) : null}
       </div>
     );
   };
@@ -819,7 +711,7 @@ export function ProductCard({
                 {videoSharePct !== null && (
                   <>
                     <span aria-hidden="true">·</span>
-                    <span className="font-mono-num tabular-nums text-teal-700 dark:text-teal-400 font-medium shrink-0">
+                    <span className="font-mono-num tabular-nums text-sky-700 dark:text-sky-400 font-medium shrink-0">
                       Video {videoSharePct}%
                     </span>
                   </>
@@ -863,10 +755,8 @@ export function ProductCard({
               <button
                 type="button"
                 onClick={() => onOpenScoreDetails(product)}
-                title={`${t.v2.classifications[classification]} (${
-                  displayedScore ?? '—'
-                }/100) — ${t.score.tooltipBtn}`}
-                aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? 'Withheld'}`}
+                title={scoreTooltipTitle}
+                aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? '—'}`}
                 className="inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors shrink-0 cursor-pointer"
               >
                 <ScoreRing score={displayedScore} grade={scoreGrade} size={34} strokeWidth={3} />
@@ -887,7 +777,7 @@ export function ProductCard({
       );
     }
 
-    // List Level 2 (Detailed): Visual-First Intelligence Row
+    // List Level 2 (Detailed): Visual-First Search Score Row
     return (
       <article className="group flex flex-col sm:flex-row items-stretch bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-xl overflow-hidden transition-colors duration-150 hover:border-slate-300 dark:hover:border-slate-700">
         <button
@@ -923,28 +813,16 @@ export function ProductCard({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                   <span className="font-mono-num font-semibold text-slate-900 dark:text-slate-100 shrink-0">
-                    #{isExcluded ? '—' : index + 1}
+                    #{index + 1}
                   </span>
                   <span aria-hidden="true">·</span>
                   <span className="truncate" title={displayCategoryLabel}>
                     {displayCategoryLabel}
                   </span>
-                  {headerStatusText && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className={`font-semibold shrink-0 ${classTone.text}`}>
-                        {headerStatusText}
-                      </span>
-                    </>
-                  )}
-                  {activeStrategyLabel && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className="text-teal-700 dark:text-teal-400 font-medium truncate">
-                        {activeStrategyLabel}
-                      </span>
-                    </>
-                  )}
+                  <span aria-hidden="true">·</span>
+                  <span className={`font-semibold shrink-0 ${statusToneTextClass}`}>
+                    {headerStatusText}
+                  </span>
                 </div>
 
                 <button
@@ -963,10 +841,8 @@ export function ProductCard({
                 <button
                   type="button"
                   onClick={() => onOpenScoreDetails(product)}
-                  title={`${t.v2.classifications[classification]} (${
-                    displayedScore ?? '—'
-                  }/100) — ${t.score.tooltipBtn}`}
-                  aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? 'Withheld'}`}
+                  title={scoreTooltipTitle}
+                  aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? '—'}`}
                   className="sm:hidden inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 shrink-0 cursor-pointer"
                 >
                   <ScoreRing score={displayedScore} grade={scoreGrade} size={36} strokeWidth={3} />
@@ -983,8 +859,8 @@ export function ProductCard({
           </div>
 
           {renderHeroMetricsStrip('grid-cols-2 sm:grid-cols-4')}
-          {renderVisualDimensionBars('grid-cols-2 md:grid-cols-4')}
-          {renderVisualSignalsBlock()}
+          {renderPillarBars('grid-cols-2 md:grid-cols-4')}
+          {renderChannelAndPoolStrip()}
 
           {/* Mobile Action Footer */}
           <div className="sm:hidden pt-1 flex items-center gap-2">
@@ -994,7 +870,7 @@ export function ProductCard({
               className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
-              <span>{t.v2.strategyExplorer.viewFullBreakdownBtn}</span>
+              <span>{language === 'my' ? 'အသေးစိတ်' : 'Details'}</span>
             </button>
             <button
               type="button"
@@ -1012,11 +888,9 @@ export function ProductCard({
           <div className="w-full flex items-center justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
-                {isStrategyView && !isExcluded
-                  ? t.v2.strategyScoreShort
-                  : t.v2.commercialScoreShort}
+                {scoreRingCaption}
               </div>
-              <div className={`text-sm font-mono-num tabular-nums font-semibold truncate ${classTone.text}`}>
+              <div className={`text-sm font-mono-num tabular-nums font-semibold truncate ${statusToneTextClass}`}>
                 {displayedScore === null ? (isZeroCommission ? '0%' : '—') : `${displayedScore}/100`}
               </div>
             </div>
@@ -1024,10 +898,8 @@ export function ProductCard({
             <button
               type="button"
               onClick={() => onOpenScoreDetails(product)}
-              title={`${t.v2.classifications[classification]} (${
-                displayedScore ?? '—'
-              }/100) — ${t.score.tooltipBtn}`}
-              aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? 'Withheld'}`}
+              title={scoreTooltipTitle}
+              aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? '—'}`}
               className="inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:scale-[1.04] transition-all shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <ScoreRing score={displayedScore} grade={scoreGrade} size={44} strokeWidth={3.5} />
@@ -1041,7 +913,7 @@ export function ProductCard({
               className="w-full h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 text-xs font-medium inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
             >
               <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{t.v2.strategyExplorer.viewFullBreakdownBtn}</span>
+              <span className="truncate">{language === 'my' ? 'အမှတ်အသေးစိတ်' : 'Score Details'}</span>
             </button>
 
             <button
@@ -1149,7 +1021,7 @@ export function ProductCard({
       </button>
 
       <div className={`flex flex-col flex-1 ${bodyPaddingClass}`}>
-        {/* Clean 1-Line Kicker: #Rank · Category (+ Status only when qualified/not-monetizable) */}
+        {/* Clean 1-Line Kicker: #Rank · Category · Grade */}
         <div
           className={`flex items-center justify-between gap-1.5 text-slate-500 dark:text-slate-400 ${
             isCompact ? 'text-[11px]' : 'text-xs'
@@ -1157,16 +1029,16 @@ export function ProductCard({
         >
           <div className="flex items-center gap-1.5 min-w-0 truncate">
             <span className="font-mono-num font-semibold text-slate-900 dark:text-slate-100 shrink-0">
-              #{isExcluded ? '—' : index + 1}
+              #{index + 1}
             </span>
             <span aria-hidden="true">·</span>
             <span className="truncate" title={displayCategoryLabel}>
               {displayCategoryLabel}
             </span>
-            {!isCompact && headerStatusText && (
+            {!isCompact && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className={`font-semibold shrink-0 ${classTone.text}`}>
+                <span className={`font-semibold shrink-0 ${statusToneTextClass}`}>
                   {headerStatusText}
                 </span>
               </>
@@ -1177,7 +1049,7 @@ export function ProductCard({
           </div>
         </div>
 
-        {/* Title + Tappable Score Ring */}
+        {/* Title + Tappable Search Score Ring */}
         <div
           className={`${isCompact ? 'mt-1 gap-2' : 'mt-1.5 gap-2.5'} flex items-start justify-between`}
         >
@@ -1199,21 +1071,13 @@ export function ProductCard({
                 {primaryTitle}
               </h3>
             </button>
-
-            {!isCompact && activeStrategyLabel && (
-              <div className="mt-1 text-[11px] font-medium text-teal-700 dark:text-teal-400 truncate">
-                {activeStrategyLabel}
-              </div>
-            )}
           </div>
 
           <button
             type="button"
             onClick={() => onOpenScoreDetails(product)}
-            title={`${t.v2.classifications[classification]} (${
-              displayedScore ?? '—'
-            }/100) — ${t.score.tooltipBtn}`}
-            aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? 'Withheld'}`}
+            title={scoreTooltipTitle}
+            aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? '—'}`}
             className="inline-flex flex-col items-center justify-center rounded-xl p-0.5 -mt-0.5 -mr-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             <ScoreRing
@@ -1224,9 +1088,7 @@ export function ProductCard({
             />
             {!isCompact && (
               <span className="mt-0.5 text-[9px] font-medium text-slate-400 dark:text-slate-500 leading-none">
-                {isStrategyView && !isExcluded
-                  ? t.v2.strategyScoreShort
-                  : t.v2.commercialScoreShort}
+                {scoreRingCaption}
               </span>
             )}
           </button>
@@ -1240,23 +1102,28 @@ export function ProductCard({
           {renderUtilityButtons(isCompact)}
         </div>
 
-        {/* Visual Body: Hero Numbers First -> 4 Visual Bars -> Channel + Confidence Meters */}
+        {/* Visual Body: Hero Numbers -> 4 Real Search Score Pillar Bars -> Channel Split & Video Pool */}
         {isCompact ? (
           <>
             <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-2 gap-x-2 gap-y-1 font-mono-num tabular-nums">
-              {dimensions.map((dim) => {
-                const tone = getDimensionBarClass(dim.score, dim.status);
-                return (
-                  <div key={dim.key} className="min-w-0 flex items-baseline justify-between gap-1">
-                    <span className="font-sans text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                      {dim.label}
-                    </span>
-                    <span className={`text-[11px] font-semibold shrink-0 ${tone.textClass}`}>
-                      {formatCompactDimensionScore(dim.score, dim.status)}
-                    </span>
-                  </div>
-                );
-              })}
+              {pillars.map((pillar) => (
+                <div key={pillar.key} className="min-w-0 flex items-baseline justify-between gap-1">
+                  <span className="font-sans text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                    {pillar.label}
+                  </span>
+                  <span
+                    className={`text-[11px] font-semibold shrink-0 ${
+                      pillar.score !== null ? pillar.textClass : 'text-slate-400 dark:text-slate-500'
+                    }`}
+                  >
+                    {pillar.score !== null
+                      ? pillar.key === 'earning' && isZeroCommission
+                        ? '0%'
+                        : Math.round(pillar.score)
+                      : '—'}
+                  </span>
+                </div>
+              ))}
             </div>
 
             <div className="mt-auto pt-2.5">
@@ -1289,8 +1156,8 @@ export function ProductCard({
           <>
             <div className="mt-2.5 space-y-2.5">
               {renderHeroMetricsStrip(isSpacious ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}
-              {renderVisualDimensionBars(isSpacious ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}
-              {renderVisualSignalsBlock()}
+              {renderPillarBars(isSpacious ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}
+              {renderChannelAndPoolStrip()}
             </div>
 
             {/* Clean Single-Row Footer: Secondary Breakdown Button + Primary Studio CTA */}

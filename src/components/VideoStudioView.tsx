@@ -32,12 +32,11 @@ import type {
   VideoAdPlan,
   VisualStyle,
 } from '../types';
+import { ensureProductV2Intelligence } from '../lib/productIntelligenceView.ts';
 import {
-  ensureProductV2Intelligence,
-  getClassificationTone,
-  getDimensionBarClass,
-  getToneClasses,
-} from '../lib/productIntelligenceView.ts';
+  evaluateSearchOpportunityScore,
+  type SearchScoreGrade,
+} from '../lib/searchScoreEngine.ts';
 import { AiChatPromptCard } from './AiChatPromptCard';
 import { ScoreRing } from './ScoreRing';
 
@@ -163,6 +162,7 @@ export function VideoStudioView({
     includeDetails: !hasFetchedDetailsLayer,
     includeSpecs: false,
     includeComments: false,
+    dateRange: 'last7Day',
   });
 
   // Sync image & default checkboxes when switching products or after fetching deep data
@@ -188,6 +188,7 @@ export function VideoStudioView({
       includeDetails: !Boolean(product.deepInsights?.description || product.deepInsights?.fetchedDetails),
       includeSpecs: false,
       includeComments: false,
+      dateRange: product.kalodataMetrics?.dateRange === 'last30Day' ? 'last30Day' : 'last7Day',
     });
   }, [
     product.id,
@@ -220,22 +221,35 @@ export function VideoStudioView({
       ),
     [product, nowMs]
   );
-  const commercialV2 = productWithV2.commercialScoreV2!;
-  const strategyV2 = productWithV2.strategyIntelligenceV2!;
-  const v2Score = commercialV2.commercialOpportunityScore;
-  const v2Grade: ScoreGrade =
-    v2Score === null
-      ? 'low'
-      : v2Score >= 75
-        ? 'top'
-        : v2Score >= 58
-          ? 'strong'
-          : v2Score >= 40
-            ? 'fair'
-            : 'low';
-  const v2ClassTone = getToneClasses(
-    getClassificationTone(strategyV2.opportunityClassification)
+  const searchScore = useMemo(
+    () =>
+      evaluateSearchOpportunityScore(
+        productWithV2.validatedMetrics!,
+        nowMs !== undefined ? { nowMs } : undefined
+      ),
+    [productWithV2, nowMs]
   );
+  const studioScore = searchScore.score;
+  const studioGrade: ScoreGrade =
+    searchScore.grade === 'TOP'
+      ? 'top'
+      : searchScore.grade === 'STRONG'
+        ? 'strong'
+        : searchScore.grade === 'MODERATE'
+          ? 'fair'
+          : 'low';
+  const studioGradeTextClass: Record<SearchScoreGrade, string> = {
+    TOP: 'text-emerald-700 dark:text-emerald-400',
+    STRONG: 'text-teal-700 dark:text-teal-400',
+    MODERATE: 'text-amber-700 dark:text-amber-400',
+    WEAK: 'text-rose-700 dark:text-rose-400',
+    NOT_MONETIZABLE: 'text-rose-700 dark:text-rose-400',
+    INSUFFICIENT: 'text-slate-600 dark:text-slate-400',
+  };
+  const studioGradeClass = studioGradeTextClass[searchScore.grade];
+  const isZeroCommission =
+    productWithV2.validatedMetrics?.commissionRate.state === 'ZERO' ||
+    searchScore.status === 'NOT_MONETIZABLE';
 
   const enrichEstimatedCost = useMemo(() => {
     const sum =
@@ -539,8 +553,8 @@ export function VideoStudioView({
 
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <span className={`font-semibold ${v2ClassTone.text}`}>
-              {t.v2.classifications[strategyV2.opportunityClassification]}
+            <span className={`font-semibold ${studioGradeClass}`}>
+              {t.v2.searchScore.grades[searchScore.grade]}
             </span>
             <span aria-hidden="true">·</span>
             <span>
@@ -554,25 +568,21 @@ export function VideoStudioView({
             </span>
             <span aria-hidden="true">·</span>
             <span>{product.shopName}</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-mono-num tabular-nums text-slate-600 dark:text-slate-300">
-              {t.v2.confidenceLabel}: {Math.round(commercialV2.dataConfidence.score)}/100
-            </span>
           </div>
 
           <div className="mt-2 flow-root">
             <button
               type="button"
               onClick={() => onOpenScoreDetails(productWithV2)}
-              title={`${t.v2.classifications[strategyV2.opportunityClassification]} (${
-                v2Score ?? '—'
+              title={`${t.v2.searchScore.badgeShort}: ${t.v2.searchScore.grades[searchScore.grade]} (${
+                studioScore ?? '—'
               }/100) — ${t.score.tooltipBtn}`}
-              aria-label={`${t.score.tooltipBtn}: ${v2Score ?? 'Withheld'}`}
+              aria-label={`${t.score.tooltipBtn}: ${studioScore ?? '—'}`}
               className="float-left mr-3 mt-[3px] inline-flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:scale-[1.04] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <ScoreRing
-                score={v2Score}
-                grade={v2Grade}
+                score={studioScore}
+                grade={studioGrade}
                 size={56}
                 strokeWidth={4}
                 className="w-[50px] h-[50px] sm:w-[58px] sm:h-[58px]"
@@ -655,42 +665,72 @@ export function VideoStudioView({
             </div>
           </div>
 
-          {/* 4 Independent Commercial Dimensions Summary Row */}
+          {/* 4 Visual Search Score Pillars Summary Row */}
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             {(
               [
-                [
-                  t.v2.dimensions.demand.short,
-                  commercialV2.demandScore.score,
-                  commercialV2.demandScore.status,
-                ],
-                [
-                  t.v2.dimensions.earning.short,
-                  commercialV2.earningScore.score,
-                  commercialV2.earningScore.status,
-                ],
-                [
-                  t.v2.dimensions.competition.short,
-                  commercialV2.competitionScore.score,
-                  commercialV2.competitionScore.status,
-                ],
-                [
-                  t.v2.dimensions.quality.short,
-                  commercialV2.customerQualityScore.score,
-                  commercialV2.customerQualityScore.status,
-                ],
+                {
+                  key: 'demand',
+                  label: t.v2.searchScore.pillars.demand.short,
+                  score: searchScore.pillars.demand.score,
+                  barClass: 'bg-emerald-500 dark:bg-emerald-400',
+                  textClass: 'text-emerald-700 dark:text-emerald-400',
+                },
+                {
+                  key: 'earning',
+                  label: t.v2.searchScore.pillars.earning.short,
+                  score: isZeroCommission ? 0 : searchScore.pillars.earning.score,
+                  barClass: isZeroCommission
+                    ? 'bg-rose-500 dark:bg-rose-400'
+                    : 'bg-teal-500 dark:bg-teal-400',
+                  textClass: isZeroCommission
+                    ? 'text-rose-700 dark:text-rose-400'
+                    : 'text-teal-700 dark:text-teal-400',
+                },
+                {
+                  key: 'videoProof',
+                  label: t.v2.searchScore.pillars.videoProof.short,
+                  score: searchScore.pillars.videoProof.score,
+                  barClass: 'bg-sky-500 dark:bg-sky-400',
+                  textClass: 'text-sky-700 dark:text-sky-400',
+                },
+                {
+                  key: 'priceFit',
+                  label: t.v2.searchScore.pillars.priceFit.short,
+                  score: searchScore.pillars.priceFit.score,
+                  barClass: 'bg-indigo-500 dark:bg-indigo-400',
+                  textClass: 'text-indigo-700 dark:text-indigo-400',
+                },
               ] as const
-            ).map(([label, dimScore, dimStatus]) => {
-              const tone = getDimensionBarClass(dimScore, dimStatus);
+            ).map((pillar) => {
+              const rounded = pillar.score !== null ? Math.round(pillar.score) : null;
+              const widthPct =
+                rounded !== null ? Math.max(rounded > 0 ? 5 : 0, Math.min(100, rounded)) : 0;
               return (
-                <div key={label} className="min-w-0">
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400">{label}</div>
-                  <div className={`mt-0.5 font-mono-num tabular-nums font-semibold ${tone.textClass}`}>
-                    {dimScore !== null
-                      ? `${Math.round(dimScore)}/100`
-                      : dimStatus === 'NOT_MONETIZABLE'
-                        ? '0% Comm'
-                        : t.v2.dimensionStatus[dimStatus]}
+                <div key={pillar.key} className="min-w-0">
+                  <div className="flex items-baseline justify-between gap-1.5">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                      {pillar.label}
+                    </span>
+                    <span
+                      className={`font-mono-num tabular-nums font-semibold shrink-0 ${
+                        rounded !== null ? pillar.textClass : 'text-slate-400 dark:text-slate-500'
+                      }`}
+                    >
+                      {rounded !== null
+                        ? pillar.key === 'earning' && isZeroCommission
+                          ? '0%'
+                          : `${rounded}/100`
+                        : '—'}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                    {rounded !== null && widthPct > 0 && (
+                      <div
+                        className={`h-full rounded-full ${pillar.barClass}`}
+                        style={{ width: `${widthPct}%` }}
+                      />
+                    )}
                   </div>
                 </div>
               );
@@ -746,34 +786,67 @@ export function VideoStudioView({
           <div className="px-5 pb-5 pt-3 border-t border-slate-100 dark:border-slate-800/90 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {/* Product Details (+0.2 cr for 1 product) */}
-              <label className="flex items-start justify-between gap-3 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer">
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <input
-                    type="checkbox"
-                    checked={enrichOpts.includeDetails}
-                    onChange={(e) =>
-                      setEnrichOpts((prev) => ({ ...prev, includeDetails: e.target.checked }))
-                    }
-                    className="mt-0.5 h-4 w-4 accent-teal-600 shrink-0 cursor-pointer"
-                  />
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100">
-                      <span>{t.studio.deepOptDetailTitle}</span>
-                      {hasFetchedDetailsLayer && (
-                        <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-                          ✓ {t.studio.deepSavedTag}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                      {t.studio.deepOptDetailDesc}
+              <div className="flex flex-col justify-between gap-2.5 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700">
+                <label className="flex items-start justify-between gap-3 cursor-pointer">
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={enrichOpts.includeDetails}
+                      onChange={(e) =>
+                        setEnrichOpts((prev) => ({ ...prev, includeDetails: e.target.checked }))
+                      }
+                      className="mt-0.5 h-4 w-4 accent-teal-600 shrink-0 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100">
+                        <span>{t.studio.deepOptDetailTitle}</span>
+                        {hasFetchedDetailsLayer && (
+                          <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                            ✓ {t.studio.deepSavedTag}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                        {t.studio.deepOptDetailDesc}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <span className="font-mono-num text-xs font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap shrink-0">
-                  ~{SINGLE_DETAIL_COST} cr
-                </span>
-              </label>
+                  <span className="font-mono-num text-xs font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap shrink-0">
+                    ~{SINGLE_DETAIL_COST} cr
+                  </span>
+                </label>
+                {enrichOpts.includeDetails && (
+                  <div className="flex items-center justify-between gap-2 pl-6 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {t.v2.detailTrend.detailWindowLabel}
+                    </span>
+                    <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setEnrichOpts((prev) => ({ ...prev, dateRange: 'last7Day' }))}
+                        className={`px-2 py-0.5 font-medium transition-colors cursor-pointer ${
+                          (enrichOpts.dateRange ?? 'last7Day') === 'last7Day'
+                            ? 'bg-teal-600 text-white'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {t.v2.detailTrend.detailWindow7d}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEnrichOpts((prev) => ({ ...prev, dateRange: 'last30Day' }))}
+                        className={`px-2 py-0.5 font-medium transition-colors cursor-pointer ${
+                          enrichOpts.dateRange === 'last30Day'
+                            ? 'bg-teal-600 text-white'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {t.v2.detailTrend.detailWindow30d}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Selling Specs (+0.5 cr for 1 product) */}
               <label className="flex items-start justify-between gap-3 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer">
@@ -986,8 +1059,7 @@ export function VideoStudioView({
                         }`}
                       >
                         {formatGrowthRate(metrics.revenueGrowthRate)}
-                        {(productWithV2.validatedMetrics?.revenueGrowthRate.unit === 'UNVERIFIED' ||
-                          commercialV2.demandScore.growthStatus === 'UNVERIFIED') && (
+                        {productWithV2.validatedMetrics?.revenueGrowthRate.unit === 'UNVERIFIED' && (
                           <span className="ml-1 font-sans text-[10px] font-medium text-amber-700 dark:text-amber-400">
                             ({t.studio.growthUnverifiedShort})
                           </span>

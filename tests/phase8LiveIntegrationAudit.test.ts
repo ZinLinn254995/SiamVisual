@@ -91,8 +91,8 @@ const CAPTURED_POSITIVE_GROWTH_RANK_ROW: Record<string, unknown> = {
 
 describe('Phase 8: Live Data Integration Audit & Scoring Revalidation', () => {
   it('1. Maps all 9 live Kalodata fields + nested pri_category accurately across /rank and /detail', () => {
-    const rankRaw = parseRawProductRow(CAPTURED_RANK_ROW, 'fallback-1', 'rank', NOW_ISO);
-    const detailRaw = parseRawProductRow(CAPTURED_DETAIL_ROW, 'fallback-1', 'detail', NOW_ISO);
+    const rankRaw = parseRawProductRow(CAPTURED_RANK_ROW, 'fallback-1', 'rank', NOW_ISO, { nowMs: NOW_MS });
+    const detailRaw = parseRawProductRow(CAPTURED_DETAIL_ROW, 'fallback-1', 'detail', NOW_ISO, { nowMs: NOW_MS });
 
     assert.ok(rankRaw, 'rank row parsed');
     assert.ok(detailRaw, 'detail row parsed');
@@ -181,7 +181,8 @@ describe('Phase 8: Live Data Integration Audit & Scoring Revalidation', () => {
       },
       'fallback',
       'rank',
-      NOW_ISO
+      NOW_ISO,
+      { nowMs: NOW_MS }
     );
     assert.ok(parsedSubOne);
     // Must never inflate 0.5 to 50%
@@ -202,8 +203,8 @@ describe('Phase 8: Live Data Integration Audit & Scoring Revalidation', () => {
   });
 
   it('3. Revalidates all 4 commercial dimensions, Data Confidence, Conversion Evidence, and all 8 strategies on live captured data', () => {
-    const rankRow = parseRawProductRow(CAPTURED_POSITIVE_GROWTH_RANK_ROW, 'f', 'rank', NOW_ISO)!;
-    const detailRow = parseRawProductRow(CAPTURED_DETAIL_ROW, 'f', 'detail', NOW_ISO)!;
+    const rankRow = parseRawProductRow(CAPTURED_POSITIVE_GROWTH_RANK_ROW, 'f', 'rank', NOW_ISO, { nowMs: NOW_MS })!;
+    const detailRow = parseRawProductRow(CAPTURED_DETAIL_ROW, 'f', 'detail', NOW_ISO, { nowMs: NOW_MS })!;
 
     const rankScore = evaluateProductCommercialV2(rankRow.validatedMetrics, { nowMs: NOW_MS });
     const detailScore = evaluateProductCommercialV2(detailRow.validatedMetrics, { nowMs: NOW_MS });
@@ -279,7 +280,8 @@ describe('Phase 8: Live Data Integration Audit & Scoring Revalidation', () => {
       { ...CAPTURED_RANK_ROW, product_id: '1731661332013680799', commission_rate: 0 },
       'f',
       'rank',
-      NOW_ISO
+      NOW_ISO,
+      { nowMs: NOW_MS }
     )!;
     const ranked = rankCommercialOpportunitiesV2(
       [zeroCommRow.validatedMetrics, rankRow.validatedMetrics],
@@ -363,9 +365,10 @@ describe('Phase 8: Live Data Integration Audit & Scoring Revalidation', () => {
     const detailSameSessionTs = '2026-11-25T10:03:00.000Z';
     const staleDetailTs = '2026-11-24T01:00:00.000Z';
 
-    const rankRow = parseRawProductRow(CAPTURED_RANK_ROW, 'f', 'rank', rankTs)!;
-    const detailRow = parseRawProductRow(CAPTURED_DETAIL_ROW, 'f', 'detail', detailSameSessionTs)!;
-    const staleDetailRow = parseRawProductRow(CAPTURED_DETAIL_ROW, 'f', 'detail', staleDetailTs)!;
+    const sessionNowMs = Date.parse(detailSameSessionTs);
+    const rankRow = parseRawProductRow(CAPTURED_RANK_ROW, 'f', 'rank', rankTs, { nowMs: sessionNowMs })!;
+    const detailRow = parseRawProductRow(CAPTURED_DETAIL_ROW, 'f', 'detail', detailSameSessionTs, { nowMs: sessionNowMs })!;
+    const staleDetailRow = parseRawProductRow(CAPTURED_DETAIL_ROW, 'f', 'detail', staleDetailTs, { nowMs: sessionNowMs })!;
 
     // Coherent 3-minute enrichment preserves /rank's revenueGrowthRate AND /detail's creator_number & product_review_count
     const mergedKalo = mergeKalodataMetrics(detailRow.kalodataMetrics, rankRow.kalodataMetrics);

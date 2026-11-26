@@ -328,7 +328,8 @@ describe('Phase 1 — Unified ValidatedMetric & Normalization Foundation', () =>
       },
       'fallback_1',
       'rank',
-      NOW_ISO
+      NOW_ISO,
+      { nowMs: NOW_MS }
     );
 
     assert.ok(raw);

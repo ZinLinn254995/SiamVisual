@@ -1,34 +1,20 @@
 import { useEffect } from 'react';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Info,
-  ShieldAlert,
-  Video,
-  X,
-  XCircle,
-} from 'lucide-react';
+import { AlertTriangle, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { Translations } from '../i18n';
+import { analyzeDetailRevenueTrend } from '../lib/revenueTrendAnalyzer.ts';
+import { adaptProductItemToValidatedMetrics } from '../lib/metricFoundation.ts';
 import {
-  ALL_STRATEGY_IDS,
-  ensureProductV2Intelligence,
-  getClassificationTone,
-  getDimensionBarClass,
-  getProductMetricProvenanceList,
-  getToneClasses,
-  summarizeProductProvenance,
-} from '../lib/productIntelligenceView.ts';
-import { buildProductEvidenceSummary } from '../lib/productEvidenceSummary.ts';
+  evaluateSearchOpportunityScore,
+  type SearchScoreGrade,
+} from '../lib/searchScoreEngine.ts';
 import type {
   Language,
   ProductItem,
   ProductObservationSnapshot,
   ScoreGrade,
-  StrategyEligibilityStatus,
 } from '../types';
-import { getEffectiveScoreBreakdown, ScoreRing } from './ScoreRing';
+import { ScoreRing } from './ScoreRing';
 
 interface ScoreDetailDialogProps {
   product: ProductItem | null;
@@ -39,44 +25,79 @@ interface ScoreDetailDialogProps {
   onClose: () => void;
 }
 
-function scoreToGrade(score: number | null): ScoreGrade {
-  if (score === null) return 'low';
-  if (score >= 75) return 'top';
-  if (score >= 58) return 'strong';
-  if (score >= 40) return 'fair';
-  return 'low';
-}
-
-function formatMetricValue(key: string, val: number | null): string {
-  if (val === null || !Number.isFinite(val)) return '—';
-  if (key === 'priceThb' || key === 'commissionThb' || key.includes('Revenue')) {
-    return `฿${Math.round(val).toLocaleString()}`;
-  }
-  if (key === 'commissionRate') return `${val}%`;
-  if (key === 'revenueGrowthRate') return `${val > 0 ? '+' : ''}${val}%`;
-  if (key === 'rating') return `${val.toFixed(2)}/5`;
-  return val.toLocaleString();
-}
-
-function getStrategyStatusTone(status: StrategyEligibilityStatus): string {
-  switch (status) {
-    case 'QUALIFIED':
-      return 'text-emerald-700 dark:text-emerald-400';
-    case 'PARTIAL_EVIDENCE':
-      return 'text-amber-700 dark:text-amber-400';
-    case 'DATA_UNAVAILABLE':
-      return 'text-amber-700 dark:text-amber-300';
-    case 'INSUFFICIENT_DATA':
-      return 'text-slate-600 dark:text-slate-400';
-    case 'NOT_ELIGIBLE':
+function searchGradeToScoreGrade(grade: SearchScoreGrade): ScoreGrade {
+  switch (grade) {
+    case 'TOP':
+      return 'top';
+    case 'STRONG':
+      return 'strong';
+    case 'MODERATE':
+      return 'fair';
+    case 'WEAK':
+    case 'NOT_MONETIZABLE':
+    case 'INSUFFICIENT':
     default:
-      return 'text-rose-700 dark:text-rose-400';
+      return 'low';
   }
+}
+
+function searchGradeToTextClass(grade: SearchScoreGrade): string {
+  switch (grade) {
+    case 'TOP':
+      return 'text-emerald-700 dark:text-emerald-400';
+    case 'STRONG':
+      return 'text-teal-700 dark:text-teal-400';
+    case 'MODERATE':
+      return 'text-amber-700 dark:text-amber-400';
+    case 'WEAK':
+    case 'NOT_MONETIZABLE':
+      return 'text-rose-700 dark:text-rose-400';
+    case 'INSUFFICIENT':
+    default:
+      return 'text-slate-600 dark:text-slate-400';
+  }
+}
+
+function formatCompactThb(amount: number): string {
+  if (amount >= 1_000_000) {
+    return `฿${(amount / 1_000_000).toFixed(amount >= 10_000_000 ? 0 : 1)}M`;
+  }
+  if (amount >= 10_000) {
+    return `฿${(amount / 1_000).toFixed(amount >= 100_000 ? 0 : 1)}K`;
+  }
+  return `฿${Math.round(amount).toLocaleString()}`;
+}
+
+function formatCompactCount(count: number): string {
+  if (count >= 1_000_000) {
+    return `${(count / 1_000_000).toFixed(1)}M`;
+  }
+  if (count >= 10_000) {
+    return `${(count / 1_000).toFixed(1)}K`;
+  }
+  return Math.round(count).toLocaleString();
+}
+
+/**
+ * Maps a THB price onto a 0..100 visual scale (฿0 to ฿1,500+) so the
+ * ฿150–฿790 TikTok impulse sweet spot sits clearly in the center-left visual zone.
+ */
+function priceToScalePercent(priceThb: number): number {
+  if (!Number.isFinite(priceThb) || priceThb <= 0) return 0;
+  return Math.max(2, Math.min(98, (Math.min(priceThb, 1500) / 1500) * 100));
+}
+
+function getPriceZoneKey(priceThb: number | null): 'sweet' | 'mid' | 'low' | 'high' | null {
+  if (priceThb === null || !Number.isFinite(priceThb) || priceThb <= 0) return null;
+  if (priceThb >= 150 && priceThb <= 790) return 'sweet';
+  if (priceThb >= 80 && priceThb < 150) return 'low';
+  if (priceThb > 790 && priceThb <= 1500) return 'mid';
+  if (priceThb < 80) return 'low';
+  return 'high';
 }
 
 export function ScoreDetailContent({
-  product: rawProduct,
-  snapshots,
+  product,
   language,
   nowMs,
   t,
@@ -89,236 +110,198 @@ export function ScoreDetailContent({
   t: Translations;
   onClose: () => void;
 }) {
-  const product = ensureProductV2Intelligence(
-    rawProduct,
+  const validated =
+    product.validatedMetrics ??
+    adaptProductItemToValidatedMetrics(product, nowMs !== undefined ? { nowMs } : undefined);
+  const searchScore = evaluateSearchOpportunityScore(
+    validated,
     nowMs !== undefined ? { nowMs } : undefined
   );
-  const commercial = product.commercialScoreV2!;
-  const strategyReport = product.strategyIntelligenceV2!;
-  const validated = product.validatedMetrics!;
-  const provenanceItems = getProductMetricProvenanceList(validated);
-  const provenanceSummary = summarizeProductProvenance(validated);
-  const evidenceSummary = buildProductEvidenceSummary({
-    product,
-    validated,
-    commercialScore: commercial,
-    snapshots,
-    nowMs,
-  });
+  const detailTrend = analyzeDetailRevenueTrend(product.kalodataMetrics);
 
-  const classification = strategyReport.opportunityClassification;
-  const classTone = getToneClasses(getClassificationTone(classification));
-  const overallScore = commercial.commercialOpportunityScore;
-  const scoreGrade = scoreToGrade(overallScore);
+  const copy = t.v2.searchScore;
+  const gradeToneClass = searchGradeToTextClass(searchScore.grade);
+  const ringGrade = searchGradeToScoreGrade(searchScore.grade);
+  const m = searchScore.metrics;
 
-  const v1StudioRef = getEffectiveScoreBreakdown(product);
+  const isCapped =
+    searchScore.capsApplied.length > 0 &&
+    searchScore.rawWeightedScore !== null &&
+    searchScore.score !== null &&
+    Math.round(searchScore.rawWeightedScore) > searchScore.score;
 
-  const dimensionRows = [
+  const priceZone = getPriceZoneKey(m.priceThb);
+
+  const pillars = [
     {
-      key: 'demand',
-      title: t.v2.dimensions.demand.label,
-      desc: t.v2.dimensions.demand.desc,
-      score: commercial.demandScore.score,
-      status: commercial.demandScore.status,
-      used: commercial.demandScore.usedMetrics,
-      excluded: commercial.demandScore.excludedMetrics,
-      notes: commercial.demandScore.notes,
-      submetrics: [
-        {
-          label: t.v2.dialog.dimensionSubmetrics.revenueScore,
-          value:
-            commercial.demandScore.subcomponents.revenueScore !== null
-              ? `${Math.round(commercial.demandScore.subcomponents.revenueScore)}/100`
-              : '—',
-        },
-        {
-          label: t.v2.dialog.dimensionSubmetrics.salesScore,
-          value:
-            commercial.demandScore.subcomponents.salesVolumeScore !== null
-              ? `${Math.round(commercial.demandScore.subcomponents.salesVolumeScore)}/100`
-              : '—',
-        },
-        {
-          label: t.v2.dialog.dimensionSubmetrics.absDemand,
-          value:
-            commercial.demandScore.subcomponents.absoluteDemandScore !== null
-              ? `${Math.round(commercial.demandScore.subcomponents.absoluteDemandScore)}/100`
-              : '—',
-        },
-        {
-          label: t.v2.dialog.dimensionSubmetrics.growthRate,
-          value:
-            commercial.demandScore.growthStatus === 'VERIFIED' &&
-            commercial.demandScore.subcomponents.verifiedGrowthPercent !== null
-              ? `${commercial.demandScore.subcomponents.verifiedGrowthPercent > 0 ? '+' : ''}${commercial.demandScore.subcomponents.verifiedGrowthPercent.toFixed(1)}%`
-              : commercial.demandScore.growthStatus,
-        },
-      ],
+      key: 'demand' as const,
+      label: copy.pillars.demand.label,
+      weightLabel: copy.pillars.demand.weightLabel,
+      score: searchScore.pillars.demand.score,
+      pts: searchScore.pillars.demand.weightedPoints,
+      barClass: 'bg-emerald-500 dark:bg-emerald-400',
+      dotClass: 'bg-emerald-500 dark:bg-emerald-400',
+      textClass: 'text-emerald-700 dark:text-emerald-400',
+      fact: [
+        m.revenueThb !== null ? formatCompactThb(m.revenueThb) : null,
+        m.salesVolume !== null ? `${formatCompactCount(m.salesVolume)}${t.card.unitsSuffix}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
     },
     {
-      key: 'earning',
-      title: t.v2.dimensions.earning.label,
-      desc: t.v2.dimensions.earning.desc,
-      score: commercial.earningScore.score,
-      status: commercial.earningScore.status,
-      used: commercial.earningScore.usedMetrics,
-      excluded: commercial.earningScore.excludedMetrics,
-      notes: commercial.earningScore.notes,
-      submetrics: [
-        {
-          label: t.v2.dialog.dimensionSubmetrics.commissionRate,
-          value:
-            commercial.earningScore.verifiedCommissionPercent !== null
-              ? `${commercial.earningScore.verifiedCommissionPercent}%`
-              : '—',
-        },
-        {
-          label: t.v2.dialog.dimensionSubmetrics.payoutPerSale,
-          value:
-            commercial.earningScore.payoutPerSaleThb !== null
-              ? `฿${commercial.earningScore.payoutPerSaleThb.toFixed(2)} (${
-                  commercial.earningScore.payoutProvenance === 'SYNTHETIC'
-                    ? t.v2.provenance.derivedTag
-                    : t.v2.provenance.sourceTag
-                })`
-              : '—',
-        },
-      ],
+      key: 'earning' as const,
+      label: copy.pillars.earning.label,
+      weightLabel: copy.pillars.earning.weightLabel,
+      score: searchScore.pillars.earning.score,
+      pts: searchScore.pillars.earning.weightedPoints,
+      barClass: 'bg-teal-500 dark:bg-teal-400',
+      dotClass: 'bg-teal-500 dark:bg-teal-400',
+      textClass: 'text-teal-700 dark:text-teal-400',
+      fact: [
+        m.commissionRatePct !== null ? `${m.commissionRatePct}%` : null,
+        m.payoutPerSaleThb !== null
+          ? `฿${m.payoutPerSaleThb.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
     },
     {
-      key: 'competition',
-      title: t.v2.dimensions.competition.label,
-      desc: t.v2.dimensions.competition.desc,
-      score: commercial.competitionScore.score,
-      status: commercial.competitionScore.status,
-      used: commercial.competitionScore.usedMetrics,
-      excluded: commercial.competitionScore.excludedMetrics,
-      notes: commercial.competitionScore.notes,
-      submetrics: [
-        {
-          label: t.v2.dialog.dimensionSubmetrics.creators,
-          value:
-            commercial.competitionScore.creatorCount !== null
-              ? commercial.competitionScore.creatorCount.toLocaleString()
-              : validated.creatorCount.unit === 'UNVERIFIED'
-                ? t.v2.metricsShort.unverified
-                : '—',
-        },
-        {
-          label: t.v2.dialog.dimensionSubmetrics.rawRpc,
-          value:
-            commercial.rawRpcThb !== null
-              ? `฿${Math.round(commercial.rawRpcThb).toLocaleString()}`
-              : '—',
-        },
-        {
-          label: t.v2.dialog.dimensionSubmetrics.adjustedRpc,
-          value:
-            commercial.adjustedRpcThb !== null
-              ? `฿${Math.round(commercial.adjustedRpcThb).toLocaleString()}`
-              : '—',
-        },
-      ],
+      key: 'videoProof' as const,
+      label: copy.pillars.videoProof.label,
+      weightLabel: copy.pillars.videoProof.weightLabel,
+      score: searchScore.pillars.videoProof.score,
+      pts: searchScore.pillars.videoProof.weightedPoints,
+      barClass: 'bg-sky-500 dark:bg-sky-400',
+      dotClass: 'bg-sky-500 dark:bg-sky-400',
+      textClass: 'text-sky-700 dark:text-sky-400',
+      fact: [
+        m.videoSharePct !== null ? `Video ${Math.round(m.videoSharePct)}%` : null,
+        m.videoRevenueThb !== null ? formatCompactThb(m.videoRevenueThb) : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
     },
     {
-      key: 'quality',
-      title: t.v2.dimensions.quality.label,
-      desc: t.v2.dimensions.quality.desc,
-      score: commercial.customerQualityScore.score,
-      status: commercial.customerQualityScore.status,
-      used: commercial.customerQualityScore.usedMetrics,
-      excluded: commercial.customerQualityScore.excludedMetrics,
-      notes: commercial.customerQualityScore.notes,
-      submetrics: [
-        {
-          label: t.v2.dialog.dimensionSubmetrics.bayesianRating,
-          value:
-            commercial.customerQualityScore.bayesianRating !== null
-              ? `${commercial.customerQualityScore.bayesianRating.toFixed(2)}/5`
-              : '—',
-        },
-        {
-          label: t.v2.dialog.dimensionSubmetrics.rawRating,
-          value:
-            commercial.customerQualityScore.rawRating !== null
-              ? `${commercial.customerQualityScore.rawRating.toFixed(2)}/5`
-              : validated.rating.unit === 'UNVERIFIED'
-                ? t.v2.metricsShort.unverified
-                : '—',
-        },
-        {
-          label: t.v2.dialog.dimensionSubmetrics.reviews,
-          value:
-            commercial.customerQualityScore.reviewCount !== null
-              ? commercial.customerQualityScore.reviewCount.toLocaleString()
-              : validated.reviewCount.unit === 'UNVERIFIED'
-                ? t.v2.metricsShort.unverified
-                : '—',
-        },
-      ],
+      key: 'priceFit' as const,
+      label: copy.pillars.priceFit.label,
+      weightLabel: copy.pillars.priceFit.weightLabel,
+      score: searchScore.pillars.priceFit.score,
+      pts: searchScore.pillars.priceFit.weightedPoints,
+      barClass: 'bg-indigo-500 dark:bg-indigo-400',
+      dotClass: 'bg-indigo-500 dark:bg-indigo-400',
+      textClass: 'text-indigo-700 dark:text-indigo-400',
+      fact: [
+        m.priceThb !== null ? `฿${m.priceThb.toLocaleString()}` : null,
+        priceZone ? copy.priceZones[priceZone] : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
     },
   ];
 
-  const conv = commercial.conversionEvidence;
+  // Channel split visual widths (normalized to sum <= 100%)
+  const videoPct = m.videoSharePct !== null ? Math.max(0, Math.min(100, Math.round(m.videoSharePct))) : 0;
+  const livePct =
+    m.liveSharePct !== null
+      ? Math.max(0, Math.min(100 - videoPct, Math.round(m.liveSharePct)))
+      : 0;
+  const mallPct =
+    m.videoSharePct !== null || m.liveSharePct !== null || m.showcaseSharePct !== null
+      ? Math.max(0, 100 - videoPct - livePct)
+      : 0;
+  const hasChannelData =
+    m.videoSharePct !== null || m.liveSharePct !== null || m.showcaseSharePct !== null;
+
+  const est100SalesThb =
+    m.payoutPerSaleThb !== null && m.payoutPerSaleThb > 0
+      ? Math.round(m.payoutPerSaleThb * 100)
+      : m.commissionRatePct === 0
+        ? 0
+        : null;
+
+  const hasVerifiedSparkline =
+    (detailTrend.status === 'VERIFIED_30D' || detailTrend.status === 'VERIFIED_7D') &&
+    detailTrend.reconciledWithRevenue &&
+    detailTrend.dailyValuesThb.length > 1;
+
+  const priceMarkerLeftPct = m.priceThb !== null ? priceToScalePercent(m.priceThb) : null;
+  // Sweet spot zone on 0..1500 scale: ฿150 (10%) to ฿790 (52.7%), peak ฿220 (14.7%) to ฿590 (39.3%)
+  const sweetLeftPct = (150 / 1500) * 100;
+  const sweetWidthPct = ((790 - 150) / 1500) * 100;
+  const peakLeftPct = (220 / 1500) * 100;
+  const peakWidthPct = ((590 - 220) / 1500) * 100;
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Compact Sticky Header so Close button & Score stay accessible without crowding mobile screens */}
-      <div className="p-3.5 sm:p-6 shrink-0 border-b border-slate-100 dark:border-slate-800/90 bg-white dark:bg-[#131B24]">
+      {/* Clean Visual Header */}
+      <div className="p-4 sm:p-6 shrink-0 border-b border-slate-100 dark:border-slate-800/90 bg-white dark:bg-[#131B24]">
         <div className="flex items-start justify-between gap-3 sm:gap-4">
-          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+          <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
             <ScoreRing
-              score={overallScore}
-              grade={scoreGrade}
-              size={60}
+              score={searchScore.score}
+              grade={ringGrade}
+              size={64}
               strokeWidth={4.5}
-              className="w-12 h-12 sm:w-16 sm:h-16"
+              className="w-14 h-14 sm:w-16 sm:h-16 shrink-0"
             />
+
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                <span className={`font-semibold ${classTone.text}`}>
-                  {t.v2.classifications[classification]}
+                <span className={`font-semibold ${gradeToneClass}`}>
+                  {copy.grades[searchScore.grade]}
                 </span>
                 <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
                   ·
                 </span>
-                <span className="font-mono-num tabular-nums text-slate-600 dark:text-slate-300">
-                  {overallScore !== null
-                    ? `${overallScore}/100`
-                    : commercial.eligibilityStatus === 'NOT_MONETIZABLE'
-                      ? t.v2.withheldZeroCommLabel
-                      : t.v2.withheldLabel}
+                <span className="font-mono-num tabular-nums font-bold text-slate-900 dark:text-slate-100">
+                  {searchScore.score !== null ? `${searchScore.score}/100` : '—'}
                 </span>
-                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
-                  ·
-                </span>
-                <span className="text-slate-500 dark:text-slate-400">
-                  {t.v2.commercialEligibility[commercial.eligibilityStatus]}
-                </span>
+                {isCapped && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="font-mono-num tabular-nums text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                      {Math.round(searchScore.rawWeightedScore!)} → {searchScore.score}
+                    </span>
+                  </>
+                )}
               </div>
 
               <h2
                 id="score-dialog-title"
-                className="mt-1 font-display text-sm sm:text-lg font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2"
+                className="mt-1 font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2"
               >
                 {product.thaiTitle}
               </h2>
 
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
-                <span>
-                  {t.v2.confidenceLabel}:{' '}
-                  <strong className="text-slate-800 dark:text-slate-200">
-                    {Math.round(commercial.dataConfidence.score)}/100 (
-                    {t.v2.confidenceLevels[commercial.dataConfidence.level]})
-                  </strong>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  {m.priceThb !== null ? `฿${m.priceThb.toLocaleString()}` : '—'}
                 </span>
-                {strategyReport.bestStrategyId && (
-                  <span>
-                    {t.v2.strategyExplorer.bestMatchLabel}:{' '}
-                    <strong className="text-teal-700 dark:text-teal-400 font-sans">
-                      {t.v2.strategies[strategyReport.bestStrategyId].name}
-                    </strong>
-                  </span>
+                <span aria-hidden="true">·</span>
+                <span
+                  className={
+                    m.commissionRatePct === 0
+                      ? 'font-semibold text-rose-700 dark:text-rose-400'
+                      : 'font-semibold text-teal-700 dark:text-teal-400'
+                  }
+                >
+                  {m.commissionRatePct !== null ? `${m.commissionRatePct}%` : '—'}
+                  {m.payoutPerSaleThb !== null && m.payoutPerSaleThb > 0
+                    ? ` (฿${m.payoutPerSaleThb.toLocaleString(undefined, { maximumFractionDigits: 2 })})`
+                    : ''}
+                </span>
+                {m.salesVolume !== null && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      {formatCompactCount(m.salesVolume)}
+                      {t.card.unitsSuffix}
+                    </span>
+                  </>
                 )}
               </div>
             </div>
@@ -335,488 +318,396 @@ export function ScoreDetailContent({
         </div>
       </div>
 
+      {/* Scrollable Visual Breakdown Body */}
       <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/90">
-        {/* Section 0: Structured Product-Level Evidence Breakdown (Facts / Derived / Unavailable / Heuristics) */}
-        <div className="p-4 sm:p-6 space-y-3 text-xs">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              {t.v2.dialog.evidenceSummary.sectionTitle}
-            </h3>
-            <span
-              className={`font-semibold ${
-                evidenceSummary.qualificationStatus === 'QUALIFIED'
-                  ? 'text-emerald-700 dark:text-emerald-400'
-                  : evidenceSummary.qualificationStatus === 'PRELIMINARY'
-                    ? 'text-teal-700 dark:text-teal-400'
-                    : evidenceSummary.qualificationStatus === 'NOT_MONETIZABLE'
-                      ? 'text-rose-700 dark:text-rose-400'
-                      : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              {t.v2.dialog.evidenceSummary.statusLabels[evidenceSummary.qualificationStatus]}
-            </span>
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-slate-800 dark:text-slate-100 font-medium leading-relaxed">
-              {evidenceSummary.whyDiscovered[language]}
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              {evidenceSummary.qualificationReason[language]}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-            {/* Verified Facts (Source) */}
-            <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/25 space-y-2">
-              <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                {t.v2.dialog.evidenceSummary.factsTitle}
-              </div>
-              <dl className="space-y-1.5">
-                {evidenceSummary.verifiedFacts.map((item) => (
-                  <div key={item.id} className="space-y-0.5">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <dt className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {item.label[language]}
-                      </dt>
-                      <dd className="font-mono-num tabular-nums font-semibold text-slate-900 dark:text-slate-100 shrink-0">
-                        {item.value}
-                      </dd>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                      {item.detail[language]}
-                    </p>
-                  </div>
-                ))}
-              </dl>
-            </div>
-
-            {/* Derived Calculations */}
-            <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/25 space-y-2">
-              <div className="text-[11px] font-semibold text-sky-700 dark:text-sky-400">
-                {t.v2.dialog.evidenceSummary.derivedTitle}
-              </div>
-              {evidenceSummary.derivedCalculations.length > 0 ? (
-                <dl className="space-y-1.5">
-                  {evidenceSummary.derivedCalculations.map((item) => (
-                    <div key={item.id} className="space-y-0.5">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <dt className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {item.label[language]}
-                        </dt>
-                        <dd className="font-mono-num tabular-nums font-semibold text-slate-900 dark:text-slate-100 shrink-0">
-                          {item.value}
-                        </dd>
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                        {item.detail[language]}
-                      </p>
-                    </div>
-                  ))}
-                </dl>
+        {/* Active Cap / 0% Commission Notice (Only when triggered) */}
+        {(searchScore.status === 'NOT_MONETIZABLE' || searchScore.capsApplied.length > 0) && (
+          <div className="px-4 sm:px-6 py-3 bg-amber-50/55 dark:bg-amber-950/20 flex items-start gap-2.5 text-xs">
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="min-w-0 space-y-0.5">
+              {searchScore.status === 'NOT_MONETIZABLE' ? (
+                <p className="font-medium text-rose-700 dark:text-rose-400">
+                  {language === 'my'
+                    ? 'ကော်မရှင် 0% ဖြစ်သောကြောင့် Affiliate အမြတ်မရနိုင်၍ 0 မှတ်သတ်မှတ်ထားသည်'
+                    : '0% verified commission — non-monetizable for affiliates (Score 0)'}
+                </p>
               ) : (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">—</p>
+                searchScore.capsApplied.map((capCode) => (
+                  <p key={capCode} className="font-medium text-amber-800 dark:text-amber-300">
+                    {copy.caps[capCode]}
+                  </p>
+                ))
               )}
             </div>
           </div>
+        )}
 
-          {/* Missing / Unverified Evidence */}
-          {evidenceSummary.unavailableEvidence.length > 0 && (
-            <div className="p-3 rounded-xl border border-amber-200/70 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 space-y-1.5">
-              <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-                {t.v2.dialog.evidenceSummary.unavailableTitle}
-              </div>
-              <ul className="space-y-1 text-[11px] text-slate-700 dark:text-slate-300">
-                {evidenceSummary.unavailableEvidence.map((item) => (
-                  <li key={item.id} className="leading-snug">
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {item.label[language]} ({item.value}):
-                    </span>{' '}
-                    {item.detail[language]}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Creative Heuristics (Strictly Separated) */}
-          {evidenceSummary.heuristicSignals.length > 0 && (
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-              <span className="font-semibold text-slate-700 dark:text-slate-300">
-                {t.v2.dialog.evidenceSummary.heuristicsTitle}:
-              </span>{' '}
-              {evidenceSummary.heuristicSignals[0].detail[language]}
-            </div>
-          )}
-
-          <p className="text-[11px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
-            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-            <span>{evidenceSummary.nonGuaranteeNotice[language]}</span>
-          </p>
-        </div>
-
-        {/* Section 1: Gate Decisions, Transparency Distinctions & Overall Summary */}
-        <div className="p-4 sm:p-6 space-y-3 text-xs">
-          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-            {t.v2.dialog.v2Subtitle}
-          </p>
-
-          {provenanceSummary.hasUnverifiedCoreMetrics && (
-            <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
-              <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>{t.v2.provenance.unverifiedCoreBanner(provenanceSummary.unverifiedCount)}</span>
-            </div>
-          )}
-
-          <div className="pt-1 font-semibold text-slate-900 dark:text-slate-100">
-            {t.v2.dialog.gateDecisionsTitle}
-          </div>
-          <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
-            {commercial.scoreExplanation.summary}
-          </p>
-
-          {commercial.scoreExplanation.gateDecisions.length > 0 && (
-            <ul className="space-y-1 text-slate-600 dark:text-slate-300 list-disc pl-4">
-              {commercial.scoreExplanation.gateDecisions.map((gate, i) => (
-                <li key={i}>{gate}</li>
-              ))}
-            </ul>
-          )}
-
-          {commercial.riskTags.length > 0 && (
-            <div className="flex items-start gap-2 pt-1 text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>
-                {commercial.riskTags
-                  .map((tag) => t.v2.riskLabels[tag] ?? t.v2.formatRiskTag(tag))
-                  .join(' · ')}
+        {/* Visual Block 1: 100-Point Stacked Composition Bar + 4 Pillar Gauges */}
+        <div className="p-4 sm:p-6 space-y-4">
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                {copy.compositionTitle}
+              </h3>
+              <span className="font-mono-num tabular-nums text-xs font-semibold text-slate-800 dark:text-slate-200">
+                {searchScore.rawWeightedScore !== null
+                  ? `${Math.round(searchScore.rawWeightedScore)} / 100`
+                  : '—'}
               </span>
             </div>
-          )}
 
-          {/* Clear 4-Signal Separation & Non-Guarantee Transparency Note */}
-          <div className="mt-2 p-3 rounded-xl bg-slate-50/75 dark:bg-slate-900/45 border border-slate-200/75 dark:border-slate-800 space-y-1.5">
-            <div className="font-semibold text-slate-800 dark:text-slate-200">
-              {t.v2.dialog.pillarsSummaryTitle}
-            </div>
-            <ul className="space-y-1 text-[11px] text-slate-600 dark:text-slate-300 list-disc pl-4 leading-relaxed">
-              <li>{t.v2.dialog.pillarCommercial}</li>
-              <li>{t.v2.dialog.pillarConversion}</li>
-              <li>{t.v2.dialog.pillarVideo}</li>
-              <li>{t.v2.dialog.pillarConfidence}</li>
-            </ul>
-            <p className="pt-1 text-[11px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
-              <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-              <span>{t.v2.dialog.nonGuaranteeDisclaimer}</span>
-            </p>
-          </div>
-        </div>
-
-      {/* Section 2: 4 Independent Commercial Dimensions */}
-      <div className="p-4 sm:p-6 space-y-4">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          {t.v2.dimensionsHeading}
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {dimensionRows.map((dim) => {
-            const tone = getDimensionBarClass(dim.score, dim.status);
-            const barWidth =
-              dim.score !== null && dim.status !== 'INSUFFICIENT' && dim.status !== 'INVALID'
-                ? Math.max(3, Math.min(100, dim.score))
-                : 0;
-
-            return (
-              <div
-                key={dim.key}
-                className="p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/25 space-y-2.5"
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {dim.title}
-                    </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {t.v2.dimensionStatus[dim.status]}
-                    </div>
-                  </div>
-                  <div className={`text-base font-mono-num tabular-nums font-bold ${tone.textClass}`}>
-                    {dim.score !== null ? `${Math.round(dim.score)}/100` : '—'}
-                  </div>
-                </div>
-
-                <div className="h-1.5 w-full rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${tone.barClass}`}
-                    style={{ width: `${barWidth}%` }}
-                  />
-                </div>
-
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  {dim.desc}
-                </p>
-
-                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/80 grid grid-cols-2 gap-2 text-[11px]">
-                  {dim.submetrics.map((sub) => (
-                    <div key={sub.label}>
-                      <div className="text-slate-400 dark:text-slate-500">{sub.label}</div>
-                      <div className="font-mono-num tabular-nums font-semibold text-slate-800 dark:text-slate-200">
-                        {sub.value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {dim.notes.length > 0 && (
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                    {dim.notes[0]}
-                  </p>
-                )}
-
-                {dim.excluded.length > 0 && (
-                  <div className="text-[10px] font-mono-num text-amber-700 dark:text-amber-400">
-                    {t.v2.dialog.excludedMetricsLabel}: {dim.excluded.join(', ')}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Section 3: Data Confidence Breakdown & Metric Provenance */}
-      <div className="p-4 sm:p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
-          <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              {t.v2.provenance.sectionTitle}
-            </h3>
-            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-              {t.v2.provenance.sectionSubtitle}
-            </p>
-          </div>
-          <div className="text-xs font-mono-num tabular-nums font-semibold text-slate-800 dark:text-slate-200 shrink-0">
-            {t.v2.confidenceLabel}: {Math.round(commercial.dataConfidence.score)}/100
-          </div>
-        </div>
-
-        {/* Confidence Subscores */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-[11px] font-mono-num tabular-nums">
-          {(
-            [
-              ['completeness', commercial.dataConfidence.breakdown.completeness],
-              ['provenance', commercial.dataConfidence.breakdown.provenance],
-              ['freshness', commercial.dataConfidence.breakdown.freshness],
-              ['validity', commercial.dataConfidence.breakdown.validity],
-              ['dimensionCoverage', commercial.dataConfidence.breakdown.dimensionCoverage],
-            ] as const
-          ).map(([k, val]) => (
+            {/* 100-Point Stacked Horizontal Composition Bar */}
             <div
-              key={k}
-              className="p-2 rounded-lg border border-slate-200/75 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30"
+              className="h-3 w-full rounded-full bg-slate-100 dark:bg-slate-800/90 overflow-hidden flex gap-0.5"
+              role="img"
+              aria-label={`${copy.compositionTitle}: ${searchScore.score ?? 0} of 100`}
             >
-              <div className="font-sans text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                {t.v2.confidenceBreakdown[k]}
-              </div>
-              <div className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-                {Math.round(val)}/100
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Field Provenance Table */}
-        <div className="overflow-x-auto border border-slate-200/80 dark:border-slate-800 rounded-xl">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 dark:bg-slate-900/60 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-200/80 dark:border-slate-800">
-              <tr>
-                <th className="py-2 px-3 font-medium">{t.v2.provenance.metricCol}</th>
-                <th className="py-2 px-3 font-medium text-right">{t.v2.provenance.valueCol}</th>
-                <th className="py-2 px-3 font-medium">{t.v2.provenance.statusCol}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-              {provenanceItems.map((item) => {
-                const statusColor =
-                  item.category === 'verified_source'
-                    ? 'text-emerald-700 dark:text-emerald-400'
-                    : item.category === 'derived'
-                      ? 'text-sky-700 dark:text-sky-400'
-                      : item.category === 'unverified' ||
-                          item.category === 'stale' ||
-                          item.category === 'invalid'
-                        ? 'text-amber-700 dark:text-amber-400'
-                        : item.category === 'zero'
-                          ? 'text-rose-700 dark:text-rose-400'
-                          : 'text-slate-500 dark:text-slate-400';
-
+              {pillars.map((pillar) => {
+                const widthPct =
+                  pillar.pts !== null && pillar.pts > 0 ? Math.min(100, pillar.pts) : 0;
+                if (widthPct <= 0) return null;
                 return (
-                  <tr key={item.key} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/30">
-                    <td className="py-1.5 px-3 font-medium text-slate-800 dark:text-slate-200">
-                      {t.v2.provenance.fields[item.key]}
-                    </td>
-                    <td className="py-1.5 px-3 text-right font-mono-num tabular-nums text-slate-900 dark:text-slate-100">
-                      {formatMetricValue(item.key, item.metric.value)}
-                    </td>
-                    <td className={`py-1.5 px-3 text-[11px] font-medium ${statusColor}`}>
-                      {t.v2.provenance.categories[item.category]}
-                    </td>
-                  </tr>
+                  <div
+                    key={pillar.key}
+                    className={`h-full first:rounded-l-full last:rounded-r-full ${pillar.barClass}`}
+                    style={{ width: `${widthPct}%` }}
+                    title={`${pillar.label}: +${pillar.pts?.toFixed(1)}`}
+                  />
                 );
               })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Section 4: Separate Conversion Evidence */}
-      <div className="p-4 sm:p-6 space-y-2.5 text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            {t.v2.dialog.conversionSectionTitle}
-          </h3>
-          <span className="font-semibold text-teal-700 dark:text-teal-400">
-            {t.v2.conversionLevels[conv.evidenceLevel]} ·{' '}
-            {t.v2.conversionChannels[conv.dominantChannel]}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono-num tabular-nums">
-          <div>
-            <div className="font-sans text-[11px] text-slate-500 dark:text-slate-400">
-              {t.card.videoRev7d}
             </div>
-            <div className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-              {conv.videoRevenueThb.value !== null
-                ? `฿${Math.round(conv.videoRevenueThb.value).toLocaleString()}`
-                : '—'}
+
+            {/* Quiet 1-Line Point Contribution Legend */}
+            <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
+              {pillars.map((pillar) => (
+                <span key={pillar.key} className="inline-flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-xs shrink-0 ${pillar.dotClass}`} />
+                  <span className="font-sans text-slate-600 dark:text-slate-300">
+                    {copy.pillars[pillar.key].short}
+                  </span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    {pillar.pts !== null ? `+${Math.round(pillar.pts)}` : '—'}
+                  </span>
+                </span>
+              ))}
             </div>
           </div>
-          <div>
-            <div className="font-sans text-[11px] text-slate-500 dark:text-slate-400">
-              {t.studio.deepMetricLiveRev7d}
-            </div>
-            <div className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-              {conv.liveRevenueThb.value !== null
-                ? `฿${Math.round(conv.liveRevenueThb.value).toLocaleString()}`
-                : '—'}
-            </div>
-          </div>
-          <div>
-            <div className="font-sans text-[11px] text-slate-500 dark:text-slate-400">
-              {t.v2.dialog.videoShareLabel}
-            </div>
-            <div className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-              {conv.videoRevenueShare !== null
-                ? `${Math.round(conv.videoRevenueShare * 100)}%`
-                : '—'}
-            </div>
-          </div>
-          <div>
-            <div className="font-sans text-[11px] text-slate-500 dark:text-slate-400">
-              {t.v2.dialog.liveShareLabel}
-            </div>
-            <div className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-              {conv.liveRevenueShare !== null
-                ? `${Math.round(conv.liveRevenueShare * 100)}%`
-                : '—'}
-            </div>
-          </div>
-        </div>
 
-        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          {conv.consistencyNote}
-        </p>
-        <p className="text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-          <Info className="w-3.5 h-3.5 shrink-0" />
-          <span>{conv.disclaimer}</span>
-        </p>
-      </div>
+          {/* 4 Visual Pillar Bars (2x2 Grid, Flat Surface, Zero Nested Card Clutter) */}
+          <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+            {pillars.map((pillar) => {
+              const barPct =
+                pillar.score !== null ? Math.max(4, Math.min(100, Math.round(pillar.score))) : 0;
 
-      {/* Section 5: 8-Strategy Eligibility Matrix */}
-      <div className="p-4 sm:p-6 space-y-3">
-        <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            {t.v2.dialog.strategyMatrixTitle}
-          </h3>
-          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-            {t.v2.dialog.strategyMatrixSub}
-          </p>
-        </div>
-
-        <div className="divide-y divide-slate-100 dark:divide-slate-800/80 border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden">
-          {ALL_STRATEGY_IDS.map((sid) => {
-            const evalRes = strategyReport.strategies[sid];
-            const statusClass = getStrategyStatusTone(evalRes.eligibilityStatus);
-            const isQualified = evalRes.eligibilityStatus === 'QUALIFIED';
-            const isUnavailable = evalRes.eligibilityStatus === 'DATA_UNAVAILABLE';
-
-            return (
-              <div key={sid} className="p-3 text-xs space-y-1">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {isQualified ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    ) : isUnavailable ? (
-                      <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                    ) : (
-                      <XCircle className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    )}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {t.v2.strategies[sid].name}
+              return (
+                <div key={pillar.key} className="space-y-1.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="flex items-baseline gap-1.5 min-w-0">
+                      <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {pillar.label}
+                      </span>
+                      <span className="font-mono-num text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
+                        {pillar.weightLabel}
+                      </span>
+                    </div>
+                    <span
+                      className={`font-mono-num tabular-nums text-sm font-bold shrink-0 ${pillar.textClass}`}
+                    >
+                      {pillar.score !== null ? Math.round(pillar.score) : '—'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 font-mono-num tabular-nums shrink-0">
-                    <span className={`font-semibold ${statusClass}`}>
-                      {t.v2.strategyEligibility[evalRes.eligibilityStatus]}
-                    </span>
-                    {evalRes.strategyScore !== null && (
-                      <span className="text-slate-700 dark:text-slate-300 font-semibold">
-                        {Math.round(evalRes.strategyScore)}/100
-                      </span>
+
+                  <div className="h-2 w-full rounded-full bg-slate-100 dark:bg-slate-800/90 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${pillar.barClass}`}
+                      style={{ width: `${barPct}%` }}
+                    />
+                  </div>
+
+                  <div className="flex items-baseline justify-between gap-2 text-[11px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
+                    <span className="truncate">{pillar.fact || '—'}</span>
+                    {pillar.pts !== null && (
+                      <span className="shrink-0">+{pillar.pts.toFixed(1)}</span>
                     )}
                   </div>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed pl-5">
-                  {evalRes.explanation}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Section 6: Secondary Video Studio Reference (Strictly Separated) */}
-      <div className="p-4 sm:p-6 bg-slate-50/50 dark:bg-slate-900/30 space-y-2 text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
-            <Video className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-            <span>{t.v2.dialog.studioVisualRefTitle}</span>
+              );
+            })}
           </div>
-          <span className="font-mono-num tabular-nums text-[11px] text-slate-500 dark:text-slate-400">
-            {t.v2.dialog.v1SilentScoreLabel}: {v1StudioRef.total}/100
-          </span>
         </div>
-        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          {t.v2.dialog.studioVisualRefNotice}
-        </p>
-        {product.whySilentWorks[language] && (
-          <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-            {product.whySilentWorks[language]}
-          </p>
-        )}
+
+        {/* Visual Block 2: Sales Channel Split Bar + Price Sweet-Spot Gauge */}
+        <div className="p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {/* Left: Sales Channels Visual Bar */}
+          <div className="space-y-2.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                {copy.channelsTitle}
+              </h3>
+              <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-400 truncate">
+                {copy.channels[m.dominantChannel]}
+              </span>
+            </div>
+
+            {hasChannelData ? (
+              <>
+                <div className="h-2.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex gap-0.5">
+                  {videoPct > 0 && (
+                    <div
+                      className="h-full bg-teal-500 dark:bg-teal-400 first:rounded-l-full last:rounded-r-full"
+                      style={{ width: `${videoPct}%` }}
+                    />
+                  )}
+                  {livePct > 0 && (
+                    <div
+                      className="h-full bg-amber-400 dark:bg-amber-400/90 first:rounded-l-full last:rounded-r-full"
+                      style={{ width: `${livePct}%` }}
+                    />
+                  )}
+                  {mallPct > 0 && (
+                    <div
+                      className="h-full bg-slate-400 dark:bg-slate-600 first:rounded-l-full last:rounded-r-full"
+                      style={{ width: `${mallPct}%` }}
+                    />
+                  )}
+                </div>
+
+                <div className="space-y-1.5 text-xs font-mono-num tabular-nums">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 font-sans text-slate-600 dark:text-slate-300">
+                      <span className="w-2 h-2 rounded-xs bg-teal-500 dark:bg-teal-400" />
+                      {copy.channelShort.video}
+                    </span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                      {videoPct}%
+                      {m.videoRevenueThb !== null ? ` · ${formatCompactThb(m.videoRevenueThb)}` : ''}
+                    </span>
+                  </div>
+
+                  {(livePct > 0 || (m.liveRevenueThb !== null && m.liveRevenueThb > 0)) && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 font-sans text-slate-600 dark:text-slate-300">
+                        <span className="w-2 h-2 rounded-xs bg-amber-400" />
+                        {copy.channelShort.live}
+                      </span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        {livePct}%
+                        {m.liveRevenueThb !== null ? ` · ${formatCompactThb(m.liveRevenueThb)}` : ''}
+                      </span>
+                    </div>
+                  )}
+
+                  {(mallPct > 0 || (m.showcaseRevenueThb !== null && m.showcaseRevenueThb > 0)) && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 font-sans text-slate-600 dark:text-slate-300">
+                        <span className="w-2 h-2 rounded-xs bg-slate-400 dark:bg-slate-600" />
+                        {copy.channelShort.mall}
+                      </span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        {mallPct}%
+                        {m.showcaseRevenueThb !== null
+                          ? ` · ${formatCompactThb(m.showcaseRevenueThb)}`
+                          : ''}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="text-xs text-slate-400 dark:text-slate-500">—</div>
+            )}
+          </div>
+
+          {/* Right: Price Sweet-Spot Visual Scale */}
+          <div className="space-y-2.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                {copy.priceSweetSpotTitle}
+              </h3>
+              <span className="font-mono-num tabular-nums text-xs font-bold text-slate-900 dark:text-slate-100">
+                {m.priceThb !== null ? `฿${m.priceThb.toLocaleString()}` : '—'}
+                {priceZone && (
+                  <span
+                    className={`ml-1.5 font-sans font-semibold text-[11px] ${
+                      priceZone === 'sweet'
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    · {copy.priceZones[priceZone]}
+                  </span>
+                )}
+              </span>
+            </div>
+
+            {/* Visual Range Track with Highlighted Sweet Spot (฿150–฿790) & Pin */}
+            <div className="pt-2 pb-1">
+              <div className="relative h-2.5 w-full rounded-full bg-slate-100 dark:bg-slate-800">
+                {/* Outer Sweet Spot ฿150–฿790 */}
+                <div
+                  className="absolute inset-y-0 rounded-full bg-emerald-200/80 dark:bg-emerald-900/60"
+                  style={{ left: `${sweetLeftPct}%`, width: `${sweetWidthPct}%` }}
+                />
+                {/* Peak Impulse Zone ฿220–฿590 */}
+                <div
+                  className="absolute inset-y-0 rounded-full bg-emerald-500/75 dark:bg-emerald-400/75"
+                  style={{ left: `${peakLeftPct}%`, width: `${peakWidthPct}%` }}
+                />
+                {/* Exact Product Price Marker Pin */}
+                {priceMarkerLeftPct !== null && (
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-slate-900 dark:bg-white border-2 border-white dark:border-slate-900 shadow-xs"
+                    style={{ left: `${priceMarkerLeftPct}%` }}
+                    title={m.priceThb !== null ? `฿${m.priceThb.toLocaleString()}` : undefined}
+                  />
+                )}
+              </div>
+
+              <div className="mt-2 flex items-center justify-between text-[10px] font-mono-num tabular-nums text-slate-400 dark:text-slate-500">
+                <span>฿0</span>
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                  ฿150 – ฿790
+                </span>
+                <span>฿1.5K+</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Visual Block 3: Affiliate Earning Snapshot (3 Clean Big Numbers) */}
+        <div className="p-4 sm:p-6">
+          <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-3">
+            {copy.earningSnapshotTitle}
+          </h3>
+          <div className="grid grid-cols-3 gap-3 sm:gap-5 font-mono-num tabular-nums">
+            <div className="min-w-0">
+              <div className="font-sans text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                {copy.payoutPerSaleLabel}
+              </div>
+              <div className="mt-1 text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 truncate">
+                {m.payoutPerSaleThb !== null
+                  ? `฿${m.payoutPerSaleThb.toLocaleString(undefined, {
+                      maximumFractionDigits: 2,
+                    })}`
+                  : '—'}
+              </div>
+            </div>
+
+            <div className="min-w-0 border-l border-slate-100 dark:border-slate-800/90 pl-3 sm:pl-5">
+              <div className="font-sans text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                {copy.est100SalesLabel}
+              </div>
+              <div className="mt-1 text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 truncate">
+                {est100SalesThb !== null ? formatCompactThb(est100SalesThb) : '—'}
+              </div>
+            </div>
+
+            <div className="min-w-0 border-l border-slate-100 dark:border-slate-800/90 pl-3 sm:pl-5">
+              <div className="font-sans text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                {copy.videoPoolLabel}
+              </div>
+              <div className="mt-1 text-base sm:text-lg font-bold text-teal-700 dark:text-teal-400 truncate">
+                {m.videoCommissionPoolThb !== null
+                  ? formatCompactThb(m.videoCommissionPoolThb)
+                  : '—'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Optional Visual Block 4: Daily Revenue Sparkline (ONLY when /detail Deep Data already exists) */}
+        {hasVerifiedSparkline && (() => {
+          const values = detailTrend.dailyValuesThb;
+          const maxVal = Math.max(...values, 1);
+          const svgW = 280;
+          const svgH = 48;
+          const padX = 3;
+          const padY = 4;
+          const plotW = svgW - padX * 2;
+          const plotH = svgH - padY * 2;
+          const points = values
+            .map((v, idx) => {
+              const x = padX + (idx / (values.length - 1)) * plotW;
+              const y = padY + plotH - (v / maxVal) * plotH;
+              return `${x.toFixed(1)},${y.toFixed(1)}`;
+            })
+            .join(' ');
+          const areaPoints = `${padX},${(padY + plotH).toFixed(1)} ${points} ${(
+            padX + plotW
+          ).toFixed(1)},${(padY + plotH).toFixed(1)}`;
+
+          const rawCreators =
+            typeof product.kalodataMetrics?.creatorCount === 'number' &&
+            product.kalodataMetrics.creatorCount >= 0
+              ? product.kalodataMetrics.creatorCount
+              : null;
+
+          return (
+            <div className="p-4 sm:p-6 space-y-2.5">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  {copy.dailyTrendTitle} ({detailTrend.daysCount}d)
+                </h3>
+                <div className="flex items-center gap-2.5 text-xs font-mono-num tabular-nums">
+                  {detailTrend.growth7dPct !== null && (
+                    <span
+                      className={`font-semibold ${
+                        detailTrend.growth7dPct >= 0
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-rose-700 dark:text-rose-400'
+                      }`}
+                    >
+                      {detailTrend.growth7dPct > 0 ? '+' : ''}
+                      {detailTrend.growth7dPct}%
+                    </span>
+                  )}
+                  {rawCreators !== null && (
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {copy.activeCreatorsShort}:{' '}
+                      <strong className="text-slate-800 dark:text-slate-200">
+                        {rawCreators.toLocaleString()}
+                      </strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <svg
+                viewBox={`0 0 ${svgW} ${svgH}`}
+                className="w-full h-12 overflow-visible"
+                role="img"
+                aria-label={`${detailTrend.daysCount}-day daily revenue trend`}
+              >
+                <polygon
+                  points={areaPoints}
+                  className="fill-teal-500/15 dark:fill-teal-400/15"
+                />
+                <polyline
+                  fill="none"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  points={points}
+                  className="stroke-teal-600 dark:stroke-teal-400"
+                />
+              </svg>
+            </div>
+          );
+        })()}
       </div>
 
-      {/* Footer */}
-      <div className="px-4 sm:px-6 py-3.5 flex items-center justify-end">
+      {/* Minimal Footer */}
+      <div className="px-4 sm:px-6 py-3 shrink-0 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between gap-3 bg-white dark:bg-[#131B24]">
+        <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+          {copy.rankDataOnlyNote}
+        </span>
         <button
           type="button"
           onClick={onClose}
-          className="h-10 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           {t.score.closeBtn}
         </button>
-      </div>
       </div>
     </div>
   );
@@ -867,7 +758,7 @@ export function ScoreDetailDialog({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 8 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="relative z-10 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 shadow-xl"
+            className="relative z-10 w-full max-w-xl max-h-[88vh] flex flex-col overflow-hidden rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 shadow-xl"
           >
             <ScoreDetailContent
               product={product}

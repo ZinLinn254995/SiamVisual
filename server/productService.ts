@@ -206,6 +206,8 @@ export interface KalodataProductSearchOutput {
   mode: 'rank' | 'single_link';
   aiEnrichmentFailed: boolean;
   balance: KalodataCreditBalance | null;
+  pageNumber?: number;
+  hasMore?: boolean;
 }
 
 function buildScoredKalodataItem(
@@ -468,6 +470,9 @@ export async function searchSilentVisualProducts(params: {
   query: string;
   cateIds: string[];
   selectedCategoryMeta?: { id: string; my?: string; en?: string } | null;
+  pageNumber?: number;
+  pageSize?: number;
+  dateRange?: 'last7Day' | 'last30Day';
   forceRefresh?: boolean;
   guardrails?: CreditGuardrails;
 }): Promise<KalodataProductSearchOutput> {
@@ -486,6 +491,7 @@ export async function searchSilentVisualProducts(params: {
 
     const singleResult = await fetchSingleKalodataProductById({
       productId: linkCheck.productId,
+      dateRange: params.dateRange,
       forceRefresh: params.forceRefresh,
       guardrails: params.guardrails,
     });
@@ -516,9 +522,16 @@ export async function searchSilentVisualProducts(params: {
   }
 
   // Standard Ranking Search (Default best matches, Keyword, Multiple Categories, or combined)
+  const effectivePageSize =
+    typeof params.pageSize === 'number' && Number.isFinite(params.pageSize) && params.pageSize > 0
+      ? Math.max(1, Math.min(100, Math.floor(params.pageSize)))
+      : 20;
   const kalodataResult = await fetchKalodataThailandProducts({
     query: params.query,
     cateIds: params.cateIds,
+    pageNumber: params.pageNumber,
+    pageSize: effectivePageSize,
+    dateRange: params.dateRange,
     forceRefresh: params.forceRefresh,
     guardrails: params.guardrails,
   });
@@ -532,6 +545,8 @@ export async function searchSilentVisualProducts(params: {
       mode: 'rank',
       aiEnrichmentFailed: false,
       balance: kalodataResult.balance,
+      pageNumber: kalodataResult.pageNumber ?? 1,
+      hasMore: false,
     };
   }
 
@@ -543,10 +558,10 @@ export async function searchSilentVisualProducts(params: {
         : { id: params.cateIds[0] }
       : undefined;
 
-  // Instant Score Engine on all 20 Kalodata products (NO auto-AI call — user runs Studio AI Analysis manually!)
+  // Instant Score Engine on returned Kalodata products (NO auto-AI call — user runs Studio AI Analysis manually!)
   const scoredProducts = sortProductsByV2Overall(
     kalodataProducts
-      .slice(0, 20)
+      .slice(0, effectivePageSize)
       .map((raw) => buildScoredKalodataItem(raw, fallbackGroup, singleSearchedCateMeta))
   );
 
@@ -557,6 +572,8 @@ export async function searchSilentVisualProducts(params: {
     mode: 'rank',
     aiEnrichmentFailed: false,
     balance: kalodataResult.balance,
+    pageNumber: kalodataResult.pageNumber ?? 1,
+    hasMore: kalodataResult.hasMore ?? false,
   };
 }
 

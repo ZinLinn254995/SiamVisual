@@ -36,6 +36,7 @@ const OBSERVATION_METRIC_KEYS: readonly ObservationMetricKey[] = [
   'videoRevenueThb',
   'liveRevenueThb',
   'shoppingMallRevenueThb',
+  'unitPriceThb',
   'commissionRate',
   'revenueGrowthRate',
   'creatorCountVerified',
@@ -142,6 +143,7 @@ function extractPerMetricMetaFromValidated(
 ): { valid: boolean; meta: ProductObservationMetricMeta } {
   const endpoint = normalizeEndpoint(metric?.sourceEndpoint ?? fallbackEndpoint);
   const dateRange = metric?.dateRange ?? snapshotDateRange;
+  const unit = metric?.unit;
 
   if (!isMetricCompatibleWithDateRange(metric?.dateRange, snapshotDateRange)) {
     return {
@@ -151,6 +153,7 @@ function extractPerMetricMetaFromValidated(
         timestampPrecision: 'UNKNOWN',
         sourceEndpoint: endpoint,
         dateRange,
+        ...(unit ? { unit } : {}),
       },
     };
   }
@@ -163,6 +166,7 @@ function extractPerMetricMetaFromValidated(
         timestampPrecision: 'UNKNOWN',
         sourceEndpoint: endpoint,
         dateRange,
+        ...(unit ? { unit } : {}),
       },
     };
   }
@@ -176,6 +180,7 @@ function extractPerMetricMetaFromValidated(
         timestampPrecision: 'UNKNOWN',
         sourceEndpoint: endpoint,
         dateRange,
+        ...(unit ? { unit } : {}),
       },
     };
   }
@@ -187,6 +192,7 @@ function extractPerMetricMetaFromValidated(
       timestampPrecision: 'EXACT_METRIC',
       sourceEndpoint: endpoint,
       dateRange,
+      ...(unit ? { unit } : {}),
     },
   };
 }
@@ -205,12 +211,24 @@ function sanitizeMetricMetaEntry(
       ? obj.dateRange.trim()
       : fallbackDateRange;
 
+  const rawUnit =
+    obj.unit === 'THB' ||
+    obj.unit === 'COUNT' ||
+    obj.unit === 'PERCENT' ||
+    obj.unit === 'RATIO' ||
+    obj.unit === 'RATING_5' ||
+    obj.unit === 'UNVERIFIED' ||
+    obj.unit === 'TEXT'
+      ? obj.unit
+      : undefined;
+
   if (obj.fetchedAt === null || obj.fetchedAt === undefined || obj.fetchedAt === '') {
     return {
       fetchedAt: null,
       timestampPrecision: 'UNKNOWN',
       sourceEndpoint,
       dateRange,
+      ...(rawUnit ? { unit: rawUnit } : {}),
     };
   }
 
@@ -221,6 +239,7 @@ function sanitizeMetricMetaEntry(
       timestampPrecision: 'UNKNOWN',
       sourceEndpoint,
       dateRange,
+      ...(rawUnit ? { unit: rawUnit } : {}),
     };
   }
 
@@ -235,6 +254,7 @@ function sanitizeMetricMetaEntry(
     timestampPrecision: precision,
     sourceEndpoint,
     dateRange,
+    ...(rawUnit ? { unit: rawUnit } : {}),
   };
 }
 
@@ -251,7 +271,8 @@ function areMetricMetaEqual(
       ma.fetchedAt !== mb.fetchedAt ||
       ma.timestampPrecision !== mb.timestampPrecision ||
       ma.sourceEndpoint !== mb.sourceEndpoint ||
-      ma.dateRange !== mb.dateRange
+      ma.dateRange !== mb.dateRange ||
+      ma.unit !== mb.unit
     ) {
       return false;
     }
@@ -269,6 +290,7 @@ function areObservationsEqual(
     a.videoRevenueThb === b.videoRevenueThb &&
     a.liveRevenueThb === b.liveRevenueThb &&
     a.shoppingMallRevenueThb === b.shoppingMallRevenueThb &&
+    (a.unitPriceThb ?? null) === (b.unitPriceThb ?? null) &&
     a.commissionRate === b.commissionRate &&
     a.revenueGrowthRate === b.revenueGrowthRate &&
     a.revenueGrowthVerified === b.revenueGrowthVerified &&
@@ -284,6 +306,7 @@ function countObservedFields(obs: ProductSourceObservationValues): number {
   if (obs.videoRevenueThb !== null) count += 1;
   if (obs.liveRevenueThb !== null) count += 1;
   if (obs.shoppingMallRevenueThb !== null) count += 1;
+  if (obs.unitPriceThb !== null && obs.unitPriceThb !== undefined) count += 1;
   if (obs.commissionRate !== null) count += 1;
   if (obs.revenueGrowthRate !== null) count += 1;
   if (obs.creatorCountVerified !== null) count += 1;
@@ -375,6 +398,11 @@ function mergeSameDayObservationAndMeta(
     curObs.shoppingMallRevenueThb,
     incObs.shoppingMallRevenueThb
   );
+  const unitPriceThb = pickNumeric(
+    'unitPriceThb',
+    curObs.unitPriceThb ?? null,
+    incObs.unitPriceThb ?? null
+  );
   const commissionRate = pickNumeric(
     'commissionRate',
     curObs.commissionRate,
@@ -463,6 +491,7 @@ function mergeSameDayObservationAndMeta(
       videoRevenueThb,
       liveRevenueThb,
       shoppingMallRevenueThb,
+      unitPriceThb,
       commissionRate,
       revenueGrowthRate,
       revenueGrowthVerified,
@@ -517,9 +546,11 @@ export function createObservationSnapshotFromProduct(
   const readSourceMetric = (
     key: ObservationMetricKey,
     metric: ValidatedMetric<number> | undefined,
-    validator: (val: number) => boolean
+    validator: (val: number) => boolean,
+    expectedUnit?: ValidatedMetric<number>['unit']
   ): number | null => {
     if (!isSourceObservedNumber(metric)) return null;
+    if (expectedUnit && metric!.unit !== expectedUnit) return null;
     if (!validator(metric!.value!)) return null;
 
     const metaRes = extractPerMetricMetaFromValidated(
@@ -537,27 +568,42 @@ export function createObservationSnapshotFromProduct(
     return metric!.value!;
   };
 
-  const revenueThb = readSourceMetric('revenueThb', validated.revenueThb7d, (v) => v >= 0);
-  const salesVolume = readSourceMetric('salesVolume', validated.salesVolume7d, (v) => v >= 0);
+  const revenueThb = readSourceMetric('revenueThb', validated.revenueThb7d, (v) => v >= 0, 'THB');
+  const salesVolume = readSourceMetric(
+    'salesVolume',
+    validated.salesVolume7d,
+    (v) => v >= 0,
+    'COUNT'
+  );
   const videoRevenueThb = readSourceMetric(
     'videoRevenueThb',
     validated.videoRevenueThb7d,
-    (v) => v >= 0
+    (v) => v >= 0,
+    'THB'
   );
   const liveRevenueThb = readSourceMetric(
     'liveRevenueThb',
     validated.liveRevenueThb7d,
-    (v) => v >= 0
+    (v) => v >= 0,
+    'THB'
   );
   const shoppingMallRevenueThb = readSourceMetric(
     'shoppingMallRevenueThb',
     validated.shoppingMallRevenueThb7d,
-    (v) => v >= 0
+    (v) => v >= 0,
+    'THB'
+  );
+  const unitPriceThb = readSourceMetric(
+    'unitPriceThb',
+    validated.priceThb,
+    (v) => v >= 0,
+    'THB'
   );
   const commissionRate = readSourceMetric(
     'commissionRate',
     validated.commissionRate,
-    (v) => v >= 0 && v <= 100
+    (v) => v >= 0 && v <= 100,
+    'PERCENT'
   );
 
   const revenueGrowthRate = readSourceMetric(
@@ -583,7 +629,8 @@ export function createObservationSnapshotFromProduct(
     creatorCountVerified = readSourceMetric(
       'creatorCountVerified',
       validated.creatorCount,
-      (v) => v >= 0
+      (v) => v >= 0,
+      'COUNT'
     );
   } else if (validated.creatorCount.unit === 'UNVERIFIED') {
     const rawUnverifiedCreator = parseStrictFiniteNumber(
@@ -612,6 +659,7 @@ export function createObservationSnapshotFromProduct(
     videoRevenueThb,
     liveRevenueThb,
     shoppingMallRevenueThb,
+    unitPriceThb,
     commissionRate,
     revenueGrowthRate,
     revenueGrowthVerified,
@@ -662,6 +710,24 @@ export function appendObservationSnapshot(
   options?: { nowMs?: number }
 ): SnapshotAppendResult {
   const nowMs = options?.nowMs ?? Date.now();
+  if (!incoming?.productId || typeof incoming.productId !== 'string' || !incoming.productId.trim()) {
+    return {
+      snapshots: existing,
+      added: false,
+      updated: false,
+      deduplicated: false,
+      rejectedReason: 'Rejected snapshot with missing or invalid productId.',
+    };
+  }
+  if (!incoming?.dateRange || typeof incoming.dateRange !== 'string' || !incoming.dateRange.trim()) {
+    return {
+      snapshots: existing,
+      added: false,
+      updated: false,
+      deduplicated: false,
+      rejectedReason: 'Rejected snapshot with missing or invalid dateRange.',
+    };
+  }
   const tsCheck = normalizeNonFutureTimestamp(incoming.observedAt, nowMs);
   if (!tsCheck.valid || tsCheck.future || !tsCheck.normalizedIso) {
     return {
@@ -677,6 +743,8 @@ export function appendObservationSnapshot(
 
   const normalizedIncoming: ProductObservationSnapshot = {
     ...incoming,
+    productId: incoming.productId.trim(),
+    dateRange: incoming.dateRange.trim(),
     observedAt: tsCheck.normalizedIso,
     observationDay: tsCheck.normalizedIso.slice(0, 10),
     trustStatus: normalizeTrustStatusForLocal(incoming.trustStatus),
@@ -1234,6 +1302,7 @@ function sanitizeSnapshotRecordInternal(
   const shoppingMallRevenueThb = normalizeNonNegativeFiniteOrNull(
     rawObs.shoppingMallRevenueThb
   );
+  const unitPriceThb = normalizeNonNegativeFiniteOrNull(rawObs.unitPriceThb);
   const commissionRate = normalizeCommissionRateOrNull(rawObs.commissionRate);
   const revenueGrowthRate = normalizeFiniteOrNull(rawObs.revenueGrowthRate);
 
@@ -1260,6 +1329,7 @@ function sanitizeSnapshotRecordInternal(
     videoRevenueThb,
     liveRevenueThb,
     shoppingMallRevenueThb,
+    unitPriceThb,
     commissionRate,
     revenueGrowthRate,
     revenueGrowthVerified,

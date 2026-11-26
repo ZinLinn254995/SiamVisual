@@ -4,9 +4,30 @@ import { motion } from 'motion/react';
 import type { Translations } from '../i18n';
 import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
 import { getStudioFallbackImage } from '../lib/media';
+import {
+  evaluateSearchOpportunityScore,
+  type SearchScoreGrade,
+} from '../lib/searchScoreEngine.ts';
 import { hydrateProductFromStorage } from '../lib/storage';
 import { getTikTokShopProductUrl } from '../lib/tiktokLink';
 import type { Language, SavedHistoryEntry } from '../types';
+
+function historyGradeClass(grade: SearchScoreGrade): string {
+  switch (grade) {
+    case 'TOP':
+      return 'text-emerald-700 dark:text-emerald-400';
+    case 'STRONG':
+      return 'text-teal-700 dark:text-teal-400';
+    case 'MODERATE':
+      return 'text-amber-700 dark:text-amber-400';
+    case 'WEAK':
+    case 'NOT_MONETIZABLE':
+      return 'text-rose-700 dark:text-rose-400';
+    case 'INSUFFICIENT':
+    default:
+      return 'text-slate-600 dark:text-slate-400';
+  }
+}
 
 interface HistoryViewProps {
   entries: SavedHistoryEntry[];
@@ -205,6 +226,10 @@ export function HistoryView({
                       )
                   : entry.product.categoryLabel.en || entry.product.categoryLabel.my;
               const tiktokShopUrl = getTikTokShopProductUrl(entry.product);
+              const entrySearchScore = evaluateSearchOpportunityScore(
+                entry.product,
+                nowMs !== undefined ? { nowMs } : undefined
+              );
 
               return (
                 <article
@@ -247,11 +272,14 @@ export function HistoryView({
                   <div className="px-4 pb-4 mt-auto">
                     <div className="pt-3 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between gap-2 text-xs font-mono-num">
                       <div className="flex items-center gap-2 min-w-0 truncate">
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold tabular-nums">
-                          {entry.product.commercialScoreV2?.commercialOpportunityScore !== null &&
-                          entry.product.commercialScoreV2?.commercialOpportunityScore !== undefined
-                            ? `V2 ${Math.round(entry.product.commercialScoreV2.commercialOpportunityScore)}`
-                            : `V2 —`}
+                        <span
+                          className={`font-semibold tabular-nums ${historyGradeClass(
+                            entrySearchScore.grade
+                          )}`}
+                        >
+                          {entrySearchScore.score !== null
+                            ? `${entrySearchScore.score}/100`
+                            : '—'}
                         </span>
                         <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
                         <span className="text-slate-800 dark:text-slate-200 font-semibold">

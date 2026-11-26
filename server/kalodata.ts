@@ -15,6 +15,7 @@ import {
   adaptRawKalodataRowToValidatedMetrics,
   parseStrictFiniteNumber,
 } from '../src/lib/metricFoundation.ts';
+import { sanitizeRevenueTrendArray } from '../src/lib/revenueTrendAnalyzer.ts';
 import { sanitizeExternalUrl } from './gemini.ts';
 
 export interface KalodataRawProduct {
@@ -42,6 +43,8 @@ export interface KalodataSearchResponse {
   fromCache: boolean;
   mode: 'rank' | 'single_link';
   balance: KalodataCreditBalance | null;
+  pageNumber?: number;
+  hasMore?: boolean;
 }
 
 export interface KalodataSingleEnrichResponse {
@@ -384,7 +387,8 @@ function inferVisualGroup(name: string): Exclude<CategoryKey, 'all'> {
 export function extractMetricsFromRawRow(
   row: Record<string, unknown>,
   sourceEndpoint: ProductMetricSourceEndpoint = 'unknown',
-  fetchedAt: string | null = null
+  fetchedAt: string | null = null,
+  options?: { dateRange?: string; nowMs?: number }
 ): {
   priceThb: number | null;
   commissionRate: number | null;
@@ -396,6 +400,7 @@ export function extractMetricsFromRawRow(
   validatedMetrics: ProductValidatedMetrics;
   hasAnyRawMetricField: boolean;
 } {
+  const effectiveDateRange = options?.dateRange?.trim() || 'last7Day';
   const rawPrice =
     parsePositiveOrNull(row.unit_price) ??
     parsePositiveOrNull(row.avg_price) ??
@@ -432,6 +437,17 @@ export function extractMetricsFromRawRow(
   const rawReviewCount = parseFiniteNumber(
     row.product_review_count ?? row.review_count ?? row.comment_count
   );
+  const rawRevenueTrend = sanitizeRevenueTrendArray(row.revenue_trend);
+  const rawVideoCount = parseNonNegativeOrNull(row.video_number ?? row.video_count);
+  const rawLiveCount = parseNonNegativeOrNull(row.live_number ?? row.live_count);
+  const rawLaunchDate =
+    typeof row.launch_date === 'string' && row.launch_date.trim()
+      ? row.launch_date.trim().slice(0, 32)
+      : null;
+  const rawDeliveryType =
+    typeof row.delivery_type === 'string' && row.delivery_type.trim()
+      ? row.delivery_type.trim().slice(0, 32)
+      : null;
 
   const hasAnyRawMetricField =
     rawSalesVol !== null ||
@@ -442,7 +458,8 @@ export function extractMetricsFromRawRow(
     rawGrowthRate !== null ||
     rawCreatorCount !== null ||
     rawRating !== null ||
-    rawReviewCount !== null;
+    rawReviewCount !== null ||
+    rawRevenueTrend !== null;
 
   // Legacy V1 fields kept intact for computeDirectKalodataScore backward compatibility.
   // Phase 1 validatedMetrics preserves exact ZERO / MISSING / INVALID / UNAVAILABLE states separately.
@@ -485,14 +502,20 @@ export function extractMetricsFromRawRow(
         : null,
     reviewCount:
       rawReviewCount !== null && rawReviewCount >= 0 ? Math.round(rawReviewCount) : null,
-    dateRange: 'last7Day',
+    ...(rawRevenueTrend ? { revenueTrendThb: rawRevenueTrend } : {}),
+    ...(rawVideoCount !== null ? { videoCount: Math.round(rawVideoCount) } : {}),
+    ...(rawLiveCount !== null ? { liveCount: Math.round(rawLiveCount) } : {}),
+    ...(rawLaunchDate ? { launchDate: rawLaunchDate } : {}),
+    ...(rawDeliveryType ? { deliveryType: rawDeliveryType } : {}),
+    dateRange: effectiveDateRange,
     ...(normalizedFetchedAt ? { fetchedAt: normalizedFetchedAt } : {}),
   };
 
   const validatedMetrics = adaptRawKalodataRowToValidatedMetrics(row, {
     fetchedAt: normalizedFetchedAt,
-    dateRange: 'last7Day',
+    dateRange: effectiveDateRange,
     sourceEndpoint,
+    nowMs: options?.nowMs,
   });
 
   return {
@@ -512,7 +535,8 @@ export function parseRawProductRow(
   row: Record<string, unknown>,
   fallbackId: string,
   sourceEndpoint: ProductMetricSourceEndpoint = 'unknown',
-  fetchedAt: string | null = null
+  fetchedAt: string | null = null,
+  options?: { dateRange?: string; nowMs?: number }
 ): KalodataRawProduct | null {
   const title = String(
     row.product_name ?? row.product_title ?? row.title ?? ''
@@ -530,7 +554,7 @@ export function parseRawProductRow(
     revenueGrowthRate,
     kalodataMetrics,
     validatedMetrics,
-  } = extractMetricsFromRawRow(row, sourceEndpoint, fetchedAt);
+  } = extractMetricsFromRawRow(row, sourceEndpoint, fetchedAt, options);
 
   const imageUrl = sanitizeExternalUrl(
     row.master_image_url ?? row.image_url ?? row.cover_url ?? row.main_image
@@ -1044,6 +1068,7 @@ export async function fetchKalodataLiveCategories(
  */
 export async function fetchSingleKalodataProductById(params: {
   productId: string;
+  dateRange?: 'last7Day' | 'last30Day';
   forceRefresh?: boolean;
   guardrails?: CreditGuardrails;
 }): Promise<KalodataSearchResponse> {
@@ -1057,7 +1082,8 @@ export async function fetchSingleKalodataProductById(params: {
   }
 
   const cleanId = params.productId.trim();
-  const cacheKey = `${hashKeyPrefix(apiKey)}|single|${cleanId}`;
+  const effectiveDateRange = normalizeKalodataDateRange(params.dateRange);
+  const cacheKey = `${hashKeyPrefix(apiKey)}|single|${effectiveDateRange}|${cleanId}`;
 
   if (!params.forceRefresh) {
     const cached = searchCache.get(cacheKey);
@@ -1088,7 +1114,7 @@ export async function fetchSingleKalodataProductById(params: {
         region: 'TH',
         language: 'en-US',
         currency: 'THB',
-        date_range: 'last7Day',
+        date_range: effectiveDateRange,
         product_id: cleanId,
         need_extra: true,
         need_image: 1,
@@ -1099,7 +1125,7 @@ export async function fetchSingleKalodataProductById(params: {
 
     const fetchedAt = new Date().toISOString();
     if (detail && typeof detail === 'object') {
-      const layerKey = `${hashKeyPrefix(apiKey)}|detail|${cleanId}`;
+      const layerKey = `${hashKeyPrefix(apiKey)}|detail|${effectiveDateRange}|${cleanId}`;
       detailLayerCache.set(layerKey, {
         expiresAt: Date.now() + ENRICH_LAYER_CACHE_TTL_MS,
         fetchedAt,
@@ -1109,7 +1135,7 @@ export async function fetchSingleKalodataProductById(params: {
 
     const parsed =
       detail && typeof detail === 'object'
-        ? parseRawProductRow(detail, cleanId, 'detail', fetchedAt)
+        ? parseRawProductRow(detail, cleanId, 'detail', fetchedAt, { dateRange: effectiveDateRange })
         : null;
     const products = parsed ? [parsed] : [];
 
@@ -1148,9 +1174,44 @@ export async function fetchSingleKalodataProductById(params: {
  *  - Multiple selected official Thailand TikTok Shop categories (cate_ids: string[])
  *  - Keyword + Multiple Categories combined
  */
+export function normalizeKalodataPageNumber(rawPage: unknown): number {
+  const n = typeof rawPage === 'number' ? rawPage : Number(rawPage);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(10, Math.floor(n)));
+}
+
+export function normalizeKalodataPageSize(rawPageSize: unknown): number {
+  const n = typeof rawPageSize === 'number' ? rawPageSize : Number(rawPageSize);
+  if (!Number.isFinite(n) || n <= 0) return 20;
+  return Math.max(1, Math.min(100, Math.floor(n)));
+}
+
+export function normalizeKalodataDateRange(rawDateRange: unknown): 'last7Day' | 'last30Day' {
+  return rawDateRange === 'last30Day' ? 'last30Day' : 'last7Day';
+}
+
+export function buildKalodataRankCacheKey(params: {
+  keyPrefix: string;
+  cateIds: string[];
+  query: string;
+  pageNumber: number;
+  pageSize?: number;
+  dateRange: 'last7Day' | 'last30Day';
+}): string {
+  const sortedCates = Array.from(
+    new Set(params.cateIds.map((id) => id.trim()).filter((id) => /^\d{3,15}$/.test(id)))
+  ).sort();
+  const sizeSegment =
+    params.pageSize && params.pageSize !== 20 ? `|s${params.pageSize}` : '';
+  return `${params.keyPrefix}|rank|${params.dateRange}|p${params.pageNumber}${sizeSegment}|${sortedCates.join(',')}|${params.query.trim().toLowerCase()}`;
+}
+
 export async function fetchKalodataThailandProducts(params: {
   query: string;
   cateIds: string[];
+  pageNumber?: number;
+  pageSize?: number;
+  dateRange?: 'last7Day' | 'last30Day';
   forceRefresh?: boolean;
   guardrails?: CreditGuardrails;
 }): Promise<KalodataSearchResponse> {
@@ -1171,8 +1232,18 @@ export async function fetchKalodataThailandProducts(params: {
         .filter((id) => /^\d{3,15}$/.test(id))
     )
   ).sort();
+  const pageNumber = normalizeKalodataPageNumber(params.pageNumber);
+  const pageSize = normalizeKalodataPageSize(params.pageSize);
+  const dateRange = normalizeKalodataDateRange(params.dateRange);
 
-  const cacheKey = `${hashKeyPrefix(apiKey)}|rank|${cleanCateIds.join(',')}|${cleanQuery.toLowerCase()}`;
+  const cacheKey = buildKalodataRankCacheKey({
+    keyPrefix: hashKeyPrefix(apiKey),
+    cateIds: cleanCateIds,
+    query: cleanQuery,
+    pageNumber,
+    pageSize,
+    dateRange,
+  });
 
   if (!params.forceRefresh) {
     const cached = searchCache.get(cacheKey);
@@ -1183,6 +1254,8 @@ export async function fetchKalodataThailandProducts(params: {
         fromCache: true,
         mode: 'rank',
         balance: lastKnownBalance,
+        pageNumber,
+        hasMore: cached.products.length >= pageSize && pageNumber < 10,
       };
     }
 
@@ -1200,9 +1273,9 @@ export async function fetchKalodataThailandProducts(params: {
       region: 'TH',
       language: 'en-US',
       currency: 'THB',
-      date_range: 'last7Day',
-      page_number: 1,
-      page_size: 20,
+      date_range: dateRange,
+      page_number: pageNumber,
+      page_size: pageSize,
       sort_field: { field: 'revenue', type: 'DESC' },
       need_image: 1,
       is_affiliate: 1,
@@ -1232,7 +1305,9 @@ export async function fetchKalodataThailandProducts(params: {
     const seenIds = new Set<string>();
     const products: KalodataRawProduct[] = [];
     for (let idx = 0; idx < rows.length; idx += 1) {
-      const parsed = parseRawProductRow(rows[idx], `kalo_${idx + 1}`, 'rank', rankFetchedAt);
+      const parsed = parseRawProductRow(rows[idx], `kalo_${idx + 1}`, 'rank', rankFetchedAt, {
+        dateRange,
+      });
       if (!parsed || seenIds.has(parsed.id)) continue;
       seenIds.add(parsed.id);
       products.push(parsed);
@@ -1258,6 +1333,8 @@ export async function fetchKalodataThailandProducts(params: {
       fromCache: false,
       mode: 'rank',
       balance: post.balance,
+      pageNumber,
+      hasMore: products.length >= pageSize && pageNumber < 10,
     };
   })();
 
@@ -1294,7 +1371,8 @@ export async function enrichSingleKalodataProduct(
 
   const keyPrefix = hashKeyPrefix(apiKey);
   const now = Date.now();
-  const detailKey = `${keyPrefix}|detail|${cleanProductId}`;
+  const effectiveDateRange = normalizeKalodataDateRange(options.dateRange);
+  const detailKey = `${keyPrefix}|detail|${effectiveDateRange}|${cleanProductId}`;
   const specsKey = `${keyPrefix}|specs|${cleanProductId}`;
   const commentsKey = `${keyPrefix}|comments|${cleanProductId}`;
 
@@ -1362,7 +1440,7 @@ export async function enrichSingleKalodataProduct(
                     region: 'TH',
                     language: 'en-US',
                     currency: 'THB',
-                    date_range: 'last7Day',
+                    date_range: effectiveDateRange,
                     product_id: cleanProductId,
                     need_extra: true,
                     need_image: 1,
@@ -1405,7 +1483,9 @@ export async function enrichSingleKalodataProduct(
             const img = sanitizeExternalUrl(detail.master_image_url);
             if (img) imageUrl = img;
 
-            const extracted = extractMetricsFromRawRow(detail, 'detail', detailFetchedAt);
+            const extracted = extractMetricsFromRawRow(detail, 'detail', detailFetchedAt, {
+              dateRange: effectiveDateRange,
+            });
             if (extracted.hasAnyRawMetricField || extracted.priceThb !== null || extracted.commissionRate !== null) {
               kalodataMetrics = extracted.kalodataMetrics;
               validatedMetrics = extracted.validatedMetrics;

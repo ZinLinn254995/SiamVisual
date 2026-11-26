@@ -28,7 +28,6 @@ import {
 import { TopBar } from '../src/components/TopBar.tsx';
 import { CompactFilterBar } from '../src/components/CompactFilterBar.tsx';
 import { KalodataBar } from '../src/components/KalodataBar.tsx';
-import { StrategyExplorerBar } from '../src/components/StrategyExplorerBar.tsx';
 import { ProductCard } from '../src/components/ProductCard.tsx';
 import { ScoreDetailContent } from '../src/components/ScoreDetailDialog.tsx';
 import { VideoStudioView } from '../src/components/VideoStudioView.tsx';
@@ -711,7 +710,8 @@ describe('Phase 6 — Real-World Product Intelligence & Production Readiness', (
       },
       '777',
       'rank',
-      NOW_ISO
+      NOW_ISO,
+      { nowMs: NOW_MS }
     );
     assert.ok(highCommRow);
     assert.equal(highCommRow.commissionRate, 75);
@@ -726,7 +726,8 @@ describe('Phase 6 — Real-World Product Intelligence & Production Readiness', (
         video_revenue: 85_000,
       },
       'detail',
-      NOW_ISO
+      NOW_ISO,
+      { nowMs: NOW_MS }
     );
     assert.equal(detailNoTitle.hasAnyRawMetricField, true);
     assert.equal(detailNoTitle.kalodataMetrics.revenueThb7d, 120_000);
@@ -835,21 +836,13 @@ describe('Phase 6 — Real-World Product Intelligence & Production Readiness', (
           categoryMatchCounts: new Map([['', 1]]),
           language: lang,
           query: '',
-          isCompactSearchOpen: false,
+          searchPageSize: 100,
           isSearching: false,
           isSingleLinkValid: false,
           isLinkOrId: false,
-          isLinkBroken: false,
-          isShortLink: false,
-          linkProductId: null,
-          searchLimitWarning: null,
-          leanSearchCost: 0.2,
           t,
           onToggleCategory: () => {},
-          onQueryChange: () => {},
-          onToggleCompactSearch: () => {},
-          onCloseCompactSearch: () => {},
-          onSubmitSearch: () => {},
+          onOpenSearchDrawer: () => {},
         })
       );
       assert.ok(compactHtml.includes('Beauty') || compactHtml.includes('အလှကုန်'));
@@ -870,18 +863,6 @@ describe('Phase 6 — Real-World Product Intelligence & Production Readiness', (
       );
       assert.ok(kaloHtml.includes('Kalodata'));
 
-      const stratHtml = renderToStaticMarkup(
-        React.createElement(StrategyExplorerBar, {
-          viewModel,
-          activeView: 'overall',
-          showExcluded: false,
-          t,
-          onSelectView: () => {},
-          onToggleShowExcluded: () => {},
-        })
-      );
-      assert.ok(stratHtml.includes('Strategy'));
-
       for (const [viewMode, density] of [
         ['grid', 'spacious'],
         ['grid', 'compact'],
@@ -894,7 +875,6 @@ describe('Phase 6 — Real-World Product Intelligence & Production Readiness', (
           React.createElement(ProductCard, {
             product: prod,
             intelligenceItem: viewModel.rankedEntries[0],
-            activeStrategyView: 'overall',
             index: 0,
             language: lang,
             isSaved: true,

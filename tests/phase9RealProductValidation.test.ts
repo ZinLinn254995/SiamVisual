@@ -102,7 +102,7 @@ const LIVE_PHASE9_SAMPLE_ROWS: Array<Record<string, unknown>> = [
 describe('Phase 9 Regression: Real-World INSUFFICIENT_DATA Ranking Order', () => {
   it('Orders equal-confidence INSUFFICIENT_DATA candidates by verified Demand+Earning evidence instead of ascending productId', () => {
     const parsed = LIVE_PHASE9_SAMPLE_ROWS.map((row, idx) => {
-      const p = parseRawProductRow(row, `fb-${idx}`, 'rank', NOW_ISO);
+      const p = parseRawProductRow(row, `fb-${idx}`, 'rank', NOW_ISO, { nowMs: NOW_MS });
       assert.ok(p);
       return { id: p.id, validatedMetrics: p.validatedMetrics };
     });

@@ -780,7 +780,8 @@ describe('Phase 12 — Data Intelligence Completion & Verification', () => {
       },
       'home',
       'rank',
-      NOW_ISO
+      NOW_ISO,
+      { nowMs: NOW_MS }
     )!;
 
     const detailParsed = parseRawProductRow(
@@ -796,7 +797,8 @@ describe('Phase 12 — Data Intelligence Completion & Verification', () => {
       },
       'home',
       'detail',
-      '2026-11-25T10:05:00.000Z'
+      '2026-11-25T10:05:00.000Z',
+      { nowMs: Date.parse('2026-11-25T10:05:00.000Z') }
     )!;
 
     // Merge rank + detail validated snapshots

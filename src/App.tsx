@@ -1,24 +1,25 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
-  ChevronDown,
   LayoutGrid,
   Link2,
   List,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CompactFilterBar } from './components/CompactFilterBar';
+import { DiscoveryFilterBar } from './components/DiscoveryFilterBar';
 import { HistoryView } from './components/HistoryView';
 import { KalodataBar } from './components/KalodataBar';
 import { ProductCard } from './components/ProductCard';
 import { ScoreDetailDialog } from './components/ScoreDetailDialog';
+import { SearchConfigDrawer } from './components/SearchConfigDrawer';
 import { SearchHistoryView } from './components/SearchHistoryView';
-import { StrategyExplorerBar } from './components/StrategyExplorerBar';
 import { type ActiveTab, TopBar } from './components/TopBar';
 import { VideoStudioView } from './components/VideoStudioView';
 import { TRANSLATIONS } from './i18n';
@@ -29,7 +30,19 @@ import {
   translateCategoryNameToMyanmar,
 } from './lib/categoryTranslations';
 import {
-  type ActiveStrategyView,
+  applyDiscoveryFiltersAndSort,
+  DEFAULT_DISCOVERY_FILTER_STATE,
+  DEFAULT_SEARCH_DATE_RANGE,
+  DEFAULT_SEARCH_PAGE_SIZE,
+  type DiscoveryFilterState,
+  RECOMMENDED_DISCOVERY_FILTER_STATE,
+  resolveAppliedDiscoveryFilterAfterSearch,
+  type SearchConfigDraft,
+  type SearchDateRangeOption,
+  type SearchPageSizeOption,
+} from './lib/discoveryFilterEngine';
+import { inspectQueryLink } from './lib/productLinkInspector';
+import {
   buildProductIntelligenceView,
   sortProductsByV2Overall,
 } from './lib/productIntelligenceView';
@@ -212,64 +225,6 @@ async function parseApiStreamOrJson<T>(
   return finalData;
 }
 
-function inspectQueryLink(rawInput: string): {
-  isLinkOrId: boolean;
-  productId: string | null;
-  isShortLink: boolean;
-} {
-  const trimmed = rawInput.trim();
-  if (!trimmed) {
-    return { isLinkOrId: false, productId: null, isShortLink: false };
-  }
-
-  if (/^\d{12,24}$/.test(trimmed)) {
-    return { isLinkOrId: true, productId: trimmed, isShortLink: false };
-  }
-
-  const looksLikeUrl =
-    /^https?:\/\//i.test(trimmed) ||
-    /(?:tiktok\.com|kalodata\.com)/i.test(trimmed);
-
-  if (!looksLikeUrl) {
-    return { isLinkOrId: false, productId: null, isShortLink: false };
-  }
-
-  try {
-    const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-    const url = new URL(normalized);
-    const host = url.hostname.toLowerCase();
-
-    for (const key of ['id', 'product_id', 'productId', 'item_id']) {
-      const val = url.searchParams.get(key)?.trim();
-      if (val && /^\d{12,24}$/.test(val)) {
-        return { isLinkOrId: true, productId: val, isShortLink: false };
-      }
-    }
-
-    const pathMatch = url.pathname.match(/(\d{12,24})/);
-    if (pathMatch?.[1]) {
-      return { isLinkOrId: true, productId: pathMatch[1], isShortLink: false };
-    }
-
-    if (host.startsWith('vt.tiktok.com') || host.startsWith('vm.tiktok.com')) {
-      return { isLinkOrId: true, productId: null, isShortLink: true };
-    }
-  } catch {
-    // Fallback regex scan below
-  }
-
-  const anyId = trimmed.match(/\b(\d{12,24})\b/);
-  if (anyId?.[1]) {
-    return { isLinkOrId: true, productId: anyId[1], isShortLink: false };
-  }
-
-  return {
-    isLinkOrId: true,
-    productId: null,
-    isShortLink: /v[tm]\.tiktok\.com/i.test(trimmed),
-  };
-}
-
 export default function App() {
   const [language, setLanguage] = useState<Language>(() => loadLanguagePreference());
   const [theme, setTheme] = useState<Theme>(() => loadThemePreference());
@@ -309,16 +264,20 @@ export default function App() {
     () => Boolean(initialLatestSearch)
   );
 
-  // Search controls start clean so Categories are always immediately clickable (0 auto-search)
+  // Search controls start clean with recommended defaults (100 items · 7d · Monetizable)
   const [query, setQuery] = useState<string>('');
-  const [isSearchBoxOpen, setIsSearchBoxOpen] = useState<boolean>(false);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [isSearchDrawerOpen, setIsSearchDrawerOpen] = useState<boolean>(false);
+  const [searchPageSize, setSearchPageSize] = useState<SearchPageSizeOption>(
+    DEFAULT_SEARCH_PAGE_SIZE
+  );
+  const [searchDateRange, setSearchDateRange] = useState<SearchDateRangeOption>(
+    DEFAULT_SEARCH_DATE_RANGE
+  );
   const headerRef = useRef<HTMLElement | null>(null);
   const searchSectionRef = useRef<HTMLElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number>(60);
   const [showCompactBar, setShowCompactBar] = useState<boolean>(false);
   const [isHeaderHidden, setIsHeaderHidden] = useState<boolean>(false);
-  const [isCompactSearchOpen, setIsCompactSearchOpen] = useState<boolean>(false);
   const compactActiveRef = useRef<boolean>(false);
   const headerHiddenRef = useRef<boolean>(false);
   const [selectedCateIds, setSelectedCateIds] = useState<string[]>([]);
@@ -360,9 +319,14 @@ export default function App() {
       { nowMs: evaluationNowMs }
     )
   );
-  const [activeStrategyView, setActiveStrategyView] =
-    useState<ActiveStrategyView>('overall');
-  const [showExcludedCandidates, setShowExcludedCandidates] = useState<boolean>(false);
+  const [discoveryFilter, setDiscoveryFilter] = useState<DiscoveryFilterState>(() =>
+    initialLatestSearch?.mode === 'single_link'
+      ? { ...DEFAULT_DISCOVERY_FILTER_STATE, sortMode: 'search_score_desc' }
+      : RECOMMENDED_DISCOVERY_FILTER_STATE
+  );
+  const [currentSearchPage, setCurrentSearchPage] = useState<number>(1);
+  const [hasMorePages, setHasMorePages] = useState<boolean>(false);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [lastSearchMode, setLastSearchMode] = useState<'rank' | 'single_link'>(
     () => initialLatestSearch?.mode ?? 'rank'
   );
@@ -495,14 +459,6 @@ export default function App() {
     saveLanguagePreference(language);
   }, [language]);
 
-  useEffect(() => {
-    if (!isSearchBoxOpen) return;
-    const timer = window.setTimeout(() => {
-      searchInputRef.current?.focus();
-    }, 120);
-    return () => window.clearTimeout(timer);
-  }, [isSearchBoxOpen]);
-
   // Measure live TopBar height so CompactFilterBar docks edge-to-edge on every viewport
   useEffect(() => {
     const el = headerRef.current;
@@ -546,12 +502,6 @@ export default function App() {
       document.removeEventListener('visibilitychange', syncClock);
     };
   }, []);
-
-  useEffect(() => {
-    if (!showCompactBar) {
-      setIsCompactSearchOpen(false);
-    }
-  }, [showCompactBar]);
 
   // Scroll-driven handoff on Discover results:
   // - Scrolling down past the inline Category/Search block pushes Header out & replaces it with CompactFilterBar.
@@ -743,8 +693,9 @@ export default function App() {
     );
     setProducts(hydrated);
     setSelectedCateIds([]);
-    setActiveStrategyView('overall');
-    setShowExcludedCandidates(false);
+    setDiscoveryFilter(
+      resolveAppliedDiscoveryFilterAfterSearch(entry.mode, RECOMMENDED_DISCOVERY_FILTER_STATE)
+    );
     setLastSearchMode(entry.mode);
     setLastSearchCreditsUsed(entry.creditsUsed);
     setRestoredFromBrowser(true);
@@ -773,8 +724,6 @@ export default function App() {
               { nowMs }
             )
           );
-          setActiveStrategyView('overall');
-          setShowExcludedCandidates(false);
           setLastSearchMode(nextLatest.mode);
           setLastSearchCreditsUsed(nextLatest.creditsUsed);
           setRestoredFromBrowser(true);
@@ -782,8 +731,6 @@ export default function App() {
           setActiveRecentId(nextLatest.id);
         } else {
           setProducts([]);
-          setActiveStrategyView('overall');
-          setShowExcludedCandidates(false);
           setHasSearched(false);
           setRestoredFromBrowser(false);
           setActiveRecentId(null);
@@ -800,8 +747,6 @@ export default function App() {
     setRestoredFromBrowser(false);
     setProducts([]);
     setSelectedCateIds([]);
-    setActiveStrategyView('overall');
-    setShowExcludedCandidates(false);
     setSearchError(null);
     setHasSearched(false);
     setLastSearchCreditsUsed(null);
@@ -933,46 +878,83 @@ export default function App() {
     }
   }
 
-  // Live Kalodata API Search ONLY (always uses credits, never reads local history or server cache)
-  async function runProductSearch() {
+  // Kalodata API Search (reuses 10-min server cache unless forceRefresh=true; supports pageSize & dateRange)
+  async function runProductSearch(options?: {
+    pageNumber?: number;
+    append?: boolean;
+    forceRefresh?: boolean;
+    queryOverride?: string;
+    cateIdsOverride?: string[];
+    pageSizeOverride?: SearchPageSizeOption;
+    dateRangeOverride?: SearchDateRangeOption;
+    filterStateOverride?: DiscoveryFilterState;
+  }) {
+    const targetPage = Math.max(1, Math.min(10, Math.floor(options?.pageNumber ?? 1)));
+    const isAppend = options?.append === true && targetPage > 1;
+    const effectiveQuery = (options?.queryOverride ?? query).trim();
+    const effectiveLinkInfo = inspectQueryLink(effectiveQuery);
+    const effectiveCateIds = effectiveLinkInfo.isLinkOrId
+      ? []
+      : options?.cateIdsOverride ?? selectedCateIds;
+    const effectivePageSize = options?.pageSizeOverride ?? searchPageSize;
+    const effectiveDateRange = options?.dateRangeOverride ?? searchDateRange;
+    const effectiveFilterState = options?.filterStateOverride ?? discoveryFilter;
+
+    if (options?.queryOverride !== undefined) setQuery(effectiveQuery);
+    if (options?.cateIdsOverride !== undefined) setSelectedCateIds(effectiveCateIds);
+    if (options?.pageSizeOverride !== undefined) setSearchPageSize(effectivePageSize);
+    if (options?.dateRangeOverride !== undefined) setSearchDateRange(effectiveDateRange);
+
     if (!kalodataStatus.connected) {
       setIsKalodataPanelOpen(true);
-      setHasSearched(true);
-      setProducts([]);
-      setSearchError(t.kalodata.connectRequiredError);
+      if (!isAppend) {
+        setHasSearched(true);
+        setProducts([]);
+        setSearchError(t.kalodata.connectRequiredError);
+      } else {
+        showToast(t.kalodata.connectRequiredError, 'error');
+      }
       return;
     }
 
-    if (linkInfo.isLinkOrId && !linkInfo.productId) {
+    if (effectiveLinkInfo.isLinkOrId && !effectiveLinkInfo.productId) {
       setHasSearched(true);
       setProducts([]);
       setSearchError(
-        linkInfo.isShortLink ? t.search.shortLinkNotice : t.search.invalidLinkNotice
+        effectiveLinkInfo.isShortLink ? t.search.shortLinkNotice : t.search.invalidLinkNotice
       );
       return;
     }
 
     if (searchLimitWarning) {
-      setHasSearched(true);
-      setSearchError(searchLimitWarning);
+      if (!isAppend) {
+        setHasSearched(true);
+        setSearchError(searchLimitWarning);
+      } else {
+        showToast(searchLimitWarning, 'error');
+      }
       return;
     }
 
-    setIsSearching(true);
-    setHasSearched(true);
-    setSearchError(null);
+    if (isAppend) {
+      setIsLoadingMore(true);
+    } else {
+      setIsSearching(true);
+      setHasSearched(true);
+      setSearchError(null);
+    }
 
     try {
       const singleSelectedCat =
-        !linkInfo.isLinkOrId && selectedCateIds.length === 1
-          ? categories.find((c) => c.id === selectedCateIds[0])
+        !effectiveLinkInfo.isLinkOrId && effectiveCateIds.length === 1
+          ? categories.find((c) => c.id === effectiveCateIds[0])
           : undefined;
       const response = await fetch('/api/products/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          query: query.trim(),
-          cateIds: linkInfo.isLinkOrId ? [] : selectedCateIds,
+          query: effectiveQuery,
+          cateIds: effectiveLinkInfo.isLinkOrId ? [] : effectiveCateIds,
           selectedCategoryMeta: singleSelectedCat
             ? {
                 id: singleSelectedCat.id,
@@ -980,7 +962,10 @@ export default function App() {
                 en: singleSelectedCat.label.en,
               }
             : null,
-          forceRefresh: true,
+          pageNumber: targetPage,
+          pageSize: effectivePageSize,
+          dateRange: effectiveDateRange,
+          forceRefresh: options?.forceRefresh === true,
           minBalanceReserve: kalodataLimits.minBalanceReserve,
           maxSpendRemaining,
         }),
@@ -992,6 +977,9 @@ export default function App() {
         creditsUsed?: number | null;
         fromCache?: boolean;
         mode?: 'rank' | 'single_link';
+        pageNumber?: number;
+        pageSize?: number;
+        hasMore?: boolean;
         code?: string;
         error?: string;
       }>(response, language);
@@ -1020,14 +1008,11 @@ export default function App() {
           });
         }
       }
-      const hydratedProducts = sortProductsByV2Overall(
-        hydrateProductsFromStorage(rawFetched, { nowMs }),
-        { nowMs, historicalSnapshotsByProductId }
-      );
+      const hydratedIncoming = hydrateProductsFromStorage(rawFetched, { nowMs });
 
       // Append genuine Kalodata source observations into local daily snapshot history (0 extra API calls)
-      if (hydratedProducts.length > 0) {
-        const snapshotUpdate = recordProductSnapshotsInStorage(hydratedProducts, { nowMs });
+      if (hydratedIncoming.length > 0) {
+        const snapshotUpdate = recordProductSnapshotsInStorage(hydratedIncoming, { nowMs });
         if (snapshotUpdate.addedCount > 0 || snapshotUpdate.updatedCount > 0) {
           setProductSnapshots(snapshotUpdate.snapshotsByProductId);
         }
@@ -1036,21 +1021,59 @@ export default function App() {
       const resolvedMode: 'rank' | 'single_link' =
         data.mode === 'single_link' ? 'single_link' : 'rank';
       const used = typeof data.creditsUsed === 'number' ? data.creditsUsed : null;
+      const fromCache = data.fromCache === true;
+      const resolvedPage = typeof data.pageNumber === 'number' ? data.pageNumber : targetPage;
+      const resolvedPageSize =
+        typeof data.pageSize === 'number' && data.pageSize > 0
+          ? data.pageSize
+          : effectivePageSize;
+      const nextHasMore =
+        resolvedMode === 'rank' &&
+        (typeof data.hasMore === 'boolean'
+          ? data.hasMore
+          : rawFetched.length >= resolvedPageSize && resolvedPage < 10);
 
-      setProducts(hydratedProducts);
-      setActiveStrategyView('overall');
-      setShowExcludedCandidates(false);
+      let finalProducts: ProductItem[];
+      let newlyAddedCount = hydratedIncoming.length;
+
+      if (isAppend) {
+        const existingById = new Map(products.map((p) => [p.id, p]));
+        let added = 0;
+        for (const item of hydratedIncoming) {
+          if (!existingById.has(item.id)) {
+            added += 1;
+          }
+          existingById.set(item.id, item);
+        }
+        newlyAddedCount = added;
+        finalProducts = sortProductsByV2Overall(Array.from(existingById.values()), {
+          nowMs,
+          historicalSnapshotsByProductId,
+        });
+      } else {
+        finalProducts = sortProductsByV2Overall(hydratedIncoming, {
+          nowMs,
+          historicalSnapshotsByProductId,
+        });
+        setDiscoveryFilter(
+          resolveAppliedDiscoveryFilterAfterSearch(resolvedMode, effectiveFilterState)
+        );
+      }
+
+      setProducts(finalProducts);
+      setCurrentSearchPage(resolvedPage);
+      setHasMorePages(nextHasMore);
       setLastSearchMode(resolvedMode);
-      setLastSearchCreditsUsed(used);
+      setLastSearchCreditsUsed(fromCache ? 0 : used);
       setRestoredFromBrowser(false);
 
-      if (hydratedProducts.length > 0) {
+      if (finalProducts.length > 0) {
         saveSearchToBrowserHistory({
-          searchQuery: query.trim(),
-          cateIds: linkInfo.isLinkOrId ? [] : selectedCateIds,
+          searchQuery: effectiveQuery,
+          cateIds: effectiveLinkInfo.isLinkOrId ? [] : effectiveCateIds,
           mode: resolvedMode,
-          foundProducts: hydratedProducts,
-          creditsUsed: used,
+          foundProducts: finalProducts,
+          creditsUsed: fromCache ? 0 : used,
         });
       }
 
@@ -1061,19 +1084,48 @@ export default function App() {
         }));
       }
 
-      const spentDelta = used !== null ? used : LEAN_SEARCH_COST;
-      recordSpentCredits(spentDelta);
+      if (!fromCache) {
+        const spentDelta = used !== null ? used : LEAN_SEARCH_COST;
+        recordSpentCredits(spentDelta);
+      } else if (!isAppend) {
+        showToast(t.v2.discoveryFilter.cachedSearchToast, 'neutral');
+      }
+
+      if (isAppend) {
+        showToast(
+          t.v2.discoveryFilter.loadedMoreToast(newlyAddedCount, resolvedPage, fromCache),
+          'neutral'
+        );
+      }
     } catch (err) {
-      setProducts([]);
-      setSearchError(err instanceof Error ? err.message : 'Unable to search right now.');
+      if (isAppend) {
+        showToast(err instanceof Error ? err.message : 'Unable to load next page right now.', 'error');
+      } else {
+        setProducts([]);
+        setHasMorePages(false);
+        setSearchError(err instanceof Error ? err.message : 'Unable to search right now.');
+      }
     } finally {
-      setIsSearching(false);
+      if (isAppend) {
+        setIsLoadingMore(false);
+      } else {
+        setIsSearching(false);
+      }
     }
   }
 
-  function handleSearchSubmit(e: FormEvent) {
-    e.preventDefault();
-    runProductSearch();
+  function handleDrawerSearchSubmit(config: SearchConfigDraft) {
+    setIsSearchDrawerOpen(false);
+    runProductSearch({
+      pageNumber: 1,
+      append: false,
+      forceRefresh: false,
+      queryOverride: config.query,
+      cateIdsOverride: config.cateIds,
+      pageSizeOverride: config.pageSize,
+      dateRangeOverride: config.dateRange,
+      filterStateOverride: config.filterState,
+    });
   }
 
   async function requestVideoPlan(
@@ -1549,12 +1601,25 @@ export default function App() {
 
   const intelligenceView = useMemo(
     () =>
-      buildProductIntelligenceView(filteredProducts, activeStrategyView, {
+      buildProductIntelligenceView(filteredProducts, 'overall', {
         nowMs: evaluationNowMs,
         historicalSnapshotsByProductId,
+        observationSnapshotsByProductId: productSnapshots,
       }),
-    [filteredProducts, activeStrategyView, evaluationNowMs, historicalSnapshotsByProductId]
+    [
+      filteredProducts,
+      evaluationNowMs,
+      historicalSnapshotsByProductId,
+      productSnapshots,
+    ]
   );
+
+  const discoveryFilterResult = useMemo(
+    () => applyDiscoveryFiltersAndSort(intelligenceView.rankedEntries, discoveryFilter),
+    [intelligenceView.rankedEntries, discoveryFilter]
+  );
+
+  const displayedRankedEntries = discoveryFilterResult.entries;
 
   const isRestoredDataStale = useMemo(() => {
     if (!restoredFromBrowser || !activeRecentEntry) return false;
@@ -1566,11 +1631,6 @@ export default function App() {
     );
     return isSearchOlderThan24h || hasStaleRiskTag;
   }, [restoredFromBrowser, activeRecentEntry, evaluationNowMs, intelligenceView.rankedEntries]);
-
-  function handleSelectStrategyView(next: ActiveStrategyView) {
-    setActiveStrategyView(next);
-    setShowExcludedCandidates(false);
-  }
 
   const categoryMatchCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1599,6 +1659,23 @@ export default function App() {
     }
     return counts;
   }, [products, lastSearchMode, categories, activeRecentEntry]);
+
+  // Discover page Category Chips: show ONLY categories that actually have data in the loaded results
+  const populatedDiscoverCategories = useMemo(() => {
+    if (products.length === 0 || lastSearchMode === 'single_link') {
+      return [];
+    }
+    const matchingNonAll = categories.filter(
+      (cat) =>
+        Boolean(cat.id) &&
+        ((categoryMatchCounts.get(cat.id) ?? 0) > 0 || selectedCateIds.includes(cat.id))
+    );
+    if (matchingNonAll.length === 0) {
+      return [];
+    }
+    const allCat = categories.find((cat) => !cat.id);
+    return allCat ? [allCat, ...matchingNonAll] : matchingNonAll;
+  }, [categories, categoryMatchCounts, products.length, lastSearchMode, selectedCateIds]);
 
   // Gallery zoom sequence ordered from smallest card (most cols = Image + Name only) to largest card (fewest cols)
   const zoomColsSequence: ResultGridCols[] = useMemo(
@@ -1947,32 +2024,24 @@ export default function App() {
         t={t}
       />
 
-      {/* Scroll-Driven Compact Category Filters & Search Bar (replaces Header on scroll down, docks beneath on scroll up) */}
+      {/* Scroll-Driven Compact Category Filters & Bottom Search Drawer Trigger */}
       {activeTab === 'discover' && (
         <CompactFilterBar
-          isVisible={showCompactBar && !isKalodataPanelOpen}
+          isVisible={showCompactBar && !isKalodataPanelOpen && !isSearchDrawerOpen}
           isHeaderHidden={isHeaderHidden}
           headerHeight={headerHeight}
-          categories={categories}
+          categories={populatedDiscoverCategories}
           selectedCateIds={selectedCateIds}
           categoryMatchCounts={categoryMatchCounts}
           language={language}
           query={query}
-          isCompactSearchOpen={isCompactSearchOpen}
+          searchPageSize={searchPageSize}
           isSearching={isSearching}
           isSingleLinkValid={isSingleLinkValid}
           isLinkOrId={linkInfo.isLinkOrId}
-          isLinkBroken={isLinkBroken}
-          isShortLink={linkInfo.isShortLink}
-          linkProductId={linkInfo.productId}
-          searchLimitWarning={searchLimitWarning}
-          leanSearchCost={LEAN_SEARCH_COST}
           t={t}
           onToggleCategory={handleToggleCategory}
-          onQueryChange={setQuery}
-          onToggleCompactSearch={() => setIsCompactSearchOpen((prev) => !prev)}
-          onCloseCompactSearch={() => setIsCompactSearchOpen(false)}
-          onSubmitSearch={runProductSearch}
+          onOpenSearchDrawer={() => setIsSearchDrawerOpen(true)}
         />
       )}
 
@@ -2037,240 +2106,60 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Focused Search Workflow: Categories First -> Optional Motion Search Box -> Primary Search Button Below */}
-                <form onSubmit={handleSearchSubmit}>
-                  {/* Multi-Select Official & Live Synced Thailand TikTok Shop Categories (0 Credits until Search) */}
-                  <div
-                    className={`transition-opacity duration-150 ${
-                      linkInfo.isLinkOrId ? 'opacity-45 pointer-events-none' : 'opacity-100'
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {categories.map((cat) => {
-                        const isAll = !cat.id;
-                        const isSelected = isAll
-                          ? selectedCateIds.length === 0
-                          : selectedCateIds.includes(cat.id);
-                        const matchCount = categoryMatchCounts.get(cat.id) ?? 0;
-
-                        return (
-                          <button
-                            key={cat.id || 'all'}
-                            type="button"
-                            onClick={() => handleToggleCategory(cat.id)}
-                            className={`h-9 px-3 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer ${
-                              isSelected
-                                ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950'
-                                : 'bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                            }`}
-                          >
-                            {!isAll && isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
-                            <span>{cat.label[language]}</span>
-                            {matchCount > 0 && (
-                              <span
-                                className={`font-mono-num text-[11px] ${
-                                  isSelected
-                                    ? 'text-white/75 dark:text-slate-950/70'
-                                    : 'text-slate-400 dark:text-slate-500'
-                                }`}
-                              >
-                                {matchCount}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Subtle Category Meta Row: Multi-Category Selection Info + Optional Live Sync */}
-                    <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {selectedCateIds.length > 0 ? (
-                          <>
-                            <span className="font-medium text-teal-700 dark:text-teal-400">
-                              {t.search.selectedCount(selectedCateIds.length)}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedCateIds([])}
-                              className="underline hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
-                            >
-                              {t.search.clearCategories}
-                            </button>
-                          </>
-                        ) : (
-                          <span>
-                            {hasLiveSyncedCategories && (
-                              <span className="text-teal-700 dark:text-teal-400 font-medium mr-1.5">
-                                {t.search.liveSyncedTag} ·
-                              </span>
-                            )}
-                            {t.search.multiCategoryHint}
-                          </span>
+                {/* Focused Search Action Bar: Active Default Scope Summary + Primary Search Button (Opens Bottom Drawer) */}
+                <div className="rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 px-4 py-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 font-mono-num tabular-nums">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                      <span>
+                        {t.v2.searchDrawer.activeScopeSummary(
+                          searchPageSize,
+                          searchDateRange === 'last30Day' ? '30d' : '7d',
+                          t.v2.discoveryFilter.presets[discoveryFilter.preset]
                         )}
-                      </div>
+                      </span>
+                    </span>
 
-                      {kalodataStatus.connected && (
+                    {query.trim() && (
+                      <div className="inline-flex items-center gap-1 text-xs text-teal-700 dark:text-teal-400 min-w-0">
+                        {linkInfo.isLinkOrId && <Link2 className="w-3.5 h-3.5 shrink-0" />}
+                        <span className="truncate max-w-[160px] sm:max-w-[220px] font-medium">
+                          “{query.trim()}”
+                        </span>
                         <button
                           type="button"
-                          disabled={isSyncingCategories || Boolean(searchLimitWarning)}
-                          onClick={handleSyncLiveCategories}
-                          className="font-medium text-slate-500 hover:text-teal-700 dark:text-slate-400 dark:hover:text-teal-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50"
+                          onClick={() => setQuery('')}
+                          aria-label={t.history.clearFilterAria}
+                          className="h-6 w-6 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 shrink-0 cursor-pointer"
                         >
-                          <RefreshCw
-                            className={`w-3 h-3 ${isSyncingCategories ? 'animate-spin' : ''}`}
-                          />
-                          <span>
-                            {isSyncingCategories
-                              ? t.search.syncingCategoriesBtn
-                              : t.search.syncCategoriesBtn}
-                          </span>
+                          <X className="w-3.5 h-3.5" />
                         </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* On-Demand Collapsible Search Box (Opens Smoothly with Motion Only When Needed) */}
-                  <AnimatePresence initial={false}>
-                    {isSearchBoxOpen && (
-                      <motion.div
-                        key="discover-search-box"
-                        initial={{ opacity: 0, height: 0, y: -6 }}
-                        animate={{ opacity: 1, height: 'auto', y: 0 }}
-                        exit={{ opacity: 0, height: 0, y: -6 }}
-                        transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-                        className="overflow-hidden"
-                      >
-                        <motion.div
-                          initial={{ scale: 0.985 }}
-                          animate={{ scale: 1 }}
-                          exit={{ scale: 0.985 }}
-                          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                          className="mt-4 bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-2 shadow-xs focus-within:border-teal-500/70 dark:focus-within:border-teal-500/60 transition-colors"
-                        >
-                          <div className="relative flex items-center">
-                            {linkInfo.isLinkOrId ? (
-                              <Link2 className="w-4 h-4 text-teal-600 dark:text-teal-400 absolute left-3.5 pointer-events-none" />
-                            ) : (
-                              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
-                            )}
-                            <input
-                              ref={searchInputRef}
-                              type="text"
-                              value={query}
-                              onChange={(e) => setQuery(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Escape' && !query.trim()) {
-                                  setIsSearchBoxOpen(false);
-                                }
-                              }}
-                              placeholder={t.search.placeholder}
-                              className="w-full h-11 pl-10 pr-9 rounded-xl bg-transparent text-sm sm:text-base text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
-                            />
-                            {query && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setQuery('');
-                                  searchInputRef.current?.focus();
-                                }}
-                                aria-label="Clear search"
-                                className="absolute right-2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Single-Product Link Mode Cost Notice */}
-                          {isSingleLinkValid && linkInfo.productId && (
-                            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 px-2 flex items-center gap-2 text-xs text-teal-700 dark:text-teal-400 font-medium">
-                              <Link2 className="w-3.5 h-3.5 shrink-0" />
-                              <span>{t.search.linkModeNotice(linkInfo.productId)}</span>
-                            </div>
-                          )}
-
-                          {isLinkBroken && (
-                            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 px-2 text-xs text-amber-700 dark:text-amber-400">
-                              {linkInfo.isShortLink
-                                ? t.search.shortLinkNotice
-                                : t.search.invalidLinkNotice}
-                            </div>
-                          )}
-                        </motion.div>
-                      </motion.div>
+                      </div>
                     )}
-                  </AnimatePresence>
-
-                  {/* Action Row Placed Directly Below Categories: Search Box Toggle + Primary Search CTA */}
-                  <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => setIsSearchBoxOpen((prev) => !prev)}
-                        aria-expanded={isSearchBoxOpen}
-                        className={`h-11 px-4 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer border ${
-                          isSearchBoxOpen || query.trim()
-                            ? 'bg-teal-50/70 dark:bg-teal-950/35 border-teal-300/90 dark:border-teal-800 text-teal-800 dark:text-teal-300'
-                            : 'bg-white dark:bg-[#131B24] border-slate-200/90 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
-                        }`}
-                      >
-                        {linkInfo.isLinkOrId ? (
-                          <Link2 className="w-4 h-4 shrink-0" />
-                        ) : (
-                          <Search className="w-4 h-4 shrink-0" />
-                        )}
-                        <span>
-                          {isSearchBoxOpen
-                            ? t.search.closeSearchBoxBtn
-                            : t.search.openSearchBoxBtn}
-                        </span>
-                        <ChevronDown
-                          className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
-                            isSearchBoxOpen ? 'rotate-180' : 'rotate-0'
-                          }`}
-                        />
-                      </button>
-
-                      {!isSearchBoxOpen && query.trim() && (
-                        <div className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 min-w-0">
-                          <span className="truncate max-w-[160px] sm:max-w-[220px] font-medium">
-                            “{query.trim()}”
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setQuery('')}
-                            aria-label="Clear search"
-                            className="h-6 w-6 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 shrink-0 cursor-pointer"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isSearching || Boolean(searchLimitWarning) || isLinkBroken}
-                      className="h-11 px-6 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors duration-150 whitespace-nowrap shrink-0 disabled:opacity-55 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-                    >
-                      {isSingleLinkValid ? (
-                        <Link2 className="w-4 h-4 shrink-0" />
-                      ) : (
-                        <Search className="w-4 h-4 shrink-0" />
-                      )}
-                      <span>
-                        {isSearching
-                          ? t.search.searchingButton
-                          : `${
-                              isSingleLinkValid
-                                ? t.search.searchSingleButton
-                                : t.search.searchButton
-                            } (~${LEAN_SEARCH_COST} cr)`}
-                      </span>
-                    </button>
                   </div>
-                </form>
+
+                  <button
+                    type="button"
+                    disabled={isSearching}
+                    onClick={() => setIsSearchDrawerOpen(true)}
+                    className="h-11 px-6 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors duration-150 whitespace-nowrap shrink-0 disabled:opacity-55 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                  >
+                    {isSingleLinkValid ? (
+                      <Link2 className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <Search className="w-4 h-4 shrink-0" />
+                    )}
+                    <span>
+                      {isSearching
+                        ? t.search.searchingButton
+                        : `${
+                            isSingleLinkValid
+                              ? t.search.searchSingleButton
+                              : t.search.searchButton
+                          } (~${LEAN_SEARCH_COST} cr)`}
+                    </span>
+                  </button>
+                </div>
 
                 {searchLimitWarning && (
                   <p className="mt-3 text-xs font-medium text-amber-700 dark:text-amber-400">
@@ -2494,7 +2383,9 @@ export default function App() {
                                 <button
                                   type="button"
                                   disabled={isSearching || Boolean(searchLimitWarning)}
-                                  onClick={() => runProductSearch()}
+                                  onClick={() =>
+                                    runProductSearch({ pageNumber: 1, append: false, forceRefresh: true })
+                                  }
                                   className="font-sans font-semibold text-amber-800 dark:text-amber-300 hover:underline whitespace-nowrap cursor-pointer disabled:opacity-50"
                                 >
                                   {t.discover.refreshLiveBtn}
@@ -2533,18 +2424,66 @@ export default function App() {
 
                       {filteredProducts.length > 0 ? (
                         <div>
-                          <StrategyExplorerBar
-                            viewModel={intelligenceView}
-                            activeView={activeStrategyView}
-                            showExcluded={showExcludedCandidates}
-                            t={t}
-                            onSelectView={handleSelectStrategyView}
-                            onToggleShowExcluded={() =>
-                              setShowExcludedCandidates((prev) => !prev)
-                            }
-                          />
+                          {intelligenceView.rankedEntries.length > 0 && (
+                            <DiscoveryFilterBar
+                              state={discoveryFilter}
+                              counts={discoveryFilterResult.counts}
+                              t={t}
+                              onChange={setDiscoveryFilter}
+                            />
+                          )}
 
-                          {intelligenceView.rankedEntries.length > 0 ? (
+                          {/* Data-Only Category Chips Positioned Directly Above Result Products (0 cr local filter) */}
+                          {populatedDiscoverCategories.length > 0 && (
+                            <div className="mb-4 flex flex-wrap items-center gap-1.5">
+                              {populatedDiscoverCategories.map((cat) => {
+                                const isAll = !cat.id;
+                                const isSelected = isAll
+                                  ? selectedCateIds.length === 0
+                                  : selectedCateIds.includes(cat.id);
+                                const matchCount = categoryMatchCounts.get(cat.id) ?? 0;
+
+                                return (
+                                  <button
+                                    key={cat.id || 'all'}
+                                    type="button"
+                                    aria-pressed={isSelected}
+                                    onClick={() => handleToggleCategory(cat.id)}
+                                    className={`h-8 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                                      isSelected
+                                        ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 font-semibold'
+                                        : 'bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-300 border border-slate-200/85 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                                    }`}
+                                  >
+                                    {!isAll && isSelected && <Check className="w-3 h-3 shrink-0" />}
+                                    <span>{cat.label[language]}</span>
+                                    {matchCount > 0 && (
+                                      <span
+                                        className={`font-mono-num tabular-nums text-[11px] ${
+                                          isSelected
+                                            ? 'text-white/75 dark:text-slate-950/70'
+                                            : 'text-slate-400 dark:text-slate-500'
+                                        }`}
+                                      >
+                                        {matchCount}
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                              {selectedCateIds.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedCateIds([])}
+                                  className="h-8 px-2 text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 underline cursor-pointer"
+                                >
+                                  {t.search.clearCategories}
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {displayedRankedEntries.length > 0 ? (
                             <div
                               ref={resultsGridRef}
                               style={
@@ -2554,7 +2493,7 @@ export default function App() {
                               }
                             >
                               <motion.div
-                                key={`${layoutTransitionKey}-${activeStrategyView}`}
+                                key={`${layoutTransitionKey}-${discoveryFilter.sortMode}`}
                                 initial={{
                                   opacity: 0.35,
                                   scale:
@@ -2573,21 +2512,20 @@ export default function App() {
                                 className={
                                   resultViewMode === 'list'
                                     ? `flex flex-col ${activeListGapClass} ${
-                                        intelligenceView.rankedEntries.length === 1
+                                        displayedRankedEntries.length === 1
                                           ? 'max-w-3xl mx-auto'
                                           : ''
                                       }`
-                                    : intelligenceView.rankedEntries.length === 1
+                                    : displayedRankedEntries.length === 1
                                       ? 'grid grid-cols-1 max-w-md mx-auto gap-6'
                                       : activeGridLayoutClass
                                 }
                               >
-                                {intelligenceView.rankedEntries.map((entry, index) => (
+                                {displayedRankedEntries.map((entry, index) => (
                                   <ProductCard
                                     key={entry.product.id}
                                     product={entry.product}
                                     intelligenceItem={entry}
-                                    activeStrategyView={activeStrategyView}
                                     index={index}
                                     language={language}
                                     isSaved={savedProductIds.has(entry.product.id)}
@@ -2601,91 +2539,66 @@ export default function App() {
                                   />
                                 ))}
                               </motion.div>
-                            </div>
-                          ) : (
-                            <div className="py-10 px-6 max-w-2xl mx-auto text-center rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#131B24]">
-                              <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
-                                {intelligenceView.isHistoricalDataUnavailable
-                                  ? t.v2.strategyExplorer.historyUnavailableTitle
-                                  : t.v2.strategyExplorer.noQualifiedTitle}
-                              </h3>
-                              <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                                {intelligenceView.isHistoricalDataUnavailable
-                                  ? t.v2.strategyExplorer.historyUnavailableDesc
-                                  : t.v2.strategyExplorer.noQualifiedDesc}
-                              </p>
-                              <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
-                                {intelligenceView.excludedEntries.length > 0 && (
+
+                              {/* Multi-Page Kalodata Rank Exploration Control */}
+                              {lastSearchMode === 'rank' && hasMorePages && (
+                                <div className="mt-7 flex flex-col items-center gap-1.5">
                                   <button
                                     type="button"
+                                    disabled={isLoadingMore || isSearching || Boolean(searchLimitWarning)}
                                     onClick={() =>
-                                      setShowExcludedCandidates((prev) => !prev)
+                                      runProductSearch({
+                                        pageNumber: currentSearchPage + 1,
+                                        append: true,
+                                        forceRefresh: false,
+                                      })
                                     }
-                                    className="h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70 hover:border-slate-300 dark:hover:border-slate-600 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer"
+                                    className="h-10 px-5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] hover:border-teal-400 dark:hover:border-teal-500 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-2 transition-colors disabled:opacity-50 cursor-pointer"
                                   >
-                                    {showExcludedCandidates
-                                      ? t.v2.strategyExplorer.hideExcludedBtn
-                                      : t.v2.strategyExplorer.showExcludedBtn(
-                                          intelligenceView.excludedEntries.length
-                                        )}
+                                    <RefreshCw
+                                      className={`w-3.5 h-3.5 shrink-0 ${
+                                        isLoadingMore ? 'animate-spin' : ''
+                                      }`}
+                                    />
+                                    <span>
+                                      {isLoadingMore
+                                        ? t.v2.discoveryFilter.loadingMoreBtn
+                                        : t.v2.discoveryFilter.loadMoreBtn(
+                                            currentSearchPage + 1,
+                                            searchPageSize
+                                          )}
+                                    </span>
                                   </button>
-                                )}
+                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 font-mono-num">
+                                    {t.v2.discoveryFilter.allLoadedNote(products.length)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="py-10 px-6 max-w-xl mx-auto text-center rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#131B24]">
+                              <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
+                                {t.v2.discoveryFilter.emptyTitle}
+                              </h3>
+                              <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                                {t.v2.discoveryFilter.emptyDesc}
+                              </p>
+                              <div className="mt-5 flex items-center justify-center">
                                 <button
                                   type="button"
-                                  onClick={() => handleSelectStrategyView('overall')}
-                                  className="h-10 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer"
+                                  onClick={() =>
+                                    setDiscoveryFilter({
+                                      ...DEFAULT_DISCOVERY_FILTER_STATE,
+                                      sortMode: 'search_score_desc',
+                                    })
+                                  }
+                                  className="h-10 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
                                 >
-                                  {t.v2.overallTabLabel} ({intelligenceView.overallCount})
+                                  {t.v2.discoveryFilter.resetBtn}
                                 </button>
                               </div>
                             </div>
                           )}
-
-                          {/* Non-Qualifying Candidates Drawer / Section for Active Strategy */}
-                          {activeStrategyView !== 'overall' &&
-                            showExcludedCandidates &&
-                            intelligenceView.excludedEntries.length > 0 && (
-                              <div className="mt-8 pt-6 border-t border-slate-200/80 dark:border-slate-800">
-                                <div className="mb-4">
-                                  <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
-                                    {t.v2.strategyExplorer.excludedSectionTitle} (
-                                    {intelligenceView.excludedEntries.length})
-                                  </h3>
-                                  <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                                    {t.v2.strategyExplorer.excludedSectionSub}
-                                  </p>
-                                </div>
-
-                                <div
-                                  className={
-                                    resultViewMode === 'list'
-                                      ? `flex flex-col ${activeListGapClass}`
-                                      : activeGridLayoutClass
-                                  }
-                                >
-                                  {intelligenceView.excludedEntries.map(
-                                    (excluded, idx) => (
-                                      <ProductCard
-                                        key={`excluded-${excluded.product.id}`}
-                                        product={excluded.product}
-                                        intelligenceItem={excluded}
-                                        activeStrategyView={activeStrategyView}
-                                        index={idx}
-                                        language={language}
-                                        isSaved={savedProductIds.has(excluded.product.id)}
-                                        viewMode={resultViewMode}
-                                        density={cardDensity}
-                                        nowMs={evaluationNowMs}
-                                        t={t}
-                                        onSelect={handleSelectProduct}
-                                        onToggleSave={handleToggleSaveProduct}
-                                        onOpenScoreDetails={setScoreDialogProduct}
-                                      />
-                                    )
-                                  )}
-                                </div>
-                              </div>
-                            )}
                         </div>
                       ) : (
                         <div className="py-12 px-6 max-w-lg mx-auto text-center rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#131B24]">
@@ -2698,8 +2611,8 @@ export default function App() {
                           <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
                             <button
                               type="button"
-                              disabled={isSearching || Boolean(searchLimitWarning)}
-                              onClick={() => runProductSearch()}
+                              disabled={isSearching}
+                              onClick={() => setIsSearchDrawerOpen(true)}
                               className="h-10 px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-55"
                             >
                               <Search className="w-4 h-4 shrink-0" />
@@ -2837,6 +2750,31 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+
+      {/* Bottom Search & Filter Configuration Drawer */}
+      <SearchConfigDrawer
+        isOpen={isSearchDrawerOpen}
+        initialConfig={{
+          query,
+          cateIds: selectedCateIds,
+          pageSize: searchPageSize,
+          dateRange: searchDateRange,
+          filterState: discoveryFilter,
+        }}
+        categories={categories}
+        categoryMatchCounts={categoryMatchCounts}
+        language={language}
+        isConnected={kalodataStatus.connected}
+        isSearching={isSearching}
+        isSyncingCategories={isSyncingCategories}
+        hasLiveSyncedCategories={hasLiveSyncedCategories}
+        searchLimitWarning={searchLimitWarning}
+        leanSearchCost={LEAN_SEARCH_COST}
+        t={t}
+        onClose={() => setIsSearchDrawerOpen(false)}
+        onSyncCategories={handleSyncLiveCategories}
+        onSubmit={handleDrawerSearchSubmit}
+      />
 
       {/* Minimalist Score Details Dialog */}
       <ScoreDetailDialog

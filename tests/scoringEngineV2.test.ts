@@ -790,7 +790,8 @@ describe('Phase 2 — Commercial Scoring Engine V2', () => {
       },
       'fallback_v2',
       'rank',
-      NOW_ISO
+      NOW_ISO,
+      { nowMs: NOW_MS }
     );
     assert.ok(raw);
     const v1 = computeDirectKalodataScore({

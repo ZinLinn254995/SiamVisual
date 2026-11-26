@@ -44,6 +44,7 @@ export type ObservationMetricKey =
   | 'videoRevenueThb'
   | 'liveRevenueThb'
   | 'shoppingMallRevenueThb'
+  | 'unitPriceThb'
   | 'commissionRate'
   | 'revenueGrowthRate'
   | 'creatorCountVerified'
@@ -56,6 +57,8 @@ export interface ProductObservationMetricMeta {
   timestampPrecision: 'EXACT_METRIC' | 'SNAPSHOT_FALLBACK' | 'UNKNOWN';
   sourceEndpoint: ProductMetricSourceEndpoint;
   dateRange: string | null;
+  /** Optional explicit unit tag for cross-snapshot comparability checks. */
+  unit?: MetricUnit;
 }
 
 export interface SnapshotImportedAuditMetadata {
@@ -93,6 +96,8 @@ export interface ProductSourceObservationValues {
   videoRevenueThb: number | null;
   liveRevenueThb: number | null;
   shoppingMallRevenueThb: number | null;
+  /** Source-observed realized unit price in THB (optional for backward compatibility with pre-Phase 14 v1 snapshots). */
+  unitPriceThb?: number | null;
   commissionRate: number | null;
   revenueGrowthRate: number | null;
   revenueGrowthVerified: boolean;
@@ -136,4 +141,102 @@ export interface SnapshotTrendDerivation {
   videoRevenueDeltaPct: number | null;
   verifiedCreatorDeltaPct: number | null;
 }
+
+export type HistoricalTrendMetricKey =
+  | 'revenue'
+  | 'salesVolume'
+  | 'videoRevenue'
+  | 'liveRevenue'
+  | 'shoppingMallRevenue'
+  | 'unitPrice'
+  | 'commissionRate';
+
+export type HistoricalTrendClassification =
+  | 'RISING'
+  | 'STABLE'
+  | 'DECLINING'
+  | 'VOLATILE'
+  | 'INSUFFICIENT_HISTORY'
+  | 'INCOMPARABLE_DATA';
+
+export type HistoricalTrendBaselineStatus =
+  | 'POSITIVE_BASELINE'
+  | 'ZERO_BASELINE'
+  | 'ALL_ZERO'
+  | 'NOT_APPLICABLE';
+
+export type HistoricalTrendIncomparabilityReason =
+  | 'PRODUCT_IDENTITY_MISMATCH'
+  | 'DATE_RANGE_MISMATCH'
+  | 'UNIT_MISMATCH'
+  | 'PROVENANCE_INCOMPATIBLE'
+  | 'IMPORTED_UNVERIFIED_ONLY'
+  | 'DUPLICATE_METRIC_TIMESTAMP'
+  | 'INVALID_OR_FUTURE_TIMESTAMPS';
+
+export interface HistoricalMetricObservationPoint {
+  observedAt: string;
+  observationDay: string;
+  value: number;
+  unit: MetricUnit;
+  sourceEndpoint: ProductMetricSourceEndpoint;
+  dateRange: string;
+  timestampPrecision: 'EXACT_METRIC' | 'SNAPSHOT_FALLBACK' | 'UNKNOWN';
+}
+
+export interface HistoricalMetricTrendResult {
+  metric: HistoricalTrendMetricKey;
+  unit: MetricUnit;
+  provenance: 'DERIVED';
+  classification: HistoricalTrendClassification;
+  baselineStatus: HistoricalTrendBaselineStatus;
+  pointCount: number;
+  earliestValue: number | null;
+  latestValue: number | null;
+  earliestObservedAt: string | null;
+  latestObservedAt: string | null;
+  spanHours: number | null;
+  spanDays: number | null;
+  /** Exact latest - earliest difference in native metric unit (THB, COUNT, or percentage points). */
+  absoluteDelta: number | null;
+  /** Percentage change ((latest - earliest) / earliest) * 100. Strictly null on ZERO_BASELINE, ALL_ZERO, or non-comparable/insufficient series. */
+  deltaPct: number | null;
+  /** Largest step-to-step or peak-to-trough relative swing percentage observed across points (null when < 2 points or zero scale). */
+  maxSwingPct: number | null;
+  directionReversals: number;
+  incomparabilityReasons: HistoricalTrendIncomparabilityReason[];
+  points: HistoricalMetricObservationPoint[];
+  explanation: string;
+}
+
+export interface HistoricalTrendExcludedCounts {
+  productIdentityMismatch: number;
+  invalidOrFutureTimestamp: number;
+  importedUnverified: number;
+  dateRangeMismatch: number;
+  provenanceIncompatible: number;
+  sameDayDeduplicated: number;
+}
+
+export interface HistoricalProductTrendReport {
+  provenance: 'DERIVED';
+  trustScope: 'LOCAL_OBSERVED_ONLY';
+  productId: string | null;
+  dateRange: string | null;
+  overallTrend: HistoricalTrendClassification;
+  overallExplanation: string;
+  totalSnapshotsProvided: number;
+  comparableSnapshotCount: number;
+  localObservedSnapshotCount: number;
+  importedUnverifiedSnapshotCount: number;
+  earliestObservedAt: string | null;
+  latestObservedAt: string | null;
+  spanHours: number | null;
+  spanDays: number | null;
+  excludedSnapshots: HistoricalTrendExcludedCounts;
+  incomparabilityReasons: HistoricalTrendIncomparabilityReason[];
+  metrics: Record<HistoricalTrendMetricKey, HistoricalMetricTrendResult>;
+  nonGuaranteeNotice: string;
+}
+
 

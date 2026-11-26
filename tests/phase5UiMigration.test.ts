@@ -18,7 +18,6 @@ import {
   validateUnverifiedNumericMetric,
 } from '../src/lib/metricFoundation.ts';
 import { hydrateProductFromStorage } from '../src/lib/storage.ts';
-import { StrategyExplorerBar } from '../src/components/StrategyExplorerBar.tsx';
 import { ProductCard } from '../src/components/ProductCard.tsx';
 import { ScoreDetailContent } from '../src/components/ScoreDetailDialog.tsx';
 import { VideoStudioView } from '../src/components/VideoStudioView.tsx';
@@ -430,7 +429,7 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
 
     const pool = [hero, poorQuality, unverifiedProduct];
 
-    // Check every strategy view in both English and Myanmar
+    // Check every strategy view calculation in the intelligence engine
     for (const strategyId of ALL_STRATEGY_IDS) {
       const vm = buildProductIntelligenceView(pool, strategyId, { nowMs: NOW_MS });
       assert.equal(vm.poolSize, 3);
@@ -446,30 +445,6 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
           `Expected hero product to qualify for ${strategyId}`
         );
       }
-
-      const barHtmlEn = renderToStaticMarkup(
-        React.createElement(StrategyExplorerBar, {
-          viewModel: vm,
-          activeView: strategyId,
-          showExcluded: true,
-          t: TRANSLATIONS.en,
-          onSelectView: () => {},
-          onToggleShowExcluded: () => {},
-        })
-      );
-      assert.ok(barHtmlEn.includes(TRANSLATIONS.en.v2.strategies[strategyId].shortName));
-
-      const barHtmlMy = renderToStaticMarkup(
-        React.createElement(StrategyExplorerBar, {
-          viewModel: vm,
-          activeView: strategyId,
-          showExcluded: false,
-          t: TRANSLATIONS.my,
-          onSelectView: () => {},
-          onToggleShowExcluded: () => {},
-        })
-      );
-      assert.ok(barHtmlMy.includes(TRANSLATIONS.my.v2.strategies[strategyId].shortName));
     }
 
     // Verify fast_rising_products becomes active cleanly when historical snapshots are provided
@@ -576,12 +551,12 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
       React.createElement(ProductCard, {
         product: vm.rankedEntries[0].product,
         intelligenceItem: vm.rankedEntries[0],
-        activeStrategyView: 'overall',
         index: 0,
         language: 'en',
         isSaved: false,
         viewMode: 'grid',
         density: 'spacious',
+        nowMs: NOW_MS,
         t: TRANSLATIONS.en,
         onSelect: () => {},
         onToggleSave: () => {},
@@ -589,35 +564,28 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
       })
     );
 
-    assert.ok(cardHtml.includes('Demand'));
-    assert.ok(cardHtml.includes('Earning'));
-    assert.ok(cardHtml.includes('Competition'));
-    assert.ok(cardHtml.includes('Quality'));
-    assert.ok(cardHtml.includes('Confidence'));
-    assert.ok(cardHtml.includes('Conversion'));
-    assert.ok(
-      cardHtml.includes('unverified') || cardHtml.includes('Unverified'),
-      'Unverified Phase 0 metrics must be surfaced explicitly on ProductCard'
-    );
+    assert.ok(cardHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.demand.short));
+    assert.ok(cardHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.earning.short));
+    assert.ok(cardHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.videoProof.short));
+    assert.ok(cardHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.priceFit.short));
+    assert.ok(!cardHtml.includes('Data Confidence'));
 
     const dialogHtml = renderToStaticMarkup(
       React.createElement(ScoreDetailContent, {
         product: hydrated,
         language: 'en',
+        nowMs: NOW_MS,
         t: TRANSLATIONS.en,
         onClose: () => {},
       })
     );
 
-    assert.ok(
-      dialogHtml.includes('Metric Provenance') &&
-        dialogHtml.includes('Phase 0 Verification Status')
-    );
-    assert.ok(dialogHtml.includes(TRANSLATIONS.en.v2.dialog.studioVisualRefTitle));
-    assert.ok(dialogHtml.includes(TRANSLATIONS.en.v2.dialog.studioVisualRefNotice));
-    assert.ok(
-      dialogHtml.includes(hydrated.commercialScoreV2!.conversionEvidence.disclaimer)
-    );
+    assert.ok(dialogHtml.includes(TRANSLATIONS.en.v2.searchScore.compositionTitle));
+    assert.ok(dialogHtml.includes(TRANSLATIONS.en.v2.searchScore.channelsTitle));
+    assert.ok(dialogHtml.includes(TRANSLATIONS.en.v2.searchScore.priceSweetSpotTitle));
+    assert.ok(dialogHtml.includes(TRANSLATIONS.en.v2.searchScore.earningSnapshotTitle));
+    assert.ok(!dialogHtml.includes('Metric Provenance'));
+    assert.ok(!dialogHtml.includes('Studio Visual Reference'));
   });
 
   it('renders extreme competition warning, withheld 0% commission card, list/micro densities, VideoStudioView, HistoryView, and empty pool safely', () => {
@@ -650,37 +618,34 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
     assert.equal(vm.rankedEntries.length, 0);
     assert.equal(vm.excludedEntries.length, 2);
 
-    const listExcludedHtml = renderToStaticMarkup(
+    const listHtml = renderToStaticMarkup(
       React.createElement(ProductCard, {
         product: vm.excludedEntries[0].product,
         intelligenceItem: vm.excludedEntries[0],
-        activeStrategyView: 'early_market_opportunity',
         index: 0,
         language: 'en',
         isSaved: true,
         viewMode: 'list',
         density: 'spacious',
+        nowMs: NOW_MS,
         t: TRANSLATIONS.en,
         onSelect: () => {},
         onToggleSave: () => {},
         onOpenScoreDetails: () => {},
       })
     );
-    assert.ok(
-      listExcludedHtml.includes('Extreme Competition') ||
-        listExcludedHtml.includes('EXTREME_COMPETITION')
-    );
+    assert.ok(listHtml.includes(TRANSLATIONS.en.v2.searchScore.badgeShort));
 
     const microZeroHtml = renderToStaticMarkup(
       React.createElement(ProductCard, {
         product: vm.excludedEntries[1].product,
         intelligenceItem: vm.excludedEntries[1],
-        activeStrategyView: 'early_market_opportunity',
         index: 1,
         language: 'my',
         isSaved: false,
         viewMode: 'grid',
         density: 'micro',
+        nowMs: NOW_MS,
         t: TRANSLATIONS.my,
         onSelect: () => {},
         onToggleSave: () => {},
@@ -704,6 +669,7 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
         error: null,
         cameFromHistory: false,
         language: 'en',
+        nowMs: NOW_MS,
         kalodataStatus: { connected: false, keySource: 'none', maskedKey: null, balance: null },
         kalodataLimits: { maxSpendCredits: null, minBalanceReserve: null, trackedSpentCredits: 0 },
         t: TRANSLATIONS.en,
@@ -716,9 +682,10 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
         onOpenScoreDetails: () => {},
       })
     );
-    assert.ok(studioHtml.includes(TRANSLATIONS.en.v2.confidenceLabel));
-    assert.ok(studioHtml.includes(TRANSLATIONS.en.v2.dimensions.demand.short));
-    assert.ok(studioHtml.includes(TRANSLATIONS.en.v2.dimensions.competition.short));
+    assert.ok(!studioHtml.includes(TRANSLATIONS.en.v2.confidenceLabel));
+    assert.ok(studioHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.demand.short));
+    assert.ok(studioHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.videoProof.short));
+    assert.ok(studioHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.priceFit.short));
 
     const historyHtml = renderToStaticMarkup(
       React.createElement(HistoryView, {
@@ -731,6 +698,7 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
           },
         ],
         language: 'en',
+        nowMs: NOW_MS,
         t: TRANSLATIONS.en,
         onOpenEntry: () => {},
         onDeleteEntry: () => {},
@@ -739,6 +707,7 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
         onGoDiscover: () => {},
       })
     );
-    assert.ok(historyHtml.includes('V2 '));
+    assert.ok(historyHtml.includes('/100'));
+    assert.ok(!historyHtml.includes('V2 '));
   });
 });

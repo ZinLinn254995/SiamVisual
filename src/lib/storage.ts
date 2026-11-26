@@ -411,8 +411,19 @@ function canComplementAcrossSnapshots(
   return normA === normB;
 }
 
+type NumericKalodataMetricKey =
+  | 'salesVolume7d'
+  | 'revenueThb7d'
+  | 'videoRevenueThb7d'
+  | 'liveRevenueThb7d'
+  | 'shoppingMallRevenueThb7d'
+  | 'revenueGrowthRate'
+  | 'creatorCount'
+  | 'rating'
+  | 'reviewCount';
+
 function pickKalodataFieldWithTimestamp(
-  fieldKey: keyof Omit<ProductKalodataMetrics, 'dateRange' | 'fetchedAt' | 'metricTimestamps'>,
+  fieldKey: NumericKalodataMetricKey,
   newer: ProductKalodataMetrics,
   older: ProductKalodataMetrics
 ): { value: number | null; fetchedAt: string | null } {
@@ -467,6 +478,27 @@ function buildMergedKalodataObject(
     ...(reviewCount.value !== null ? { reviewCount: reviewCount.fetchedAt } : {}),
   };
 
+  const revenueTrendThb =
+    Array.isArray(newer.revenueTrendThb) && newer.revenueTrendThb.length > 0
+      ? newer.revenueTrendThb
+      : Array.isArray(older.revenueTrendThb) && older.revenueTrendThb.length > 0
+        ? older.revenueTrendThb
+        : undefined;
+  const videoCount =
+    typeof newer.videoCount === 'number'
+      ? newer.videoCount
+      : typeof older.videoCount === 'number'
+        ? older.videoCount
+        : undefined;
+  const liveCount =
+    typeof newer.liveCount === 'number'
+      ? newer.liveCount
+      : typeof older.liveCount === 'number'
+        ? older.liveCount
+        : undefined;
+  const launchDate = newer.launchDate || older.launchDate || undefined;
+  const deliveryType = newer.deliveryType || older.deliveryType || undefined;
+
   return {
     salesVolume7d: salesVolume7d.value,
     revenueThb7d: revenueThb7d.value,
@@ -477,6 +509,11 @@ function buildMergedKalodataObject(
     creatorCount: creatorCount.value,
     rating: rating.value,
     reviewCount: reviewCount.value,
+    ...(revenueTrendThb ? { revenueTrendThb } : {}),
+    ...(videoCount !== undefined ? { videoCount } : {}),
+    ...(liveCount !== undefined ? { liveCount } : {}),
+    ...(launchDate ? { launchDate } : {}),
+    ...(deliveryType ? { deliveryType } : {}),
     dateRange: newer.dateRange || older.dateRange || 'last7Day',
     fetchedAt: newer.fetchedAt || older.fetchedAt,
     ...(Object.keys(metricTimestamps).length > 0 ? { metricTimestamps } : {}),

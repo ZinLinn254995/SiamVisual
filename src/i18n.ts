@@ -4,6 +4,8 @@ import type {
   ConversionEvidenceLevel,
   DiscoveryShortlistCategory,
   DominantConversionChannel,
+  HistoricalTrendClassification,
+  HistoricalTrendMetricKey,
   Language,
   OpportunityClassification,
   StrategyEligibilityStatus,
@@ -11,7 +13,17 @@ import type {
   V2DimensionStatus,
   VisualStyle,
 } from './types';
+import type {
+  DiscoveryPriceBand,
+  DiscoveryShortlistPreset,
+  DiscoverySortMode,
+} from './lib/discoveryFilterEngine';
 import type { MetricFieldKey, MetricProvenanceCategory } from './lib/productIntelligenceView';
+import type {
+  SearchDominantChannel,
+  SearchScoreCapCode,
+  SearchScoreGrade,
+} from './lib/searchScoreEngine';
 
 export interface Translations {
   nav: {
@@ -548,6 +560,126 @@ export interface Translations {
       snapshotHistoryLabel: (count: number) => string;
       categories: Record<DiscoveryShortlistCategory, string>;
     };
+    historicalTrend: {
+      sectionTitle: string;
+      sectionSubtitle: string;
+      trustScopeLabel: string;
+      metricCol: string;
+      rangeCol: string;
+      deltaCol: string;
+      statusCol: string;
+      zeroBaselineTag: string;
+      allZeroTag: string;
+      observationSpanLabel: (count: number, spanDays: number | null) => string;
+      classifications: Record<HistoricalTrendClassification, string>;
+      metrics: Record<HistoricalTrendMetricKey, string>;
+    };
+    detailTrend: {
+      sectionTitle: string;
+      sectionSubtitle: string;
+      last7VsPrev7: string;
+      dailyAvg: string;
+      dailyRange: string;
+      activeDays: string;
+      activeCreatorsLabel: (windowTag: string) => string;
+      revPerActiveCreatorLabel: string;
+      lifetimeReviewsLabel: string;
+      informationalScopeNote: string;
+      detailWindowLabel: string;
+      detailWindow7d: string;
+      detailWindow30d: string;
+    };
+    discoveryFilter: {
+      barAriaLabel: string;
+      presets: Record<DiscoveryShortlistPreset, string>;
+      sortLabel: string;
+      sortOptions: Record<DiscoverySortMode, string>;
+      minCommissionLabel: string;
+      minVideoShareLabel: string;
+      priceBandLabel: string;
+      anyOption: string;
+      priceBands: Record<DiscoveryPriceBand, string>;
+      resetBtn: string;
+      showingCount: (shown: number, total: number) => string;
+      zeroCreditHint: string;
+      emptyTitle: string;
+      emptyDesc: string;
+      loadMoreBtn: (nextPage: number, pageSize?: number) => string;
+      loadingMoreBtn: string;
+      loadedMoreToast: (added: number, page: number, fromCache: boolean) => string;
+      cachedSearchToast: string;
+      allLoadedNote: (count: number) => string;
+    };
+    searchDrawer: {
+      title: string;
+      subtitle: string;
+      closeAria: string;
+      keywordOrLinkLabel: string;
+      keywordOrLinkPlaceholder: string;
+      keywordOrLinkHint: string;
+      categoriesLabel: string;
+      categoriesDisabledInLinkMode: string;
+      countLabel: string;
+      countUnit: (n: number) => string;
+      recommendedTag: string;
+      countCostNote: string;
+      windowLabel: string;
+      window7d: string;
+      window30d: string;
+      windowNote: string;
+      affiliateFiltersLabel: string;
+      affiliateFiltersHint: string;
+      affiliateFiltersDisabledInLinkMode: string;
+      presetLabel: string;
+      resetDefaultsBtn: string;
+      cancelBtn: string;
+      submitRankBtn: (count: number, cost: number) => string;
+      submitLinkBtn: (cost: number) => string;
+      summaryRank: (count: number, windowTag: string, presetLabel: string, cost: number) => string;
+      summaryLink: (productId: string, cost: number) => string;
+      activeScopeSummary: (count: number, windowTag: string, presetLabel: string) => string;
+      openDrawerBtn: string;
+    };
+    searchScore: {
+      title: string;
+      badgeShort: string;
+      subtitle: string;
+      rankDataOnlyNote: string;
+      deepStudioHint: string;
+      rawScoreLabel: string;
+      videoPoolLabel: string;
+      payoutPerSaleLabel: string;
+      videoShareLabel: string;
+      dominantChannelLabel: string;
+      capsTitle: string;
+      compositionTitle: string;
+      channelsTitle: string;
+      priceSweetSpotTitle: string;
+      earningSnapshotTitle: string;
+      est100SalesLabel: string;
+      dailyTrendTitle: string;
+      activeCreatorsShort: string;
+      channelShort: {
+        video: string;
+        live: string;
+        mall: string;
+      };
+      priceZones: {
+        sweet: string;
+        mid: string;
+        low: string;
+        high: string;
+      };
+      pillars: {
+        demand: { label: string; short: string; weightLabel: string };
+        earning: { label: string; short: string; weightLabel: string };
+        videoProof: { label: string; short: string; weightLabel: string };
+        priceFit: { label: string; short: string; weightLabel: string };
+      };
+      grades: Record<SearchScoreGrade, string>;
+      channels: Record<SearchDominantChannel, string>;
+      caps: Record<SearchScoreCapCode, string>;
+    };
   };
 }
 
@@ -583,10 +715,10 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         'ဒီ Link ထဲမှာ TikTok Shop Product ID မတွေ့ပါ — Product ID ပါသော Link အပြည့်အစုံ (သို့) ဂဏန်း ID ထည့်ပေးပါ။',
     },
     discover: {
-      resultsHeading: 'Commercial Product Intelligence',
+      resultsHeading: 'Affiliate Product Discovery',
       singleResultHeading: 'Link မှ ရှာတွေ့သော ပစ္စည်း',
       resultsSubtext:
-        'Demand, Earning, Competition နှင့် Customer Quality ၄ ချက်ကို သီးခြားတွက်ချက်၍ Commercial Opportunity V2 အလိုက် စီပေးထားပါသည်။',
+        'ဝယ်လိုအား၊ ကော်မရှင်အမြတ်၊ Video ရောင်းအားသက်သေ နှင့် ဈေးနှုန်းသင့်တော်မှု ၄ ချက်ဖြင့် Search အမှတ် (0–100) စီပေးထားပါသည်။',
       singleResultSubtext: 'သင်ထည့်ထားသော Product Link မှ တိုက်ရိုက်ရယူထားသော အချက်အလက်ဖြစ်ပါသည်။',
       noResultsTitle: 'ကိုက်ညီသော ပစ္စည်းမတွေ့သေးပါ',
       noResultsDesc: 'အခြား Keyword၊ Category သို့မဟုတ် Product Link ဖြင့် ထပ်မံရှာဖွေကြည့်ပါ။',
@@ -617,16 +749,16 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       microViewTag: 'ပုံ + နာမည်',
       listCompactTag: 'ကျစ်လစ်',
       listDetailedTag: 'အပြည့်အစုံ',
-      emptyGuideTitle: 'Commercial Product Intelligence ဖြင့် ပစ္စည်းရှာဖွေပါ',
+      emptyGuideTitle: 'Search အမှတ် (0–100) ဖြင့် Affiliate ပစ္စည်းရှာဖွေပါ',
       emptyGuideDesc:
-        'Category ရွေးပါ သို့မဟုတ် Keyword / TikTok Shop Product Link ထည့်၍ ရှာဖွေလိုက်သည်နှင့် ပစ္စည်းတစ်ခုချင်းစီကို အချက် ၄ ချက်ဖြင့် အလိုအလျောက် စိစစ်ပေးပါမည်။',
+        'Category၊ Keyword သို့မဟုတ် TikTok Shop Product Link ထည့်ရှာလိုက်သည်နှင့် 0.20 cr Search Data မှ အချက် ၄ ချက်ဖြင့် အလိုအလျောက် အမှတ်ပေးစီပေးပါမည်။',
       emptyGuidePoints: [
-        'Commercial Opportunity — Demand, Earning, Competition နှင့် Customer Quality ၄ ချက်ကို သီးခြားတွက်ချက်သည်',
-        'Strategy Explorer — Affiliate ဗျူဟာ ၈ မျိုးအနက် ကိုက်ညီသည့်ပစ္စည်းနှင့် ဖယ်ထုတ်ခံရသည့် အကြောင်းရင်းကို ရှင်းလင်းစွာ ပြသည်',
-        'Data Confidence — Verified ဖြစ်ပြီးသား Metric နှင့် Unverified Metric များကို အတိအကျ ခွဲခြားဖော်ပြသည်',
+        'ဝယ်လိုအား (30%) နှင့် ကော်မရှင်အမြတ် (30%) — ရောင်းအား၊ ဝင်ငွေနှင့် ၁ ခုရောင်းရလျှင် ရမည့် ဘတ်ငွေကို တွက်ချက်သည်',
+        'Video ရောင်းအားသက်သေ (25%) — Short Video ရောင်းအားအချိုးနှင့် Video ကော်မရှင်အိုးကို တိုင်းတာသည်',
+        'ဈေးနှုန်းသင့်တော်မှု (15%) — TikTok Short Video ဝယ်ယူရလွယ်သော Sweet Spot (฿150–฿790) ကို စစ်ပေးသည်',
       ],
       emptyGuideDisclaimer:
-        'သတိပြုရန် — Commercial Score နှင့် ယခင် Video ရောင်းအားများသည် ဈေးကွက်အလားအလာ အထောက်အထားသာဖြစ်ပြီး အနာဂတ် Affiliate ရောင်းအားကို အာမမခံပါ။',
+        'သတိပြုရန် — Search အမှတ်သည် လက်ရှိ Kalodata ရောင်းအားအချက်အလက်အပေါ် အခြေခံထားပြီး အနာဂတ်ရောင်းအားကို အာမမခံပါ။',
     },
     card: {
       thaiOriginal: 'ထိုင်း TikTok နာမည်',
@@ -661,8 +793,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       openTikTokShort: 'TikTok Shop',
     },
     score: {
-      tooltipBtn: 'Commercial Intelligence V2 အသေးစိတ်ကြည့်ရန်',
-      dialogSubtitle: 'Demand, Earning, Competition, Customer Quality, Confidence နှင့် 8-Strategy အခြေအနေများကို အသေးစိတ်စစ်ဆေးနိုင်ပါသည်။',
+      tooltipBtn: 'Search အမှတ် အသေးစိတ်ကြည့်ရန်',
+      dialogSubtitle: '0.20 cr Search Data မှ အချက် ၄ ချက်ဖြင့် တွက်ချက်ထားသော အမှတ်အသေးစိတ်',
       metricVisualLabel: 'Visual ဖြင့် ဆွဲဆောင်နိုင်မှု',
       metricVisualDesc: 'စကားမပြောဘဲ မြင်ရုံဖြင့် ပစ္စည်းအသုံးဝင်ပုံကို ချက်ချင်းနားလည်နိုင်စွမ်း',
       metricAiLabel: 'AI Video ဖန်တီးရန် သင့်တော်မှု',
@@ -1284,6 +1416,190 @@ export const TRANSLATIONS: Record<Language, Translations> = {
           INSUFFICIENT_EVIDENCE: 'Insufficient Evidence',
         },
       },
+      historicalTrend: {
+        sectionTitle: 'ရက်ပေါင်းစုံ သမိုင်းလမ်းကြောင်း (Historical Trend)',
+        sectionSubtitle:
+          'စစ်မှန်သော local မှတ်တမ်းများမှသာ တွက်ချက်ထားသည် (Commercial Score နှင့် သီးခြား)',
+        trustScopeLabel: 'Local Observed Only',
+        metricCol: 'တိုင်းတာချက်',
+        rangeCol: 'အစ → နောက်ဆုံး',
+        deltaCol: 'ပြောင်းလဲမှု',
+        statusCol: 'လမ်းကြောင်း',
+        zeroBaselineTag: 'Zero Base',
+        allZeroTag: 'All 0',
+        observationSpanLabel: (count: number, spanDays: number | null) =>
+          spanDays !== null ? `${count}d · ${spanDays} ရက်ကာလ` : `${count}d local`,
+        classifications: {
+          RISING: 'တက်နေသည်',
+          STABLE: 'တည်ငြိမ်',
+          DECLINING: 'ကျနေသည်',
+          VOLATILE: 'အတက်အကျများ',
+          INSUFFICIENT_HISTORY: 'မှတ်တမ်းမလုံလောက်သေး',
+          INCOMPARABLE_DATA: 'နှိုင်းယှဉ်မရ',
+        },
+        metrics: {
+          revenue: '၇ ရက် ဝင်ငွေ',
+          salesVolume: '၇ ရက် ရောင်းအား',
+          videoRevenue: 'ဗီဒီယို ဝင်ငွေ',
+          liveRevenue: 'Live ဝင်ငွေ',
+          shoppingMallRevenue: 'Mall / Showcase ဝင်ငွေ',
+          unitPrice: 'ဈေးနှုန်း',
+          commissionRate: 'ကော်မရှင်နှုန်း',
+        },
+      },
+      detailTrend: {
+        sectionTitle: 'နေ့စဉ် ဘတ်ဝင်ငွေလမ်းကြောင်း (/detail Verified)',
+        sectionSubtitle: 'Kalodata /detail မှ နေ့စဉ် THB ဝင်ငွေအတိအကျဖြင့် တွက်ချက်ထားသည် (Commercial Score နှင့် သီးခြား)',
+        last7VsPrev7: 'နောက်ဆုံး 7d vs ရှေ့ 7d',
+        dailyAvg: 'တစ်ရက်ပျမ်းမျှ',
+        dailyRange: 'အနည်းဆုံး – အများဆုံး',
+        activeDays: 'ရောင်းအားရှိရက်',
+        activeCreatorsLabel: (windowTag: string) => `Active Creators (${windowTag} Verified)`,
+        revPerActiveCreatorLabel: 'ဝင်ငွေ / Active Creator',
+        lifetimeReviewsLabel: 'တစ်သက်တာ PDP Reviews',
+        informationalScopeNote:
+          'Active Creators နှင့် Lifetime Reviews သည် အချက်အလက်ကိုးကားရန်သာဖြစ်ပြီး ရောင်းထွက်သူခွဲဝေမှုနှင့် Star Rating မပါသဖြင့် Commercial Score တွင် မထည့်တွက်ပါ။',
+        detailWindowLabel: 'Detail ကာလ:',
+        detailWindow7d: '7d',
+        detailWindow30d: '30d (Daily Trend)',
+      },
+      discoveryFilter: {
+        barAriaLabel: 'Affiliate စစ်ထုတ်မှုနှင့် စီစဉ်မှု',
+        presets: {
+          all: 'အားလုံး',
+          monetizable_only: 'ကော်မရှင်ရ',
+          video_proven: 'ဗီဒီယိုရောင်းအားရှိ',
+          strong_earnings: 'ကော်မရှင်ကောင်း',
+          rising_trend: 'တက်နေသည်',
+        },
+        sortLabel: 'စီစဉ်မှု',
+        sortOptions: {
+          search_score_desc: 'Search အမှတ် (0.2 cr)',
+          intelligence: 'Intelligence အဆင့်',
+          video_revenue_desc: 'ဗီဒီယိုဝင်ငွေ (အများဆုံး)',
+          payout_desc: '၁ ခုကော်မရှင် (฿)',
+          commission_desc: 'ကော်မရှင် % (အများဆုံး)',
+          revenue_desc: '၇ ရက် ဝင်ငွေ (အများဆုံး)',
+          sales_desc: '၇ ရက် ရောင်းအား (အများဆုံး)',
+        },
+        minCommissionLabel: 'ကော်မရှင်',
+        minVideoShareLabel: 'ဗီဒီယိုအချိုး',
+        priceBandLabel: 'ဈေးနှုန်း',
+        anyOption: 'အားလုံး',
+        priceBands: {
+          all: 'အားလုံး',
+          under_300: '≤ ฿300',
+          '300_1000': '฿300 – ฿1,000',
+          over_1000: '> ฿1,000',
+        },
+        resetBtn: 'ပြန်ဖျက်',
+        showingCount: (shown: number, total: number) => `${shown} / ${total} ခု ပြသနေသည်`,
+        zeroCreditHint: 'Local စစ်ထုတ်မှု (0 cr)',
+        emptyTitle: 'ရွေးထားသော စစ်ထုတ်မှုနှင့် ကိုက်ညီသော ပစ္စည်းမရှိပါ',
+        emptyDesc: 'စစ်ထုတ်မှုအချို့ကို လျှော့ကြည့်ပါ သို့မဟုတ် ပြန်ဖျက်ပြီး ပစ္စည်းအားလုံးကို ကြည့်ပါ။',
+        loadMoreBtn: (nextPage: number, pageSize = 100) =>
+          `နောက်ထပ် ${pageSize} ခု ရှာမယ် (Page ${nextPage} · ~0.2 cr)`,
+        loadingMoreBtn: 'နောက်ထပ်ပစ္စည်းများ ခေါ်ယူနေသည်...',
+        loadedMoreToast: (added: number, page: number, fromCache: boolean) =>
+          fromCache
+            ? `Page ${page} မှ ပစ္စည်းအသစ် ${added} ခု ထပ်ထည့်ပြီး (0 cr · Cache)`
+            : `Page ${page} မှ ပစ္စည်းအသစ် ${added} ခု ထပ်ထည့်ပြီး`,
+        cachedSearchToast: '၁၀ မိနစ်အတွင်း Cache မှ ချက်ချင်းပြန်ခေါ်ပေးသည် (0 cr)',
+        allLoadedNote: (count: number) => `စုစုပေါင်း ပစ္စည်း ${count} ခု ခေါ်ယူပြီးပါပြီ`,
+      },
+      searchDrawer: {
+        title: 'ရှာဖွေမှုနှင့် Filter ချိန်ညှိမယ်',
+        subtitle: 'Category၊ အရေအတွက်၊ Product Link နှင့် Affiliate Filter များကို ချိန်ပြီး Live ရှာဖွေပါ',
+        closeAria: 'ရှာဖွေမှု Drawer ပိတ်မယ်',
+        keywordOrLinkLabel: 'Keyword သို့မဟုတ် Product Link / ID',
+        keywordOrLinkPlaceholder: 'ပစ္စည်းနာမည် ရိုက်ရှာပါ သို့မဟုတ် TikTok Shop / Kalodata Link ထည့်ပါ...',
+        keywordOrLinkHint: 'Link သို့မဟုတ် ဂဏန်း Product ID ထည့်ပါက ထိုပစ္စည်း ၁ ခုတည်းကိုသာ တိုက်ရိုက်စစ်ပေးပါမည်',
+        categoriesLabel: 'Categories (တစ်ခုထက်ပိုရွေးနိုင်)',
+        categoriesDisabledInLinkMode: 'Product Link စစ်နေချိန်တွင် Category နှင့် အရေအတွက် ရွေးချယ်မှုကို အလိုအလျောက် ပိတ်ထားပါသည်',
+        countLabel: 'ရှာမည့် ပစ္စည်းအရေအတွက်',
+        countUnit: (n: number) => `${n} ခု`,
+        recommendedTag: 'အကြံပြု',
+        countCostNote: '20 / 50 / 100 ခုအားလုံး Credit ကုန်ကျစရိတ် 0.20 cr အတူတူပဲ (100 ခုက Kalodata အများဆုံး)',
+        windowLabel: 'ရောင်းအားကာလ',
+        window7d: '၇ ရက် (7d)',
+        window30d: '၃၀ ရက် (30d)',
+        windowNote: '7d သည် လက်ရှိခေတ်စားနေသော Trend ကိုမြင်စေပြီး 30d သည် တည်ငြိမ်သော လစဉ်ရောင်းအားကို ပြသည်',
+        affiliateFiltersLabel: 'Affiliate Filter & စီစဉ်မှု (0 cr)',
+        affiliateFiltersHint: 'ရှာတွေ့သောရလဒ်များကို အလိုအလျောက် စစ်ထုတ်စီစဉ်ပေးမည် (Credit ထပ်မကုန်ပါ)',
+        affiliateFiltersDisabledInLinkMode: 'Product Link စစ်ချိန်တွင် ထိုပစ္စည်းကို အပြည့်အစုံမြင်ရစေရန် Filter ကို အလိုအလျောက် ဖွင့်ပေးထားပါမည်',
+        presetLabel: 'အမြန်စစ်ထုတ်မှု (Shortlist)',
+        resetDefaultsBtn: 'Recommended Default ပြန်ချိန်',
+        cancelBtn: 'ပိတ်မယ်',
+        submitRankBtn: (count: number, cost: number) => `ပစ္စည်း ${count} ခု ရှာမယ် (~${cost} cr)`,
+        submitLinkBtn: (cost: number) => `Link ပစ္စည်းစစ်မယ် (~${cost} cr)`,
+        summaryRank: (count: number, windowTag: string, presetLabel: string, cost: number) =>
+          `${count} ခု · ${windowTag} · ${presetLabel} · ~${cost} cr`,
+        summaryLink: (productId: string, cost: number) =>
+          `Product ID ${productId} · ~${cost} cr`,
+        activeScopeSummary: (count: number, windowTag: string, presetLabel: string) =>
+          `Default: ${count} ခု · ${windowTag} · ${presetLabel}`,
+        openDrawerBtn: 'Filter & ရှာမယ်',
+      },
+      searchScore: {
+        title: 'Search အမှတ် (0.2 cr Data ဖြင့်သာ)',
+        badgeShort: 'Search မှတ်',
+        subtitle:
+          'Kalodata Search မှ Verified Data များဖြင့်သာ တွက်ချက်ထားသော Affiliate အလားအလာအမှတ် (Credit ထပ်မကုန်ပါ)',
+        rankDataOnlyNote: '0.20 cr Search Data ဖြင့်သာ တွက်ချက်ထားသည်',
+        deepStudioHint:
+          'ပြိုင်ဆိုင်မှု (Creator အရေအတွက်) နှင့် Review/Rating ကို စစ်ဆေးလိုပါက Studio ထဲတွင် Kalodata Deep Data ထပ်ယူ၍ AI သုံးသပ်ချက်နှင့် Video Plan ဆွဲနိုင်ပါသည်။',
+        rawScoreLabel: 'မကန့်သတ်မီ အမှတ်',
+        videoPoolLabel: 'Video ကော်မရှင်အိုး',
+        payoutPerSaleLabel: '၁ ခုကော်မရှင်',
+        videoShareLabel: 'Video ရောင်းအားအချိုး',
+        dominantChannelLabel: 'အဓိကရောင်းလမ်းကြောင်း',
+        capsTitle: 'ဘေးကင်းရေး ကန့်သတ်ချက်',
+        compositionTitle: 'အမှတ်ပေါင်းစပ်ပုံ (100 မှတ်)',
+        channelsTitle: 'ရောင်းအားလမ်းကြောင်း',
+        priceSweetSpotTitle: 'ဈေးနှုန်း Sweet Spot',
+        earningSnapshotTitle: 'Affiliate အမြတ်ခန့်မှန်းချက်',
+        est100SalesLabel: '×100 ခု ရောင်းရလျှင်',
+        dailyTrendTitle: 'နေ့စဉ်ဝင်ငွေ လမ်းကြောင်း (/detail)',
+        activeCreatorsShort: 'Active Creators',
+        channelShort: {
+          video: 'Short Video',
+          live: 'Live',
+          mall: 'Showcase / Mall',
+        },
+        priceZones: {
+          sweet: 'Sweet Spot',
+          mid: 'သင့်တင့်',
+          low: 'ဈေးနည်း',
+          high: 'ဈေးမြင့်',
+        },
+        pillars: {
+          demand: { label: 'ဝယ်လိုအား', short: 'ဝယ်လိုအား', weightLabel: '30%' },
+          earning: { label: 'ကော်မရှင်အမြတ်', short: 'ကော်မရှင်', weightLabel: '30%' },
+          videoProof: { label: 'Video ရောင်းအား', short: 'Video', weightLabel: '25%' },
+          priceFit: { label: 'ဈေးနှုန်းသင့်တော်မှု', short: 'ဈေးနှုန်း', weightLabel: '15%' },
+        },
+        grades: {
+          TOP: 'ထိပ်တန်းရွေးချယ်မှု',
+          STRONG: 'အလားအလာကောင်း',
+          MODERATE: 'သင့်တင့်',
+          WEAK: 'အားနည်း',
+          NOT_MONETIZABLE: '0% ကော်မရှင်',
+          INSUFFICIENT: 'Data မစုံသေး',
+        },
+        channels: {
+          VIDEO: 'Short Video ဦးဆောင်',
+          LIVE: 'Live ဦးဆောင်',
+          SHOWCASE: 'Showcase / Mall ဦးဆောင်',
+          BALANCED: 'မျှတသောလမ်းကြောင်း',
+          UNKNOWN: 'မသိရသေး',
+        },
+        caps: {
+          WEAK_DEMAND_CAP: 'ဝယ်လိုအားနည်းသဖြင့် အများဆုံး 42 မှတ်တွင် ကန့်သတ်ထားသည်',
+          NO_VIDEO_SALES_CAP: 'Short Video ရောင်းအား ฿0 ဖြစ်၍ အများဆုံး 58 မှတ်တွင် ကန့်သတ်ထားသည်',
+          LIVE_DEPENDENT_CAP: 'Live အပေါ် အဓိကမှီခို (≥60% Live, <10% Video) ဖြစ်၍ 68 မှတ်တွင် ကန့်သတ်ထားသည်',
+          MISSING_VIDEO_DATA_CAP: 'Video ဝင်ငွေအချက်အလက် မပါဝင်သဖြင့် 75 မှတ်တွင် ကန့်သတ်ထားသည်',
+        },
+      },
     },
   },
   en: {
@@ -1317,10 +1633,10 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         'No TikTok Shop Product ID found in that link. Please paste the full product link or numeric Product ID.',
     },
     discover: {
-      resultsHeading: 'Commercial Product Intelligence',
+      resultsHeading: 'Affiliate Product Discovery',
       singleResultHeading: 'Product from Link',
       resultsSubtext:
-        'Ranked by Product Intelligence V2 across Demand, Earning, Competition, and Customer Quality (visual suitability excluded).',
+        'Ranked by 0–100 Search Score across Demand, Affiliate Earning, Video Sales Proof, and Price Fit.',
       singleResultSubtext: 'Fetched directly from Kalodata for your pasted product link.',
       noResultsTitle: 'No matching products found',
       noResultsDesc: 'Try another keyword, category selection, or product link.',
@@ -1351,16 +1667,16 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       microViewTag: 'Image + Name',
       listCompactTag: 'Compact',
       listDetailedTag: 'Detailed',
-      emptyGuideTitle: 'Discover commercial affiliate opportunities',
+      emptyGuideTitle: 'Discover high-potential affiliate products',
       emptyGuideDesc:
-        'Pick one or more categories or search by keyword / TikTok Shop product link. Every product is scored independently across 4 commercial dimensions.',
+        'Pick categories, adjust filters, or paste a TikTok Shop product link. Every product is scored from 0–100 on real Kalodata sales and commission signals.',
       emptyGuidePoints: [
-        'Commercial Opportunity — evaluates Demand, Earning, Competition, and Customer Quality separately',
-        'Strategy Explorer — filters 8 affiliate strategies and explains exactly why excluded products did not qualify',
-        'Data Confidence — separates verified source metrics from derived or unverified fields',
+        'Demand (30%) & Video Proof (25%) — highlights products actively selling through TikTok videos',
+        'Affiliate Earning (30%) — combines commission rate, payout per sale, and video commission pool',
+        'Price Fit (15%) — scores impulse-buy price suitability and opens Product Studio for AI video plans',
       ],
       emptyGuideDisclaimer:
-        'Note: Commercial scores and past video sales reflect market signals only and do not guarantee future affiliate sales or your video conversion.',
+        'Note: Search scores reflect recent 7-day Kalodata sales signals and do not guarantee future affiliate conversions.',
     },
     card: {
       thaiOriginal: 'Thai TikTok listing',
@@ -1395,8 +1711,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       openTikTokShort: 'TikTok Shop',
     },
     score: {
-      tooltipBtn: 'Inspect Commercial Intelligence V2 breakdown',
-      dialogSubtitle: 'Inspect all 4 commercial dimensions, data confidence, provenance, conversion evidence, and 8-strategy eligibility.',
+      tooltipBtn: 'Inspect Search Score visual breakdown',
+      dialogSubtitle: 'Visual breakdown of Demand, Affiliate Earning, Video Sales Proof, and Price Fit.',
       metricVisualLabel: 'Visual Demo Strength',
       metricVisualDesc: 'How immediately the product sells itself on screen with zero spoken words',
       metricAiLabel: 'AI Video Suitability',
@@ -2016,6 +2332,191 @@ export const TRANSLATIONS: Record<Language, Translations> = {
           EMERGING_OPPORTUNITY: 'Emerging Opportunity',
           HIGH_DEMAND_HIGH_COMPETITION: 'High Demand but High Competition',
           INSUFFICIENT_EVIDENCE: 'Insufficient Evidence',
+        },
+      },
+      historicalTrend: {
+        sectionTitle: 'Historical Trend Intelligence (Derived)',
+        sectionSubtitle:
+          'Strictly derived from comparable trusted local observations (separate from Commercial Score)',
+        trustScopeLabel: 'Local Observed Only',
+        metricCol: 'Metric',
+        rangeCol: 'Earliest → Latest',
+        deltaCol: 'Change',
+        statusCol: 'Trend',
+        zeroBaselineTag: 'Zero Base',
+        allZeroTag: 'All 0',
+        observationSpanLabel: (count: number, spanDays: number | null) =>
+          spanDays !== null ? `${count} obs · ${spanDays}d span` : `${count} local obs`,
+        classifications: {
+          RISING: 'Rising',
+          STABLE: 'Stable',
+          DECLINING: 'Declining',
+          VOLATILE: 'Volatile',
+          INSUFFICIENT_HISTORY: 'Insufficient History',
+          INCOMPARABLE_DATA: 'Incomparable Data',
+        },
+        metrics: {
+          revenue: '7d Revenue',
+          salesVolume: '7d Sales Volume',
+          videoRevenue: 'Video Revenue',
+          liveRevenue: 'Live Revenue',
+          shoppingMallRevenue: 'Showcase / Mall Rev',
+          unitPrice: 'Unit Price',
+          commissionRate: 'Commission Rate',
+        },
+      },
+      detailTrend: {
+        sectionTitle: 'In-Window Daily Revenue Trend (/detail Verified)',
+        sectionSubtitle:
+          'Derived from verified daily THB revenue_trend array on /tiktok/product/detail (separate from Commercial Score)',
+        last7VsPrev7: 'Last 7d vs Prev 7d',
+        dailyAvg: 'Daily Avg',
+        dailyRange: 'Daily Min – Max',
+        activeDays: 'Active Days',
+        activeCreatorsLabel: (windowTag: string) => `Active Creators (${windowTag} Verified)`,
+        revPerActiveCreatorLabel: 'Rev / Active Creator',
+        lifetimeReviewsLabel: 'Lifetime PDP Reviews',
+        informationalScopeNote:
+          'Informational context only — posting vs. selling creator split and star ratings remain unavailable, so Competition and Customer Quality scores stay withheld.',
+        detailWindowLabel: 'Detail window:',
+        detailWindow7d: '7d',
+        detailWindow30d: '30d (Daily Trend)',
+      },
+      discoveryFilter: {
+        barAriaLabel: 'Affiliate filter and sort controls',
+        presets: {
+          all: 'All',
+          monetizable_only: 'Monetizable',
+          video_proven: 'Video Proven',
+          strong_earnings: 'High Earnings',
+          rising_trend: 'Rising Trend',
+        },
+        sortLabel: 'Sort',
+        sortOptions: {
+          search_score_desc: 'Search Score (0.2 cr)',
+          intelligence: 'Intelligence Rank',
+          video_revenue_desc: '7d Video Revenue',
+          payout_desc: 'Est. Payout / Sale (฿)',
+          commission_desc: 'Commission %',
+          revenue_desc: '7d Total Revenue',
+          sales_desc: '7d Sales Volume',
+        },
+        minCommissionLabel: 'Commission',
+        minVideoShareLabel: 'Video Share',
+        priceBandLabel: 'Price',
+        anyOption: 'Any',
+        priceBands: {
+          all: 'Any',
+          under_300: '≤ ฿300',
+          '300_1000': '฿300 – ฿1,000',
+          over_1000: '> ฿1,000',
+        },
+        resetBtn: 'Reset',
+        showingCount: (shown: number, total: number) => `Showing ${shown} of ${total}`,
+        zeroCreditHint: 'Local filter (0 cr)',
+        emptyTitle: 'No products match your current filter',
+        emptyDesc: 'Relax one of your local filters or reset to view all discovered products.',
+        loadMoreBtn: (nextPage: number, pageSize = 100) =>
+          `Load Next ${pageSize} (Page ${nextPage} · ~0.2 cr)`,
+        loadingMoreBtn: 'Loading next page...',
+        loadedMoreToast: (added: number, page: number, fromCache: boolean) =>
+          fromCache
+            ? `Added ${added} product(s) from Page ${page} (0 cr · Cached)`
+            : `Added ${added} product(s) from Page ${page}`,
+        cachedSearchToast: 'Loaded instantly from 10-min server cache (0 cr)',
+        allLoadedNote: (count: number) => `All ${count} loaded products shown`,
+      },
+      searchDrawer: {
+        title: 'Search & Filter Settings',
+        subtitle: 'Configure category, count, product link, and affiliate filters before searching',
+        closeAria: 'Close search drawer',
+        keywordOrLinkLabel: 'Keyword or Product Link / ID',
+        keywordOrLinkPlaceholder: 'Search keyword or paste TikTok Shop / Kalodata link or Product ID...',
+        keywordOrLinkHint: 'Pasting a product URL or numeric ID switches automatically to single-product check',
+        categoriesLabel: 'Categories (Multi-select)',
+        categoriesDisabledInLinkMode: 'Category and batch count controls are paused while checking a single product link',
+        countLabel: 'Products per Search',
+        countUnit: (n: number) => `${n} items`,
+        recommendedTag: 'Best Value',
+        countCostNote: '20, 50, and 100 items all cost 0.20 cr flat (100 is Kalodata API max)',
+        windowLabel: 'Sales Window',
+        window7d: '7 Days (7d)',
+        window30d: '30 Days (30d)',
+        windowNote: '7d surfaces fresh momentum; 30d reflects steadier monthly volume',
+        affiliateFiltersLabel: 'Affiliate Result Filters (0 cr)',
+        affiliateFiltersHint: 'Applied automatically to results locally at zero extra credit cost',
+        affiliateFiltersDisabledInLinkMode: 'Single-link checks always display the pasted product regardless of commission filters',
+        presetLabel: 'Shortlist Preset',
+        resetDefaultsBtn: 'Recommended Defaults',
+        cancelBtn: 'Cancel',
+        submitRankBtn: (count: number, cost: number) => `Search ${count} Products (~${cost} cr)`,
+        submitLinkBtn: (cost: number) => `Check Product Link (~${cost} cr)`,
+        summaryRank: (count: number, windowTag: string, presetLabel: string, cost: number) =>
+          `${count} items · ${windowTag} · ${presetLabel} · ~${cost} cr`,
+        summaryLink: (productId: string, cost: number) =>
+          `Product ID ${productId} · ~${cost} cr`,
+        activeScopeSummary: (count: number, windowTag: string, presetLabel: string) =>
+          `Default: ${count} items · ${windowTag} · ${presetLabel}`,
+        openDrawerBtn: 'Search & Filter',
+      },
+      searchScore: {
+        title: 'Search Opportunity Score (0.2 cr Data Only)',
+        badgeShort: 'Search Score',
+        subtitle:
+          'Scored strictly from verified 0.20 cr Kalodata rank fields with zero extra credit calls',
+        rankDataOnlyNote: '0.20 cr Search Data Only',
+        deepStudioHint:
+          'Open Product Studio to fetch Kalodata Deep Data (creators, daily trend, buyer reviews) and generate your AI analysis & video plan.',
+        rawScoreLabel: 'Uncapped Raw',
+        videoPoolLabel: 'Video Comm. Pool',
+        payoutPerSaleLabel: 'Payout / Sale',
+        videoShareLabel: 'Video Rev Share',
+        dominantChannelLabel: 'Dominant Channel',
+        capsTitle: 'Active Score Cap',
+        compositionTitle: 'Score Breakdown (out of 100)',
+        channelsTitle: 'Sales Channels',
+        priceSweetSpotTitle: 'Price Sweet Spot',
+        earningSnapshotTitle: 'Affiliate Earning Snapshot',
+        est100SalesLabel: 'Est. ×100 Sales',
+        dailyTrendTitle: 'Daily Revenue Trend (/detail)',
+        activeCreatorsShort: 'Active Creators',
+        channelShort: {
+          video: 'Short Video',
+          live: 'Live',
+          mall: 'Showcase / Mall',
+        },
+        priceZones: {
+          sweet: 'Sweet Spot',
+          mid: 'Moderate',
+          low: 'Low Ticket',
+          high: 'High Ticket',
+        },
+        pillars: {
+          demand: { label: 'Market Demand', short: 'Demand', weightLabel: '30%' },
+          earning: { label: 'Affiliate Earning', short: 'Earning', weightLabel: '30%' },
+          videoProof: { label: 'Video Sales Proof', short: 'Video', weightLabel: '25%' },
+          priceFit: { label: 'Price Fit', short: 'Price', weightLabel: '15%' },
+        },
+        grades: {
+          TOP: 'Top Pick',
+          STRONG: 'Strong',
+          MODERATE: 'Moderate',
+          WEAK: 'Weak',
+          NOT_MONETIZABLE: '0% Comm',
+          INSUFFICIENT: 'Incomplete',
+        },
+        channels: {
+          VIDEO: 'Short-Video Led',
+          LIVE: 'Live Led',
+          SHOWCASE: 'Showcase / Mall Led',
+          BALANCED: 'Multi-Channel',
+          UNKNOWN: 'Unknown',
+        },
+        caps: {
+          WEAK_DEMAND_CAP: 'Capped at 42 due to weak verified market demand',
+          NO_VIDEO_SALES_CAP: 'Capped at 58 because verified short-video revenue is ฿0',
+          LIVE_DEPENDENT_CAP: 'Capped at 68 because revenue is Live-dependent (≥60% Live, <10% Video)',
+          MISSING_VIDEO_DATA_CAP: 'Capped at 75 because video revenue breakdown is missing',
         },
       },
     },

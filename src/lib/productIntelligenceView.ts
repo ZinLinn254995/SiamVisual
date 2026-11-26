@@ -3,10 +3,12 @@ import type {
   CommercialScoreV2Result,
   DataConfidenceResult,
   HistoricalMetricSnapshot,
+  HistoricalProductTrendReport,
   MarketplaceIntelligenceRankingResult,
   OpportunityClassification,
   ProductDiscoveryShortlistResult,
   ProductItem,
+  ProductObservationSnapshot,
   ProductStrategyReportV2,
   ProductValidatedMetrics,
   StrategyEligibilityStatus,
@@ -18,11 +20,16 @@ import type {
   ValidatedMetric,
 } from '../types.ts';
 import { classifyProductDiscoveryShortlist } from './discoveryShortlist.ts';
+import { analyzeProductHistoricalTrends } from './historicalTrendIntelligence.ts';
 import {
   adaptProductItemToValidatedMetrics,
   refreshProductValidatedMetricsFreshness,
 } from './metricFoundation.ts';
 import { evaluateProductCommercialV2 } from './scoringEngineV2.ts';
+import {
+  evaluateSearchOpportunityScore,
+  type SearchOpportunityScoreResult,
+} from './searchScoreEngine.ts';
 import {
   evaluateProductStrategiesV2,
   rankProductIntelligenceV2,
@@ -102,11 +109,13 @@ export interface RankedIntelligenceCardItem {
   riskTags: string[];
   opportunityTags: string[];
   commercialScore: CommercialScoreV2Result;
+  searchScore: SearchOpportunityScoreResult;
   strategyReport: ProductStrategyReportV2;
   activeStrategyEvaluation: StrategyEvaluationResult | null;
   provenanceSummary: ProductProvenanceSummary;
   discoveryShortlist: ProductDiscoveryShortlistResult;
   snapshotCount: number;
+  historicalTrend?: HistoricalProductTrendReport;
 }
 
 export interface ExcludedIntelligenceCardItem {
@@ -123,10 +132,12 @@ export interface ExcludedIntelligenceCardItem {
   riskTags: string[];
   explanation: string;
   commercialScore: CommercialScoreV2Result;
+  searchScore: SearchOpportunityScoreResult;
   strategyReport: ProductStrategyReportV2;
   provenanceSummary: ProductProvenanceSummary;
   discoveryShortlist: ProductDiscoveryShortlistResult;
   snapshotCount: number;
+  historicalTrend?: HistoricalProductTrendReport;
 }
 
 export interface StrategyTabSummary {
@@ -326,8 +337,22 @@ export function buildProductIntelligenceView(
   options?: {
     nowMs?: number;
     historicalSnapshotsByProductId?: Record<string, HistoricalMetricSnapshot[]>;
+    observationSnapshotsByProductId?: Record<string, ProductObservationSnapshot[]>;
   }
 ): ProductIntelligenceViewModel {
+  const resolveHistoricalTrend = (
+    productId: string,
+    dateRange?: string | null
+  ): HistoricalProductTrendReport | undefined => {
+    const obs = options?.observationSnapshotsByProductId?.[productId];
+    if (!obs || obs.length === 0) return undefined;
+    return analyzeProductHistoricalTrends(obs, {
+      productId,
+      dateRange: dateRange ?? 'last7Day',
+      nowMs: options?.nowMs,
+    });
+  };
+
   const preparedProducts = products.map((product) =>
     ensureProductV2Intelligence(product, {
       nowMs: options?.nowMs,
@@ -408,6 +433,10 @@ export function buildProductIntelligenceView(
           riskTags: entry.riskTags,
           opportunityTags: entry.opportunityTags,
           commercialScore: entry.commercialScore,
+          searchScore: evaluateSearchOpportunityScore(
+            enrichedProduct.validatedMetrics!,
+            options?.nowMs !== undefined ? { nowMs: options.nowMs } : undefined
+          ),
           strategyReport: entry.strategyReport,
           activeStrategyEvaluation: entry.bestStrategyId
             ? entry.strategyReport.strategies[entry.bestStrategyId]
@@ -419,6 +448,10 @@ export function buildProductIntelligenceView(
           ),
           snapshotCount:
             options?.historicalSnapshotsByProductId?.[enrichedProduct.id]?.length ?? 0,
+          historicalTrend: resolveHistoricalTrend(
+            enrichedProduct.id,
+            enrichedProduct.validatedMetrics?.dateRange
+          ),
         };
       });
 
@@ -472,6 +505,10 @@ export function buildProductIntelligenceView(
         riskTags: entry.riskTags,
         opportunityTags: entry.opportunityTags,
         commercialScore,
+        searchScore: evaluateSearchOpportunityScore(
+          enrichedProduct.validatedMetrics!,
+          options?.nowMs !== undefined ? { nowMs: options.nowMs } : undefined
+        ),
         strategyReport,
         activeStrategyEvaluation: entry.evaluation,
         provenanceSummary: summarizeProductProvenance(enrichedProduct.validatedMetrics!),
@@ -481,6 +518,10 @@ export function buildProductIntelligenceView(
         ),
         snapshotCount:
           options?.historicalSnapshotsByProductId?.[enrichedProduct.id]?.length ?? 0,
+        historicalTrend: resolveHistoricalTrend(
+          enrichedProduct.id,
+          enrichedProduct.validatedMetrics?.dateRange
+        ),
       };
     });
 
@@ -511,6 +552,10 @@ export function buildProductIntelligenceView(
         riskTags: entry.riskTags,
         explanation: entry.explanation,
         commercialScore,
+        searchScore: evaluateSearchOpportunityScore(
+          enrichedProduct.validatedMetrics!,
+          options?.nowMs !== undefined ? { nowMs: options.nowMs } : undefined
+        ),
         strategyReport,
         provenanceSummary: summarizeProductProvenance(enrichedProduct.validatedMetrics!),
         discoveryShortlist: classifyProductDiscoveryShortlist(
@@ -519,6 +564,10 @@ export function buildProductIntelligenceView(
         ),
         snapshotCount:
           options?.historicalSnapshotsByProductId?.[enrichedProduct.id]?.length ?? 0,
+        historicalTrend: resolveHistoricalTrend(
+          enrichedProduct.id,
+          enrichedProduct.validatedMetrics?.dateRange
+        ),
       };
     });
 

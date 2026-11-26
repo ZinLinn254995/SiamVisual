@@ -58,6 +58,12 @@ export interface ProductKalodataMetrics {
   creatorCount?: number | null;
   rating?: number | null;
   reviewCount?: number | null;
+  /** Verified daily THB revenue values (chronological oldest -> newest) from POST /tiktok/product/detail. */
+  revenueTrendThb?: number[] | null;
+  videoCount?: number | null;
+  liveCount?: number | null;
+  launchDate?: string | null;
+  deliveryType?: string | null;
   dateRange?: string;
   fetchedAt?: string;
   /** Per-metric observation timestamps preserved when combining /rank and /detail responses (null = unknown). */
@@ -208,6 +214,7 @@ export interface ProductEnrichOptions {
   includeDetails: boolean;
   includeSpecs: boolean;
   includeComments: boolean;
+  dateRange?: SearchDateRange;
 }
 
 export interface KalodataLimitSettings {
