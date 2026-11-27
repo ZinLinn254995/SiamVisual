@@ -656,15 +656,13 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
     const studioBaseProps = {
       product: extremeComp,
       isSaved: false,
-      plan: null,
-      style: 'cinematic' as const,
-      savedStyles: [],
-      isGenerating: false,
+      ideaPlans: {},
+      generatingIdeaIndex: null,
+      planErrorByIdea: {},
       isEnrichingProduct: false,
       isAnalyzingProduct: false,
       enrichError: null,
       analysisError: null,
-      error: null,
       cameFromHistory: false,
       language: 'en' as const,
       nowMs: NOW_MS,
@@ -673,8 +671,7 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
       t: TRANSLATIONS.en,
       onBack: () => {},
       onToggleSave: () => {},
-      onSelectStyle: () => {},
-      onConfirmGenerate: () => {},
+      onGenerateIdeaPlan: () => {},
       onFetchDeepInsights: async () => {},
       onAnalyzeProduct: async () => {},
       onOpenScoreDetails: () => {},
@@ -691,10 +688,10 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
     );
     assert.ok(studioIdeasHtml.includes(TRANSLATIONS.en.studio.analysisBtn));
 
-    const studioKitHtml = renderToStaticMarkup(
-      React.createElement(VideoStudioView, { ...studioBaseProps, initialSubpage: 'kit' })
+    const studioPromptHtml = renderToStaticMarkup(
+      React.createElement(VideoStudioView, { ...studioBaseProps, initialSubpage: 'prompt' })
     );
-    assert.ok(studioKitHtml.includes(TRANSLATIONS.en.studio.generateNowBtn));
+    assert.ok(studioPromptHtml.includes(TRANSLATIONS.en.studio.chatPrompt.copyBtn));
 
     const historyHtml = renderToStaticMarkup(
       React.createElement(HistoryView, {

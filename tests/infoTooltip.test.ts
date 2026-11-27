@@ -204,15 +204,13 @@ test('Simplified SiamVisual views omit InfoTooltip clutter and retain primary co
     const studioProps = {
       product,
       isSaved: false,
-      plan: null,
-      style: 'cinematic' as const,
-      savedStyles: [],
-      isGenerating: false,
+      ideaPlans: {},
+      generatingIdeaIndex: null,
+      planErrorByIdea: {},
       isEnrichingProduct: false,
       isAnalyzingProduct: false,
       enrichError: null,
       analysisError: null,
-      error: null,
       cameFromHistory: false,
       language: lang,
       nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
@@ -221,8 +219,7 @@ test('Simplified SiamVisual views omit InfoTooltip clutter and retain primary co
       t,
       onBack: () => {},
       onToggleSave: () => {},
-      onSelectStyle: () => {},
-      onConfirmGenerate: () => {},
+      onGenerateIdeaPlan: () => {},
       onFetchDeepInsights: async () => {},
       onAnalyzeProduct: async () => {},
       onOpenScoreDetails: () => {},
@@ -236,11 +233,11 @@ test('Simplified SiamVisual views omit InfoTooltip clutter and retain primary co
     assert.ok(!studioIdeasHtml.includes(t.studio.analysisSubtitle));
     assert.ok(studioIdeasHtml.includes(t.studio.analysisBtn));
 
-    const studioKitHtml = renderToStaticMarkup(
-      React.createElement(VideoStudioView, { ...studioProps, initialSubpage: 'kit' })
+    const studioPromptHtml = renderToStaticMarkup(
+      React.createElement(VideoStudioView, { ...studioProps, initialSubpage: 'prompt' })
     );
-    assert.ok(!studioKitHtml.includes('role="tooltip"'));
-    assert.ok(studioKitHtml.includes(t.studio.generateNowBtn));
+    assert.ok(!studioPromptHtml.includes('role="tooltip"'));
+    assert.ok(studioPromptHtml.includes(t.studio.chatPrompt.copyBtn));
   }
 });
 

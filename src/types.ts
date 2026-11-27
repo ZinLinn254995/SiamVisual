@@ -8,6 +8,7 @@ export * from './types/strategyV2';
 
 export type Language = 'my' | 'en';
 export type Theme = 'light' | 'dark';
+/** @deprecated Legacy silent-visual style kept optional only for old saved backups. */
 export type VisualStyle = 'cinematic' | 'asmr' | 'before_after' | 'problem_fix';
 export type SearchDateRange = 'last7Day' | 'last30Day';
 export type SearchSortBy = 'revenue' | 'growth';
@@ -95,6 +96,15 @@ export interface VideoIdeaHook3Layer {
   textHook: BilingualText;
 }
 
+export interface VideoIdeaConceptSeo {
+  titleTh: string;
+  titleMeaning: BilingualText;
+  descriptionTh: string;
+  descriptionMeaning: BilingualText;
+  hashtags: string[];
+  keywords: string[];
+}
+
 export interface VideoIdeaConcept {
   title: BilingualText;
   targetSegment: BilingualText;
@@ -103,6 +113,8 @@ export interface VideoIdeaConcept {
   creativeAngle: BilingualText;
   ugcFormat: BilingualText;
   recommendedDuration: string;
+  kalodataBasis?: BilingualText;
+  visualShootingTips?: BilingualText;
   hook3Layer: VideoIdeaHook3Layer;
   bridgeHold: BilingualText;
   bodyPlan: BilingualText;
@@ -112,11 +124,32 @@ export interface VideoIdeaConcept {
     my: string[];
     en: string[];
   };
+  seo?: VideoIdeaConceptSeo;
+}
+
+export interface VideoIdeasSummaryStrategies {
+  executiveSummary: BilingualText;
+  kalodataDataPlay: BilingualText;
+  creativeExecutionStrategy: BilingualText;
+  testingAndFunnelStrategy: BilingualText;
+}
+
+export interface VideoIdeasSeoPack {
+  titlesTh: string[];
+  titlesMeaning: BilingualText;
+  descriptionTh: string;
+  descriptionMeaning: BilingualText;
+  hashtags: string[];
+  keywords: string[];
+  postingTip: BilingualText;
 }
 
 export interface VideoIdeasStrategyPack {
   playbookCategory: VideoIdeasPlaybookCategory;
   playbookReason: BilingualText;
+  kalodataEvidenceSummary?: BilingualText;
+  summaryStrategies?: VideoIdeasSummaryStrategies;
+  seoPack?: VideoIdeasSeoPack;
   productAnalysis: {
     coreFeature: BilingualText;
     functionalBenefit: BilingualText;
@@ -237,6 +270,8 @@ export interface AiPromptItem {
 }
 
 export interface TikTokSeoPack {
+  titlesTh?: string[];
+  titlesMeaning?: BilingualText;
   captionTh: string;
   captionMeaning: BilingualText;
   hashtags: string[];
@@ -244,14 +279,21 @@ export interface TikTokSeoPack {
   postingTip: BilingualText;
 }
 
+export type VideoIdeaIndex = 0 | 1 | 2;
+
 export interface VideoAdPlan {
   id: string;
   productId: string;
-  style: VisualStyle;
+  ideaIndex?: number;
+  ideaTitle?: BilingualText;
+  ideaFramework?: VideoIdeasFramework;
+  /** @deprecated Legacy style retained optional for old saved backups. */
+  style?: VisualStyle;
   createdAt: string;
   conceptTitle: BilingualText;
   conceptSummary: BilingualText;
   visualDirection: BilingualText;
+  productionStrategy?: BilingualText;
   hooks: VisualHook[];
   storyboard: StoryboardShot[];
   aiVideoPrompts: AiPromptItem[];
@@ -266,6 +308,7 @@ export interface SavedHistoryEntry {
   savedAt: string;
   product: ProductItem;
   plan?: VideoAdPlan;
+  ideaPlans?: Partial<Record<VideoIdeaIndex, VideoAdPlan>>;
 }
 
 export interface KalodataCreditBalance {
@@ -363,6 +406,7 @@ export interface BackupPayload {
   recentSearches?: RecentSearchEntry[];
   deepInsightsCache?: Record<string, SavedDeepInsightRecord>;
   productAnalysisCache?: Record<string, ProductAiAnalysis>;
+  ideaPlansCache?: Record<string, Partial<Record<VideoIdeaIndex, VideoAdPlan>>>;
   productSnapshots?: Record<string, import('./types/metrics').ProductObservationSnapshot[]>;
   rankBoardSnapshot?: RankBoardSnapshot | null;
 }

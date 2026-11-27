@@ -277,13 +277,26 @@ export function HistoryView({
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                        {entry.plan ? (
-                          <span className="font-medium text-teal-700 dark:text-teal-400">
-                            {t.styles[entry.plan.style]}
-                          </span>
-                        ) : (
-                          <span>{displayCategoryLabel}</span>
-                        )}
+                        {(() => {
+                          const savedIdeaNumbers = ([0, 1, 2] as const)
+                            .filter((idx) => Boolean(entry.ideaPlans?.[idx]))
+                            .map((idx) => idx + 1);
+                          if (savedIdeaNumbers.length > 0) {
+                            return (
+                              <span className="font-medium text-teal-700 dark:text-teal-400">
+                                {t.history.ideaPlansSavedLabel(savedIdeaNumbers)}
+                              </span>
+                            );
+                          }
+                          if (entry.plan?.conceptTitle?.[language]) {
+                            return (
+                              <span className="font-medium text-teal-700 dark:text-teal-400">
+                                {entry.plan.conceptTitle[language]}
+                              </span>
+                            );
+                          }
+                          return <span>{displayCategoryLabel}</span>;
+                        })()}
                         <span className="mx-1.5" aria-hidden="true">·</span>
                         <span className="font-mono-num">{formatSavedDate(entry.savedAt)}</span>
                       </div>

@@ -231,6 +231,20 @@ export function buildExternalAiChatPrompt(product: ProductItem): string {
         ? `${hasRating ? `${m!.rating}/5` : '[Rating not available]'}${hasReviewCount ? ` (${m!.reviewCount!.toLocaleString()} reviews)` : ''}`
         : '[Not available]'
     }`,
+    ...(typeof m?.videoCount === 'number'
+      ? [`- Promoting Videos Count (Kalodata): ${m.videoCount.toLocaleString()}`]
+      : []),
+    ...(typeof m?.liveCount === 'number'
+      ? [`- Promoting Lives Count (Kalodata): ${m.liveCount.toLocaleString()}`]
+      : []),
+    ...(m?.deliveryType ? [`- Seller Fulfillment / Delivery Type: ${m.deliveryType}`] : []),
+    ...(Array.isArray(m?.revenueTrendThb) && m.revenueTrendThb.length > 0
+      ? [
+          `- Daily Revenue Trend (${m.revenueTrendThb.length} days, oldest -> newest THB): [${m.revenueTrendThb
+            .map((v) => `฿${Math.round(v).toLocaleString()}`)
+            .join(', ')}]`,
+        ]
+      : []),
     '- Limitation Note: Historical Kalodata performance reflects past activity in the stated window and does NOT guarantee future sales, conversion rates, or commission income.',
     '',
     '## 3.4 Product Features (Confirmed Specifications & Seller Data)',
@@ -290,14 +304,35 @@ export function buildExternalAiChatPrompt(product: ProductItem): string {
       lines.push(
         `- Saved SiamVisual AI Video Ideas Strategy [Generated ${a.analyzedAt}]:`,
         `  - Playbook Category: ${vp.playbookCategory} — ${vp.playbookReason.en}`,
+        ...(vp.kalodataEvidenceSummary?.en
+          ? [`  - Kalodata Evidence Summary (EN): ${vp.kalodataEvidenceSummary.en}`]
+          : []),
+        ...(vp.summaryStrategies
+          ? [
+              `  - Summary Strategy — Executive (EN): ${vp.summaryStrategies.executiveSummary.en}`,
+              `  - Summary Strategy — Kalodata Data Play (EN): ${vp.summaryStrategies.kalodataDataPlay.en}`,
+              `  - Summary Strategy — Creative Execution (EN): ${vp.summaryStrategies.creativeExecutionStrategy.en}`,
+              `  - Summary Strategy — Testing & Funnel (EN): ${vp.summaryStrategies.testingAndFunnelStrategy.en}`,
+            ]
+          : []),
         `  - Core USP (EN): ${vp.productAnalysis.coreUsp.en}`,
         `  - Emotional Benefit (EN): ${vp.productAnalysis.emotionalBenefit.en}`,
         `  - Primary Target Buyer (EN): ${vp.targetAudience.primaryBuyer.en}`,
         `  - Visual Proof Shot (EN): ${vp.productAnalysis.visualProofIdea.en}`,
         ...vp.concepts.map(
           (c, idx) =>
-            `  - Video Concept ${idx + 1}: ${c.title.en} [${c.framework} | ${c.awarenessLevel} | ${c.creativeAngle.en}] — Hook: ${c.hook3Layer.verbalHook.en}`
+            `  - Video Concept ${idx + 1}: ${c.title.en} [${c.framework} | ${c.awarenessLevel} | ${c.creativeAngle.en}] — Hook: ${c.hook3Layer.verbalHook.en}${
+              c.kalodataBasis?.en ? ` | Data Basis: ${c.kalodataBasis.en}` : ''
+            }${c.seo?.titleTh ? ` | Thai SEO Title: ${c.seo.titleTh}` : ''}`
         ),
+        ...(vp.seoPack
+          ? [
+              `  - Pack Thai SEO Titles: ${vp.seoPack.titlesTh.join(' | ')}`,
+              `  - Pack Thai Description: ${vp.seoPack.descriptionTh}`,
+              `  - Pack Hashtags: ${vp.seoPack.hashtags.join(' ')}`,
+              `  - Pack Search Keywords: ${vp.seoPack.keywords.join(', ')}`,
+            ]
+          : []),
         ...(vp.scalingPlan.watchOuts.en.length
           ? [`  - Watch-Outs (EN): ${vp.scalingPlan.watchOuts.en.join(' | ')}`]
           : [])

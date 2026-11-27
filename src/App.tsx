@@ -64,10 +64,12 @@ import { evaluateProductStrategiesV2 } from './lib/strategyEngineV2';
 import {
   clearAllRecentSearches,
   exportHistoryBackup,
+  getIdeaPlansForProduct,
   hydrateProductFromStorage,
   hydrateProductsFromStorage,
   loadCachedCategories,
   loadDeepInsightsCache,
+  loadIdeaPlansCache,
   loadKalodataLimits,
   loadLanguagePreference,
   loadPinchHintSeen,
@@ -85,12 +87,14 @@ import {
   mergeValidatedMetricsSnapshots,
   parseBackupFile,
   persistDeepInsightsCache,
+  persistIdeaPlansCache,
   persistProductAnalysisCache,
   persistRecentSearches,
   removeHistoryEntry,
   removeRecentSearch,
   saveCachedCategories,
   saveDeepInsightForProduct,
+  saveIdeaPlanForProduct,
   saveKalodataLimits,
   saveLanguagePreference,
   savePinchHintSeen,
@@ -129,7 +133,7 @@ import type {
   SearchDateRange,
   Theme,
   VideoAdPlan,
-  VisualStyle,
+  VideoIdeaIndex,
 } from './types';
 
 const LEAN_SEARCH_COST = 0.2;
@@ -358,14 +362,17 @@ export default function App() {
   // Studio state
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
   const selectedProductIdRef = useRef<string | null>(null);
-  const [selectedStyle, setSelectedStyle] = useState<VisualStyle>('cinematic');
-  const [activePlan, setActivePlan] = useState<VideoAdPlan | null>(null);
-  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [activeIdeaPlans, setActiveIdeaPlans] = useState<Partial<Record<VideoIdeaIndex, VideoAdPlan>>>(
+    {}
+  );
+  const [generatingIdeaIndex, setGeneratingIdeaIndex] = useState<VideoIdeaIndex | null>(null);
+  const [planErrorByIdea, setPlanErrorByIdea] = useState<
+    Partial<Record<VideoIdeaIndex, string | null>>
+  >({});
   const [isEnrichingProduct, setIsEnrichingProduct] = useState(false);
   const [isAnalyzingProduct, setIsAnalyzingProduct] = useState(false);
   const [enrichError, setEnrichError] = useState<string | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [planError, setPlanError] = useState<string | null>(null);
   const [cameFromHistory, setCameFromHistory] = useState(false);
   const [studioReturnTab, setStudioReturnTab] = useState<'discover' | 'rank_board' | 'history'>(
     'discover'
@@ -1511,35 +1518,46 @@ export default function App() {
     });
   }
 
-  async function requestVideoPlan(
+  async function requestIdeaVideoPlan(
     product: ProductItem,
-    style: VisualStyle,
+    ideaIndex: VideoIdeaIndex,
     forceFresh = false
   ) {
     const targetProductId = product.id;
+    const concept = product.aiAnalysis?.videoIdeasPack?.concepts?.[ideaIndex];
+    if (!concept) {
+      const missingErr =
+        language === 'my'
+          ? `Video Idea ${ideaIndex + 1} အချက်အလက် မတွေ့သေးပါ — ဦးစွာ Video Ideas ဖန်တီးပေးပါ။`
+          : `Video Idea ${ideaIndex + 1} is not ready yet. Please generate Video Ideas first.`;
+      setPlanErrorByIdea((prev) => ({ ...prev, [ideaIndex]: missingErr }));
+      return;
+    }
+
     if (!forceFresh) {
-      const cached = history.find(
-        (entry) => entry.product.id === targetProductId && entry.plan?.style === style
-      );
-      if (cached?.plan) {
+      const cachedPlan =
+        activeIdeaPlans[ideaIndex] ??
+        getIdeaPlansForProduct(targetProductId)[ideaIndex] ??
+        history.find((entry) => entry.product.id === targetProductId && entry.ideaPlans?.[ideaIndex])
+          ?.ideaPlans?.[ideaIndex];
+      if (cachedPlan) {
         if (selectedProductIdRef.current === targetProductId) {
-          setActivePlan(cached.plan);
-          setPlanError(null);
-          setIsGeneratingPlan(false);
+          setActiveIdeaPlans((prev) => ({ ...prev, [ideaIndex]: cachedPlan }));
+          setPlanErrorByIdea((prev) => ({ ...prev, [ideaIndex]: null }));
+          setGeneratingIdeaIndex((prev) => (prev === ideaIndex ? null : prev));
         }
         return;
       }
     }
 
     if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
-      setPlanError(t.kalodata.offlineNotice);
+      setPlanErrorByIdea((prev) => ({ ...prev, [ideaIndex]: t.kalodata.offlineNotice }));
       showToast(t.kalodata.offlineNotice, 'error');
       return;
     }
 
-    setIsGeneratingPlan(true);
-    setPlanError(null);
-    setActivePlan(null);
+    setGeneratingIdeaIndex(ideaIndex);
+    setPlanErrorByIdea((prev) => ({ ...prev, [ideaIndex]: null }));
 
     const controller = new AbortController();
     const clientTimer = window.setTimeout(() => controller.abort(), 90000);
@@ -1547,7 +1565,12 @@ export default function App() {
       const response = await fetch('/api/video/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product, style }),
+        body: JSON.stringify({
+          product,
+          ideaIndex,
+          concept,
+          videoIdeasPack: product.aiAnalysis?.videoIdeasPack,
+        }),
         signal: controller.signal,
       });
 
@@ -1556,36 +1579,45 @@ export default function App() {
         throw new Error('Unable to generate video plan right now.');
       }
 
-      const generatedPlan = data.plan;
+      const generatedPlan: VideoAdPlan = {
+        ...data.plan,
+        ideaIndex,
+      };
+      const nextForProduct = saveIdeaPlanForProduct(targetProductId, ideaIndex, generatedPlan);
+
       const newEntry: SavedHistoryEntry = {
-        id: generatedPlan.id,
+        id: `prod_${targetProductId}`,
         savedAt: generatedPlan.createdAt,
         product,
-        plan: generatedPlan,
+        ideaPlans: nextForProduct,
       };
       setHistory((prev) => upsertHistoryEntry(prev, newEntry));
 
       if (selectedProductIdRef.current === targetProductId) {
-        setActivePlan(generatedPlan);
+        setActiveIdeaPlans(nextForProduct);
       }
     } catch (err) {
       if (selectedProductIdRef.current === targetProductId) {
         if (err instanceof Error && err.name === 'AbortError') {
-          setPlanError(
-            language === 'my'
-              ? 'AI Video Plan ဖန်တီးချိန် ကြာသွားပါသည် — ထပ်မံကြိုးစားပေးပါ။'
-              : 'AI video generation timed out. Please try again.'
-          );
+          setPlanErrorByIdea((prev) => ({
+            ...prev,
+            [ideaIndex]:
+              language === 'my'
+                ? 'AI Video Plan ဖန်တီးချိန် ကြာသွားပါသည် — ထပ်မံကြိုးစားပေးပါ။'
+                : 'AI video generation timed out. Please try again.',
+          }));
         } else {
-          setPlanError(
-            err instanceof Error ? err.message : 'Unable to generate video plan right now.'
-          );
+          setPlanErrorByIdea((prev) => ({
+            ...prev,
+            [ideaIndex]:
+              err instanceof Error ? err.message : 'Unable to generate video plan right now.',
+          }));
         }
       }
     } finally {
       window.clearTimeout(clientTimer);
       if (selectedProductIdRef.current === targetProductId) {
-        setIsGeneratingPlan(false);
+        setGeneratingIdeaIndex((prev) => (prev === ideaIndex ? null : prev));
       }
     }
   }
@@ -1788,11 +1820,30 @@ export default function App() {
     }
   }
 
-  function findSavedPlanFor(productId: string, style: VisualStyle): VideoAdPlan | null {
-    const found = history.find(
-      (entry) => entry.product.id === productId && entry.plan?.style === style
+  function loadMergedIdeaPlansForEntry(
+    productId: string,
+    entry?: SavedHistoryEntry
+  ): Partial<Record<VideoIdeaIndex, VideoAdPlan>> {
+    const cached = getIdeaPlansForProduct(productId);
+    const matchingHistory = history.filter((item) => item.product.id === productId);
+    const fromHistory = matchingHistory.reduce<Partial<Record<VideoIdeaIndex, VideoAdPlan>>>(
+      (acc, item) => ({ ...acc, ...(item.ideaPlans ?? {}) }),
+      {}
     );
-    return found?.plan ?? null;
+    const merged: Partial<Record<VideoIdeaIndex, VideoAdPlan>> = {
+      ...cached,
+      ...fromHistory,
+      ...(entry?.ideaPlans ?? {}),
+    };
+    const legacyPlan = entry?.plan ?? matchingHistory.find((item) => item.plan)?.plan;
+    if (
+      legacyPlan &&
+      (legacyPlan.ideaIndex === 0 || legacyPlan.ideaIndex === 1 || legacyPlan.ideaIndex === 2) &&
+      !merged[legacyPlan.ideaIndex]
+    ) {
+      merged[legacyPlan.ideaIndex] = legacyPlan;
+    }
+    return merged;
   }
 
   function handleToggleSaveProduct(product: ProductItem) {
@@ -1810,18 +1861,16 @@ export default function App() {
     // Ignore stray click synthesized right after lifting two fingers from a pinch gesture
     if (sourceTab === 'discover' && Date.now() - lastPinchEndedAtRef.current < 280) return;
     const hydrated = hydrateProductFromStorage(product, { nowMs: evaluationNowMs });
-    const defaultStyle: VisualStyle = 'cinematic';
-    const existingSavedPlan = findSavedPlanFor(hydrated.id, defaultStyle);
+    const savedIdeaPlans = loadMergedIdeaPlansForEntry(hydrated.id);
 
     saveTabScrollPosition(sourceTab);
     selectedProductIdRef.current = hydrated.id;
     setSelectedProduct(hydrated);
-    setSelectedStyle(defaultStyle);
-    setActivePlan(existingSavedPlan);
-    setPlanError(null);
+    setActiveIdeaPlans(savedIdeaPlans);
+    setGeneratingIdeaIndex(null);
+    setPlanErrorByIdea({});
     setEnrichError(null);
     setAnalysisError(null);
-    setIsGeneratingPlan(false);
     setIsEnrichingProduct(false);
     setIsAnalyzingProduct(false);
     setCameFromHistory(false);
@@ -1832,39 +1881,22 @@ export default function App() {
 
   function handleOpenHistoryEntry(entry: SavedHistoryEntry) {
     const hydrated = hydrateProductFromStorage(entry.product, { nowMs: evaluationNowMs });
-    const nextStyle: VisualStyle = entry.plan?.style ?? 'cinematic';
-    const nextPlan: VideoAdPlan | null = entry.plan ?? findSavedPlanFor(hydrated.id, nextStyle);
+    const savedIdeaPlans = loadMergedIdeaPlansForEntry(hydrated.id, entry);
 
     saveTabScrollPosition('history');
     selectedProductIdRef.current = hydrated.id;
     setSelectedProduct(hydrated);
-    setSelectedStyle(nextStyle);
-    setActivePlan(nextPlan);
-    setPlanError(null);
+    setActiveIdeaPlans(savedIdeaPlans);
+    setGeneratingIdeaIndex(null);
+    setPlanErrorByIdea({});
     setEnrichError(null);
     setAnalysisError(null);
-    setIsGeneratingPlan(false);
     setIsEnrichingProduct(false);
     setIsAnalyzingProduct(false);
     setCameFromHistory(true);
     setStudioReturnTab('history');
     setActiveTab('studio');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  // Switching Visual Style ONLY updates selection & shows saved plan if present — NEVER auto-generates!
-  function handleStyleChange(nextStyle: VisualStyle) {
-    if (!selectedProduct || nextStyle === selectedStyle) return;
-    setSelectedStyle(nextStyle);
-    setPlanError(null);
-    const existingSavedPlan = findSavedPlanFor(selectedProduct.id, nextStyle);
-    setActivePlan(existingSavedPlan);
-  }
-
-  // Called ONLY after the user explicitly confirms inside the Studio Confirmation Dialog
-  function handleConfirmGeneratePlan(forceFresh: boolean) {
-    if (!selectedProduct) return;
-    requestVideoPlan(selectedProduct, selectedStyle, forceFresh);
   }
 
   function handleExportBackup() {
@@ -1901,6 +1933,24 @@ export default function App() {
           ...parsed.productAnalysisCache,
         };
         persistProductAnalysisCache(mergedAnalysisCache);
+        cachesRestored = true;
+      }
+      if (parsed.ideaPlansCache) {
+        const currentIdeaCache = loadIdeaPlansCache();
+        const mergedIdeaCache = { ...currentIdeaCache };
+        for (const [productId, plans] of Object.entries(parsed.ideaPlansCache)) {
+          mergedIdeaCache[productId] = {
+            ...(currentIdeaCache[productId] ?? {}),
+            ...plans,
+          };
+        }
+        persistIdeaPlansCache(mergedIdeaCache);
+        if (selectedProductIdRef.current) {
+          setActiveIdeaPlans((prev) => ({
+            ...prev,
+            ...(mergedIdeaCache[selectedProductIdRef.current!] ?? {}),
+          }));
+        }
         cachesRestored = true;
       }
       if (parsed.productSnapshots) {
@@ -3417,17 +3467,13 @@ export default function App() {
               <VideoStudioView
                 product={selectedProduct}
                 isSaved={savedProductIds.has(selectedProduct.id)}
-                plan={activePlan}
-                style={selectedStyle}
-                savedStyles={history
-                  .filter((e) => e.product.id === selectedProduct.id && Boolean(e.plan))
-                  .map((e) => e.plan!.style)}
-                isGenerating={isGeneratingPlan}
+                ideaPlans={activeIdeaPlans}
+                generatingIdeaIndex={generatingIdeaIndex}
+                planErrorByIdea={planErrorByIdea}
                 isEnrichingProduct={isEnrichingProduct}
                 isAnalyzingProduct={isAnalyzingProduct}
                 enrichError={enrichError}
                 analysisError={analysisError}
-                error={planError}
                 cameFromHistory={cameFromHistory}
                 returnTab={studioReturnTab}
                 language={language}
@@ -3446,8 +3492,11 @@ export default function App() {
                   setIsBottomNavHidden(false);
                 }}
                 onToggleSave={handleToggleSaveProduct}
-                onSelectStyle={handleStyleChange}
-                onConfirmGenerate={handleConfirmGeneratePlan}
+                onGenerateIdeaPlan={(ideaIndex, forceFresh) => {
+                  if (selectedProduct) {
+                    void requestIdeaVideoPlan(selectedProduct, ideaIndex, forceFresh);
+                  }
+                }}
                 onFetchDeepInsights={handleFetchProductDeepInsights}
                 onAnalyzeProduct={handleAnalyzeProduct}
                 onOpenScoreDetails={setScoreDialogProduct}

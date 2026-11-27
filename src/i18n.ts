@@ -11,7 +11,6 @@ import type {
   StrategyEligibilityStatus,
   StrategyId,
   V2DimensionStatus,
-  VisualStyle,
 } from './types';
 import type {
   DiscoveryPriceBand,
@@ -196,19 +195,27 @@ export interface Translations {
     copied: string;
     copy: string;
     regenerate: string;
-    styleLabel: string;
     subpages: {
       data: string;
       ideas: string;
-      kit: string;
       prompt: string;
     };
-    kitSubtabs: {
-      overview: string;
+    planSubtabs: {
       script: string;
       prompts: string;
       seo: string;
     };
+    ideaPlanSectionTitle: (index: number) => string;
+    generateIdeaPlanBtn: (index: number) => string;
+    regenerateIdeaPlanBtn: string;
+    generatingIdeaPlanTitle: (index: number) => string;
+    generatingIdeaPlanDesc: (index: number) => string;
+    planReadyBadge: string;
+    copyFullIdeaPlanBtn: string;
+    productionStrategyLabel: string;
+    audioVoiceCol: string;
+    seoTitlesLabel: string;
+    seoDescriptionLabel: string;
     generatingTitle: string;
     generatingDesc: string;
     autoSaved: string;
@@ -217,12 +224,6 @@ export interface Translations {
     sectionStoryboard: string;
     sectionPrompts: string;
     sectionSeo: string;
-    jumpConcept: string;
-    jumpHooks: string;
-    jumpScript: string;
-    jumpPrompts: string;
-    jumpSeo: string;
-    jumpMaster?: string;
     masterPromptTitle: string;
     masterPromptSub: string;
     visualDirectionLabel: string;
@@ -239,7 +240,6 @@ export interface Translations {
     keywordsLabel: string;
     postingTipLabel: string;
     copyAllHashtags: string;
-    noSpeechNote: string;
     copyThaiText: string;
     deepToggleTitle: string;
     deepToggleHint: string;
@@ -275,18 +275,6 @@ export interface Translations {
     deepNoCommentsReturned: string;
     deepShowMore: string;
     deepShowLess: string;
-    readyTitle: string;
-    readyDesc: string;
-    generateNowBtn: string;
-    confirmGenTitle: string;
-    confirmRegenTitle: string;
-    confirmGenDesc: string;
-    confirmStyleLabel: string;
-    confirmDeepIncluded: string;
-    confirmDeepNotIncluded: string;
-    confirmProceedBtn: string;
-    confirmCancelBtn: string;
-    savedStyleMark: string;
     leaveBusyTitle: string;
     leaveBusyDesc: string;
     leaveStayBtn: string;
@@ -363,6 +351,18 @@ export interface Translations {
       painLadderLabel: string;
       buyerVoiceLabel: string;
       ideaTabLabel: (index: number) => string;
+      summaryStrategiesTab: string;
+      seoPackTab: string;
+      kalodataEvidenceLabel: string;
+      kalodataBasisLabel: string;
+      visualShootingTipsLabel: string;
+      executiveSummaryLabel: string;
+      kalodataDataPlayLabel: string;
+      creativeExecutionStrategyLabel: string;
+      testingAndFunnelStrategyLabel: string;
+      conceptSeoTitle: string;
+      seoPackTitle: string;
+      copySeoPackBtn: string;
       copyIdeaBtn: string;
       angleLabel: string;
       formatLabel: string;
@@ -420,7 +420,6 @@ export interface Translations {
       stepSyncHint: string;
     };
   };
-  styles: Record<VisualStyle, string>;
   history: {
     title: string;
     subtitle: string;
@@ -441,6 +440,7 @@ export interface Translations {
     noFilterMatches: string;
     clearFilterAria: string;
     savedCount: (n: number) => string;
+    ideaPlansSavedLabel: (indices: number[]) => string;
   };
   kalodata: {
     title: string;
@@ -1041,50 +1041,51 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       copied: 'ကူးယူပြီးပါပြီ',
       copy: 'ကူးယူမယ်',
       regenerate: 'အသစ်ပြန်ထုတ်မယ်',
-      styleLabel: 'Visual ပုံစံရွေးချယ်ရန်',
       subpages: {
         data: 'Deep Data',
         ideas: 'Video Ideas',
-        kit: 'Video Kit',
         prompt: 'AI Prompt',
       },
-      kitSubtabs: {
-        overview: 'Concept & Hooks',
-        script: 'Script',
-        prompts: 'AI Prompts',
-        seo: 'TikTok SEO',
+      planSubtabs: {
+        script: 'Script & Storyboard',
+        prompts: 'AI Video & Image Prompts',
+        seo: 'Title · Description · SEO',
       },
-      generatingTitle: 'စကားမပြောဘဲ ဆွဲဆောင်မည့် AI Video Plan ဖန်တီးနေပါသည်',
-      generatingDesc: 'Visual Hook၊ Silent Script၊ AI Video Prompts နှင့် ထိုင်း TikTok SEO များကို ပြင်ဆင်နေပါသည်...',
+      ideaPlanSectionTitle: (index: number) => `Video Idea ${index} — Video Plan & AI Prompts`,
+      generateIdeaPlanBtn: (index: number) => `Video Idea ${index} အတွက် Video Plan ဖန်တီးမယ် (0 cr)`,
+      regenerateIdeaPlanBtn: 'Video Plan အသစ်ပြန်ထုတ်မယ်',
+      generatingIdeaPlanTitle: (index: number) => `Video Idea ${index} အတွက် Video Plan နှင့် AI Prompts ဖန်တီးနေပါသည်`,
+      generatingIdeaPlanDesc: (index: number) => `Video Idea ${index} ၏ Hook, Script, AI Video/Image Prompts နှင့် ထိုင်း TikTok SEO များကို ပြင်ဆင်နေပါသည်...`,
+      planReadyBadge: 'Plan ရှိပြီး',
+      copyFullIdeaPlanBtn: 'Idea Plan အားလုံးကူးမယ်',
+      productionStrategyLabel: 'ထုတ်လုပ်ရိုက်ကူးမှု ဗျူဟာ',
+      audioVoiceCol: 'အသံ / စကားပြော / SFX',
+      seoTitlesLabel: 'TikTok SEO Video Title များ (ထိုင်း)',
+      seoDescriptionLabel: 'TikTok SEO Description / Caption (ထိုင်း)',
+      generatingTitle: 'AI Video Plan နှင့် Prompts ဖန်တီးနေပါသည်',
+      generatingDesc: 'Hook၊ Shot-by-Shot Script၊ AI Video/Image Prompts နှင့် ထိုင်း TikTok SEO များကို ပြင်ဆင်နေပါသည်...',
       autoSaved: 'သိမ်းထားသော ပစ္စည်းများတွင် အလိုအလျောက် သိမ်းဆည်းပြီးပါပြီ',
-      sectionConcept: '01. Silent Visual Idea နှင့် ဦးတည်ချက်',
-      sectionHooks: '02. ပထမ ၃ စက္ကန့် Visual Hooks',
-      sectionStoryboard: '03. စကားမပြောဘဲ ရိုက်ကူးမည့် Scene Script',
+      sectionConcept: '01. Video Concept နှင့် ထုတ်လုပ်မှုဗျူဟာ',
+      sectionHooks: '02. ပထမ ၃ စက္ကန့် Hooks',
+      sectionStoryboard: '03. Shot-by-Shot Script နှင့် Storyboard',
       sectionPrompts: '04. AI Video နှင့် Keyframe Image Prompts',
-      sectionSeo: '05. ထိုင်း TikTok Shop SEO နှင့် Caption',
-      jumpConcept: 'Concept',
-      jumpHooks: 'Hooks',
-      jumpScript: 'Script',
-      jumpPrompts: 'AI Prompts',
-      jumpSeo: 'TikTok SEO',
-      jumpMaster: 'Master Prompt',
-      masterPromptTitle: '04-B. တစ်ခါတည်း အစအဆုံးထွက်မည့် Master Video Prompt (All-in-One 0-15s)',
-      masterPromptSub: '0 မှ 15 စက္ကန့်အထိ Silent Hook၊ Storyboard ဇာတ်ကွက်များ၊ ASMR အသံများနှင့် ထိုင်းစာတန်းများ အားလုံးကို AI Video Gen (Veo / Kling / Runway / Sora) တွင် တစ်ကြိမ်တည်းဖြင့် အစအဆုံး ထွက်လာစေရန် ပေါင်းစပ်ထားသော Master Prompt ဖြစ်ပါသည်။',
-      visualDirectionLabel: 'Visual ပုံစံ',
+      sectionSeo: '05. ထိုင်း TikTok Shop SEO Pack',
+      masterPromptTitle: 'တစ်ခါတည်း အစအဆုံးထွက်မည့် Master Video Prompt (All-in-One)',
+      masterPromptSub: 'Hook၊ Storyboard ဇာတ်ကွက်များ၊ အသံလမ်းညွှန်နှင့် ထိုင်းစာတန်းများ အားလုံးကို AI Video Gen (Veo / Kling / Runway / Sora) တွင် တစ်ကြိမ်တည်း ထုတ်လုပ်နိုင်ရန် ပေါင်းစပ်ထားသော Master Prompt ဖြစ်ပါသည်။',
+      visualDirectionLabel: 'Visual & Style ဦးတည်ချက်',
       onScreenThaiLabel: 'Screen ပေါ်ပြမည့် ထိုင်းစာတို',
       meaningLabel: 'အဓိပ္ပာယ်',
       timeCol: 'အချိန်',
       visualCol: 'Visual နှင့် Camera လှုပ်ရှားမှု',
-      soundCol: 'ASMR / အသံ (စကားမပါ)',
+      soundCol: 'အသံ / စကားပြော / SFX',
       screenTextCol: 'ထိုင်းစာသားနှင့် အဓိပ္ပာယ်',
       videoPromptsSub: 'AI Video Prompts (Veo / Kling / Runway / Sora)',
       imagePromptsSub: 'Keyframe Image Prompts (Start Frame)',
-      thaiCaptionLabel: 'TikTok ပေါ်တင်မည့် ထိုင်း Caption',
+      thaiCaptionLabel: 'TikTok Description / Caption (ထိုင်း)',
       hashtagsLabel: 'Hashtags',
       keywordsLabel: 'TikTok Search Keywords',
       postingTipLabel: 'အရောင်းသွက်စေရန် အကြံပြုချက်',
       copyAllHashtags: 'Hashtags အားလုံးကူးမယ်',
-      noSpeechNote: 'စကားလုံးဝမပါ (Zero-Speech AI Visual Format)',
       copyThaiText: 'ထိုင်းစာကူး',
       deepToggleTitle: 'ဒီပစ္စည်းအတွက် Kalodata Deep Data ထပ်ယူရန် (Optional)',
       deepToggleHint: 'တစ်ခါယူပြီးရင် Browser Storage တွင် အလိုအလျောက် သိမ်းပေးထားပါမည် (Video Plan အလိုအလျောက် မဖန်တီးပါ)',
@@ -1121,18 +1122,6 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       deepNoCommentsReturned: 'API မှ စစ်ဆေးပြီး — Kalodata တွင် Buyer Review Insight မရှိသေးပါ။',
       deepShowMore: 'အပြည့်အစုံဖတ်မယ်',
       deepShowLess: 'ပြန်ချုံ့မယ်',
-      readyTitle: 'Silent AI Video Plan ဖန်တီးရန် အသင့်ဖြစ်ပါပြီ',
-      readyDesc: 'အောက်တွင် Visual ပုံစံရွေးချယ်ပြီး (လိုအပ်ပါက အပေါ်မှ Kalodata Deep Data နှင့် AI သုံးသပ်ချက် စစ်ဆေးပြီးမှ) Video Plan ဖန်တီးနိုင်ပါသည်။',
-      generateNowBtn: 'Video Plan ဖန်တီးမယ်',
-      confirmGenTitle: 'Video Plan ဖန်တီးရန် အတည်ပြုပါ',
-      confirmRegenTitle: 'Video Plan အသစ်ပြန်ထုတ်ရန် အတည်ပြုပါ',
-      confirmGenDesc: 'ရွေးချယ်ထားသော Visual ပုံစံဖြင့် Silent AI Video Kit (Hooks, Script, AI Prompts, TikTok SEO) ကို စတင်ဖန်တီးပါမည်။',
-      confirmStyleLabel: 'ရွေးချယ်ထားသော Visual ပုံစံ',
-      confirmDeepIncluded: 'သိမ်းထားသော Kalodata Deep Data ပါဝင်မည်',
-      confirmDeepNotIncluded: 'Kalodata Deep Data မပါသေးပါ (ပုံမှန်အချက်အလက်ဖြင့် ဖန်တီးမည်)',
-      confirmProceedBtn: 'အတည်ပြုပြီး ဖန်တီးမယ်',
-      confirmCancelBtn: 'မလုပ်တော့ပါ',
-      savedStyleMark: 'သိမ်းပြီး',
       leaveBusyTitle: 'လုပ်ဆောင်နေဆဲ AI / Data ရယူမှု မပြီးသေးပါ',
       leaveBusyDesc: 'Video Plan သို့မဟုတ် Kalodata Data ရယူမှု ဆက်လက်လုပ်ဆောင်နေပါသည် — ထွက်လိုပါသလား?',
       leaveStayBtn: 'ဆက်စောင့်မယ်',
@@ -1210,6 +1199,18 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         painLadderLabel: 'Pain Point အဆင့်ဆင့် & Desire',
         buyerVoiceLabel: 'ဝယ်သူအသံနှင့် သံသယ (Buyer Voice)',
         ideaTabLabel: (index: number) => `Video Idea ${index}`,
+        summaryStrategiesTab: 'Summary Strategies',
+        seoPackTab: 'TikTok SEO Pack',
+        kalodataEvidenceLabel: 'Kalodata Deep Data အထောက်အထား သုံးသပ်ချက်',
+        kalodataBasisLabel: 'အခြေခံ Kalodata Data အကြောင်းအရင်း',
+        visualShootingTipsLabel: 'ရိုက်ကူးရေး နှင့် Visual Proof အကြံပြုချက်',
+        executiveSummaryLabel: '၁။ အနှစ်ချုပ် ရောင်းချမှုဗျူဟာ (Executive Summary)',
+        kalodataDataPlayLabel: '၂။ Kalodata Deep Data အသုံးချနည်းဗျူဟာ',
+        creativeExecutionStrategyLabel: '၃။ Video ဖန်တီးမှု နှင့် ယုံကြည်မှုတည်ဆောက်ခြင်း',
+        testingAndFunnelStrategyLabel: '၄။ Video Idea 1–3 စမ်းသပ်မှု နှင့် Funnel ဗျူဟာ',
+        conceptSeoTitle: 'ဒီ Idea အတွက် Title, Description & Hashtags (TikTok SEO)',
+        seoPackTitle: 'TikTok Shop SEO Pack (Title · Description · Hashtags)',
+        copySeoPackBtn: 'SEO Pack ကူးမယ်',
         copyIdeaBtn: 'ဒီ Idea ကူးမယ်',
         angleLabel: 'Creative Angle',
         formatLabel: 'ရိုက်ကူးပုံ (Format)',
@@ -1249,7 +1250,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         modes: {
           full: 'အားလုံးပေါင်း (Analysis + Video Plan)',
           analysis: 'Product သုံးသပ်ချက်သီးသန့်',
-          video_plan: 'Silent Video Plan သီးသန့်',
+          video_plan: 'Video Plan နှင့် AI Prompts သီးသန့်',
         },
         outputLangLabel: 'AI ပြန်ဖြေစေချင်သော ဘာသာစကား',
         outputLangs: {
@@ -1269,15 +1270,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         stepSyncHint: 'အပေါ်မှ Kalodata Deep Data အသစ်ထပ်ယူတိုင်း Prompt ထဲ အလိုအလျောက် Update ဖြစ်ပါမည်',
       },
     },
-    styles: {
-      cinematic: 'Cinematic Macro',
-      asmr: 'ASMR Texture',
-      before_after: 'Before & After',
-      problem_fix: 'Problem → Fix',
-    },
     history: {
       title: 'သိမ်းထားသော ပစ္စည်းများ',
-      subtitle: 'သိမ်းဆည်းထားသော ပစ္စည်းများနှင့် ဖန်တီးထားသည့် Video Kit များကို သင့်စက်ထဲတွင် သိမ်းထားပါသည်။ အချိန်မရွေး Backup ထုတ်ခြင်းနှင့် ပြန်သွင်းခြင်း ပြုလုပ်နိုင်ပါသည်။',
+      subtitle: 'သိမ်းဆည်းထားသော ပစ္စည်းများနှင့် ဖန်တီးထားသည့် Video Ideas / Video Plans များကို သင့်စက်ထဲတွင် သိမ်းထားပါသည်။ အချိန်မရွေး Backup ထုတ်ခြင်းနှင့် ပြန်သွင်းခြင်း ပြုလုပ်နိုင်ပါသည်။',
       searchPlaceholder: 'သိမ်းထားသော ပစ္စည်းနာမည်ဖြင့် ရှာမယ်...',
       backupBtn: 'Backup ထုတ်မယ်',
       restoreBtn: 'Restore ပြန်သွင်းမယ်',
@@ -1297,6 +1292,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       noFilterMatches: 'သင်ရိုက်ရှာသော စာသားနှင့် ကိုက်ညီသည့် သိမ်းထားသောပစ္စည်း မတွေ့ပါ။',
       clearFilterAria: 'Filter စာသား ရှင်းမယ်',
       savedCount: (n: number) => `စုစုပေါင်း ပစ္စည်း ${n} ခု သိမ်းထားသည်`,
+      ideaPlansSavedLabel: (indices: number[]) => `Idea ${indices.join(', ')} Plan ရှိပြီး`,
     },
     kalodata: {
       title: 'Kalodata Open API ချိတ်ဆက်ရန်',
@@ -2145,50 +2141,51 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       copied: 'Copied',
       copy: 'Copy',
       regenerate: 'Regenerate',
-      styleLabel: 'Visual style',
       subpages: {
         data: 'Deep Data',
         ideas: 'Video Ideas',
-        kit: 'Video Kit',
         prompt: 'AI Prompt',
       },
-      kitSubtabs: {
-        overview: 'Concept & Hooks',
-        script: 'Script',
-        prompts: 'AI Prompts',
-        seo: 'TikTok SEO',
+      planSubtabs: {
+        script: 'Script & Storyboard',
+        prompts: 'AI Video & Image Prompts',
+        seo: 'Title · Description · SEO',
       },
-      generatingTitle: 'Building your zero-speech AI video plan',
-      generatingDesc: 'Crafting silent visual hooks, shot-by-shot storyboard, AI prompts, and Thailand TikTok SEO...',
+      ideaPlanSectionTitle: (index: number) => `Video Idea ${index} — Video Plan & AI Prompts`,
+      generateIdeaPlanBtn: (index: number) => `Generate Video Plan for Idea ${index} (0 cr)`,
+      regenerateIdeaPlanBtn: 'Regenerate Video Plan',
+      generatingIdeaPlanTitle: (index: number) => `Generating Video Plan & AI Prompts for Idea ${index}`,
+      generatingIdeaPlanDesc: (index: number) => `Building Video Idea ${index} hooks, shot-by-shot script, AI video/image prompts, and Thailand TikTok SEO...`,
+      planReadyBadge: 'Plan Ready',
+      copyFullIdeaPlanBtn: 'Copy Full Idea Plan',
+      productionStrategyLabel: 'Production & Filming Strategy',
+      audioVoiceCol: 'Audio / Voiceover / SFX',
+      seoTitlesLabel: 'TikTok SEO Video Titles (Thai)',
+      seoDescriptionLabel: 'TikTok SEO Description / Caption (Thai)',
+      generatingTitle: 'Building your AI video plan & prompts',
+      generatingDesc: 'Crafting hooks, shot-by-shot storyboard, AI prompts, and Thailand TikTok SEO...',
       autoSaved: 'Saved automatically to Saved Products',
-      sectionConcept: '01. Silent Visual Concept',
-      sectionHooks: '02. Visual Hooks (0–3s)',
-      sectionStoryboard: '03. Shot-by-Shot Silent Script',
+      sectionConcept: '01. Video Concept & Production Strategy',
+      sectionHooks: '02. Opening Hooks (0–3s)',
+      sectionStoryboard: '03. Shot-by-Shot Script & Storyboard',
       sectionPrompts: '04. AI Video & Keyframe Prompts',
-      sectionSeo: '05. TikTok Thailand SEO',
-      jumpConcept: 'Concept',
-      jumpHooks: 'Hooks',
-      jumpScript: 'Script',
-      jumpPrompts: 'AI Prompts',
-      jumpSeo: 'TikTok SEO',
-      jumpMaster: 'Master Prompt',
-      masterPromptTitle: '04-B. All-in-One Master Video Prompt (0-15s Complete Sequence)',
-      masterPromptSub: 'Compiles the entire 0-15s silent video sequence (Hook, Storyboard scenes, ASMR audio cues, and Thai text overlays) into a single master prompt for Veo / Kling / Runway / Sora.',
+      sectionSeo: '05. TikTok Thailand SEO Pack',
+      masterPromptTitle: 'All-in-One Master Video Prompt (Complete Sequence)',
+      masterPromptSub: 'Compiles the complete video sequence (Hook, Storyboard scenes, audio direction, and Thai text overlays) into a single master prompt for Veo / Kling / Runway / Sora.',
       visualDirectionLabel: 'Visual Direction',
       onScreenThaiLabel: 'Thai On-Screen Text',
       meaningLabel: 'Meaning',
       timeCol: 'Time',
       visualCol: 'Visual & Camera Move',
-      soundCol: 'ASMR / Sound (No Speech)',
+      soundCol: 'Audio / Voiceover / SFX',
       screenTextCol: 'Thai Overlay & Meaning',
       videoPromptsSub: 'AI Video Prompts (Veo / Kling / Runway / Sora)',
       imagePromptsSub: 'Keyframe Image Prompts (Start Frame)',
-      thaiCaptionLabel: 'Thai TikTok Caption',
+      thaiCaptionLabel: 'Thai TikTok Description / Caption',
       hashtagsLabel: 'Hashtags',
       keywordsLabel: 'Search Keywords',
       postingTipLabel: 'Conversion Tip',
       copyAllHashtags: 'Copy All Hashtags',
-      noSpeechNote: 'Zero-Speech AI Visual Format',
       copyThaiText: 'Copy Thai',
       deepToggleTitle: 'Fetch Kalodata Deep Data for This Product (Optional)',
       deepToggleHint: 'Automatically saved permanently in browser storage once fetched (does not auto-generate Video Plan)',
@@ -2225,18 +2222,6 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       deepNoCommentsReturned: 'Fetched — no buyer review insights available on Kalodata yet.',
       deepShowMore: 'Show full description',
       deepShowLess: 'Show less',
-      readyTitle: 'Ready to generate your Silent AI Video Plan',
-      readyDesc: 'Choose a visual style below (and optionally fetch Kalodata Deep Data or run AI Product Analysis above), then click Generate.',
-      generateNowBtn: 'Generate Video Plan',
-      confirmGenTitle: 'Confirm Video Plan Generation',
-      confirmRegenTitle: 'Confirm Regenerate Video Plan',
-      confirmGenDesc: 'This will generate a complete zero-speech AI Video Kit (Hooks, Storyboard, AI Prompts & Thailand TikTok SEO) using your selected style.',
-      confirmStyleLabel: 'Selected Visual Style',
-      confirmDeepIncluded: 'Saved Kalodata Deep Data will be included',
-      confirmDeepNotIncluded: 'No Kalodata Deep Data yet (will generate from standard product details)',
-      confirmProceedBtn: 'Confirm & Generate',
-      confirmCancelBtn: 'Cancel',
-      savedStyleMark: 'Saved',
       leaveBusyTitle: 'AI / Data task still in progress',
       leaveBusyDesc: 'Studio is currently fetching Kalodata data or generating AI results. Leave Studio anyway?',
       leaveStayBtn: 'Keep waiting',
@@ -2314,6 +2299,18 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         painLadderLabel: 'Pain Point Ladder & Core Desire',
         buyerVoiceLabel: 'Buyer Voice & Doubts',
         ideaTabLabel: (index: number) => `Video Idea ${index}`,
+        summaryStrategiesTab: 'Summary Strategies',
+        seoPackTab: 'TikTok SEO Pack',
+        kalodataEvidenceLabel: 'Kalodata Deep Data Evidence Summary',
+        kalodataBasisLabel: 'Kalodata Deep Data Basis',
+        visualShootingTipsLabel: 'Visual Shooting & Proof Tips',
+        executiveSummaryLabel: '1. Executive Ad Strategy',
+        kalodataDataPlayLabel: '2. Kalodata Data Play & Insights',
+        creativeExecutionStrategyLabel: '3. Creative Execution & Trust Strategy',
+        testingAndFunnelStrategyLabel: '4. Video Ideas 1–3 Testing & Funnel Roadmap',
+        conceptSeoTitle: 'Idea-Specific Title, Description & Hashtags (TikTok SEO)',
+        seoPackTitle: 'TikTok Shop SEO Pack (Titles · Description · Hashtags)',
+        copySeoPackBtn: 'Copy SEO Pack',
         copyIdeaBtn: 'Copy This Idea',
         angleLabel: 'Creative Angle',
         formatLabel: 'UGC Format',
@@ -2353,7 +2350,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         modes: {
           full: 'All-in-One (Analysis + Video Plan)',
           analysis: 'Product Analysis Only',
-          video_plan: 'Silent Video Plan Only',
+          video_plan: 'Video Plan & AI Prompts Only',
         },
         outputLangLabel: 'AI reply language',
         outputLangs: {
@@ -2373,15 +2370,9 @@ export const TRANSLATIONS: Record<Language, Translations> = {
         stepSyncHint: 'Prompt updates automatically whenever you fetch more Kalodata Deep Data above',
       },
     },
-    styles: {
-      cinematic: 'Cinematic Macro',
-      asmr: 'ASMR Texture',
-      before_after: 'Before & After',
-      problem_fix: 'Problem → Fix',
-    },
     history: {
       title: 'Saved Products',
-      subtitle: 'All saved products and generated silent video kits are stored locally on your device. Export a backup anytime or restore on another browser.',
+      subtitle: 'All saved products, generated Video Ideas, and per-idea Video Plans are stored locally on your device. Export a backup anytime or restore on another browser.',
       searchPlaceholder: 'Filter saved products...',
       backupBtn: 'Backup JSON',
       restoreBtn: 'Restore JSON',
@@ -2401,6 +2392,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       noFilterMatches: 'No saved products match your filter.',
       clearFilterAria: 'Clear filter',
       savedCount: (n: number) => `${n} saved ${n === 1 ? 'product' : 'products'}`,
+      ideaPlansSavedLabel: (indices: number[]) => `Idea ${indices.join(', ')} Plans`,
     },
     kalodata: {
       title: 'Connect Kalodata Open API',

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import type { ProductItem, VisualStyle } from './src/types.ts';
+import type { ProductItem, VideoIdeaConcept, VideoIdeasStrategyPack } from './src/types.ts';
 import {
   clearSessionKalodataKey,
   enrichSingleKalodataProduct,
@@ -17,7 +17,7 @@ import {
 import {
   analyzeProductWithAi,
   explainExistingProducts,
-  generateSilentVideoPlan,
+  generateIdeaVideoPlan,
   searchSilentVisualProducts,
   syncThailandRankBoard,
 } from './server/productService.ts';
@@ -25,13 +25,6 @@ import { sanitizeProductPayloadForAi } from './server/productSanitizer.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const ALLOWED_STYLES = new Set<VisualStyle>([
-  'cinematic',
-  'asmr',
-  'before_after',
-  'problem_fix',
-]);
 
 function parseOptionalNumber(val: unknown): number | null {
   if (typeof val === 'number' && Number.isFinite(val) && val >= 0) {
@@ -445,10 +438,17 @@ async function startServer() {
     try {
       const body = req.body as Record<string, unknown> | undefined;
       const product = body?.product as ProductItem | undefined;
-      const rawStyle = typeof body?.style === 'string' ? body.style : 'cinematic';
-      const style: VisualStyle = ALLOWED_STYLES.has(rawStyle as VisualStyle)
-        ? (rawStyle as VisualStyle)
-        : 'cinematic';
+      const rawIdeaIndex = parseOptionalNumber(body?.ideaIndex);
+      const ideaIndex =
+        rawIdeaIndex === 1 || rawIdeaIndex === 2 ? rawIdeaIndex : 0;
+      const concept =
+        body?.concept && typeof body.concept === 'object'
+          ? (body.concept as VideoIdeaConcept)
+          : undefined;
+      const videoIdeasPack =
+        body?.videoIdeasPack && typeof body.videoIdeasPack === 'object'
+          ? (body.videoIdeasPack as VideoIdeasStrategyPack)
+          : undefined;
 
       if (
         !product ||
@@ -465,7 +465,15 @@ async function startServer() {
       const safeProduct = sanitizeProductPayloadForAi(product, { forVideoPlan: true });
 
       await streamNdjsonAction(req, res, async (onProgress) => {
-        const plan = await generateSilentVideoPlan(safeProduct, style, onProgress);
+        const plan = await generateIdeaVideoPlan(
+          {
+            product: safeProduct,
+            ideaIndex,
+            concept,
+            videoIdeasPack,
+          },
+          onProgress
+        );
         return { plan };
       });
     } catch (err) {

@@ -240,7 +240,7 @@ test('Mobile Native UX: ProductRankBoardView, InfoTooltip, and CustomSelect meet
     creditsUsed: 0.4,
   });
 
-  const boardHtml = renderToStaticMarkup(
+  const boardRankingsHtml = renderToStaticMarkup(
     React.createElement(ProductRankBoardView, {
       snapshot,
       dateRange: 'last7Day',
@@ -251,6 +251,28 @@ test('Mobile Native UX: ProductRankBoardView, InfoTooltip, and CustomSelect meet
       savedProductIds: new Set<string>(),
       language: 'en',
       nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
+      initialSubpage: 'rankings',
+      t: TRANSLATIONS.en,
+      onChangeDateRange: () => {},
+      onSync: () => {},
+      onOpenConnectPanel: () => {},
+      onSelectProduct: () => {},
+      onToggleSaveProduct: () => {},
+    })
+  );
+
+  const boardAnalyticsHtml = renderToStaticMarkup(
+    React.createElement(ProductRankBoardView, {
+      snapshot,
+      dateRange: 'last7Day',
+      isSyncing: false,
+      syncError: null,
+      limitWarning: null,
+      kalodataStatus: { connected: true, keySource: 'ui', maskedKey: 'kalo***', balance: null },
+      savedProductIds: new Set<string>(),
+      language: 'en',
+      nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
+      initialSubpage: 'analytics',
       t: TRANSLATIONS.en,
       onChangeDateRange: () => {},
       onSync: () => {},
@@ -261,15 +283,15 @@ test('Mobile Native UX: ProductRankBoardView, InfoTooltip, and CustomSelect meet
   );
 
   // SVG-level pointer handling & prominent selected dot highlight (no per-dot transparent hitboxes)
-  assert.ok(boardHtml.includes('touch-none'));
-  assert.ok(boardHtml.includes('aria-pressed="true"'));
+  assert.ok(boardAnalyticsHtml.includes('touch-none'));
+  assert.ok(boardAnalyticsHtml.includes('aria-pressed="true"'));
   // 16px mobile search input + CustomSelect mobile sheet sort control (no tiny native 12px select)
-  assert.ok(boardHtml.includes('text-base sm:text-sm'));
-  assert.ok(boardHtml.includes('aria-haspopup="listbox"'));
-  assert.ok(boardHtml.includes('before:-inset-1'));
+  assert.ok(boardRankingsHtml.includes('text-base sm:text-sm'));
+  assert.ok(boardRankingsHtml.includes('aria-haspopup="listbox"'));
+  assert.ok(boardRankingsHtml.includes('before:-inset-1'));
   // Mobile rank cards keep 44px+ touch targets
-  assert.ok(boardHtml.includes('h-11 w-11'));
-  assert.ok(boardHtml.includes('h-11 px-3.5'));
+  assert.ok(boardRankingsHtml.includes('h-11 w-11'));
+  assert.ok(boardRankingsHtml.includes('h-11 px-3.5'));
 
   // Exact ~24px screen-pixel nearest dot matching
   const nearest = findNearestScatterPointId({
@@ -427,19 +449,80 @@ test('Phase 2 P1: ProductCard renders streamlined core metrics on spacious mobil
 });
 
 test('Phase 2 P1: VideoStudioView includes sticky section nav, busy Back guard, select-text (no select-all), and offline action states', () => {
+  const prodWithPack: ProductItem = {
+    ...makeProduct(),
+    aiAnalysis: {
+      analyzedAt: '2026-11-26T12:00:00.000Z',
+      dataSnapshot: { hasSalesMetrics: true, hasDetails: false, hasSpecs: false, hasComments: false },
+      cleanName: { my: 'Vitamin C Serum', en: 'Vitamin C Serum' },
+      videoIdeasPack: {
+        playbookCategory: 'aesthetic_lifestyle',
+        playbookReason: { my: 'R', en: 'R' },
+        productAnalysis: {
+          coreFeature: { my: 'F', en: 'F' },
+          functionalBenefit: { my: 'FB', en: 'FB' },
+          emotionalBenefit: { my: 'EB', en: 'EB' },
+          coreUsp: { my: 'U', en: 'U' },
+          visualProofIdea: { my: 'V', en: 'V' },
+        },
+        targetAudience: {
+          primaryBuyer: { my: 'B', en: 'B' },
+          painPointLadder: { my: 'P', en: 'P' },
+          buyerVoiceInsight: { my: 'I', en: 'I' },
+        },
+        concepts: [
+          {
+            title: { my: 'Idea 1', en: 'Idea 1' },
+            targetSegment: { my: 'Seg', en: 'Seg' },
+            awarenessLevel: 'problem_aware',
+            framework: 'PAS',
+            creativeAngle: { my: 'Angle', en: 'Angle' },
+            ugcFormat: { my: 'POV', en: 'POV' },
+            recommendedDuration: '25-35s',
+            hook3Layer: {
+              hookType: { my: 'HT', en: 'HT' },
+              visualHook: { my: 'VH', en: 'VH' },
+              verbalHook: { my: 'VB', en: 'VB' },
+              textHook: { my: 'TH', en: 'TH' },
+            },
+            bridgeHold: { my: 'BH', en: 'BH' },
+            bodyPlan: { my: 'BP', en: 'BP' },
+            ctaAction: { my: 'CTA', en: 'CTA' },
+            muteTestVisual: { my: 'MT', en: 'MT' },
+            extraHookVariations: { my: [], en: [] },
+          },
+        ],
+        scalingPlan: {
+          commentMiningIdeas: { my: [], en: [] },
+          iterationRoadmap: { my: 'IR', en: 'IR' },
+          watchOuts: { my: [], en: [] },
+        },
+      },
+      productOverview: { my: '', en: '' },
+      salesAndPricingAudit: { my: '', en: '' },
+      profitCalculation: { my: '', en: '' },
+      silentVideoVerdict: { my: '', en: '' },
+      visualAngles: { my: [], en: [] },
+      deepDataSpecsAudit: { my: '', en: '' },
+      deepDataBuyerAudit: { my: '', en: '' },
+      risks: { my: [], en: [] },
+      missingDataNotes: { my: [], en: [] },
+      decision: 'strong_go',
+      bottomLine: { my: '', en: '' },
+    },
+  };
+
   const prePlanHtml = renderToStaticMarkup(
     React.createElement(VideoStudioView, {
       product: makeProduct(),
       isSaved: false,
-      plan: null,
-      style: 'cinematic',
-      savedStyles: [],
-      isGenerating: false,
+      ideaPlans: {},
+      generatingIdeaIndex: null,
+      planErrorByIdea: {},
       isEnrichingProduct: false,
       isAnalyzingProduct: false,
       enrichError: null,
       analysisError: null,
-      error: null,
       cameFromHistory: false,
       returnTab: 'discover',
       language: 'my',
@@ -448,11 +531,11 @@ test('Phase 2 P1: VideoStudioView includes sticky section nav, busy Back guard, 
       kalodataLimits: { maxSpendCredits: null, minBalanceReserve: null, trackedSpentCredits: 0 },
       isOffline: true,
       isBottomNavHidden: false,
+      initialSubpage: 'ideas',
       t: TRANSLATIONS.my,
       onBack: () => {},
       onToggleSave: () => {},
-      onSelectStyle: () => {},
-      onConfirmGenerate: () => {},
+      onGenerateIdeaPlan: () => {},
       onFetchDeepInsights: async () => {},
       onAnalyzeProduct: async () => {},
       onOpenScoreDetails: () => {},
@@ -462,17 +545,15 @@ test('Phase 2 P1: VideoStudioView includes sticky section nav, busy Back guard, 
 
   const studioHtml = renderToStaticMarkup(
     React.createElement(VideoStudioView, {
-      product: makeProduct(),
+      product: prodWithPack,
       isSaved: false,
-      plan: makeVideoPlan(),
-      style: 'cinematic',
-      savedStyles: ['cinematic'],
-      isGenerating: false,
+      ideaPlans: { 0: makeVideoPlan() },
+      generatingIdeaIndex: null,
+      planErrorByIdea: {},
       isEnrichingProduct: false,
       isAnalyzingProduct: false,
       enrichError: null,
       analysisError: null,
-      error: null,
       cameFromHistory: false,
       returnTab: 'discover',
       language: 'my',
@@ -481,11 +562,13 @@ test('Phase 2 P1: VideoStudioView includes sticky section nav, busy Back guard, 
       kalodataLimits: { maxSpendCredits: null, minBalanceReserve: null, trackedSpentCredits: 0 },
       isOffline: true,
       isBottomNavHidden: false,
+      initialSubpage: 'ideas',
+      initialIdeasTab: 'idea_0',
+      initialPlanSection: 'script',
       t: TRANSLATIONS.my,
       onBack: () => {},
       onToggleSave: () => {},
-      onSelectStyle: () => {},
-      onConfirmGenerate: () => {},
+      onGenerateIdeaPlan: () => {},
       onFetchDeepInsights: async () => {},
       onAnalyzeProduct: async () => {},
       onOpenScoreDetails: () => {},
@@ -709,19 +792,81 @@ test('Subpage and Pagination Architecture: eliminates long vertical scrolling ac
   assert.ok(!searchHistoryHtml.includes('Search Query #7'));
   assert.ok(searchHistoryHtml.includes('aria-label="Pagination"'));
 
-  // VideoStudioView: 4 isolated subpages + 4 isolated Video Kit sub-tabs
+  // VideoStudioView: 3 isolated subpages + isolated per-idea Video Plan sub-tabs
+  const productWithIdeas: ProductItem = {
+    ...makeProduct(),
+    aiAnalysis: {
+      analyzedAt: '2026-11-26T12:00:00.000Z',
+      dataSnapshot: { hasSalesMetrics: true, hasDetails: false, hasSpecs: false, hasComments: false },
+      cleanName: { my: 'Vitamin C Serum', en: 'Vitamin C Serum' },
+      videoIdeasPack: {
+        playbookCategory: 'aesthetic_lifestyle',
+        playbookReason: { my: 'R', en: 'R' },
+        productAnalysis: {
+          coreFeature: { my: 'F', en: 'F' },
+          functionalBenefit: { my: 'FB', en: 'FB' },
+          emotionalBenefit: { my: 'EB', en: 'EB' },
+          coreUsp: { my: 'U', en: 'U' },
+          visualProofIdea: { my: 'V', en: 'V' },
+        },
+        targetAudience: {
+          primaryBuyer: { my: 'B', en: 'B' },
+          painPointLadder: { my: 'P', en: 'P' },
+          buyerVoiceInsight: { my: 'I', en: 'I' },
+        },
+        concepts: [
+          {
+            title: { my: 'Idea 1', en: 'Idea 1' },
+            targetSegment: { my: 'Seg', en: 'Seg' },
+            awarenessLevel: 'problem_aware',
+            framework: 'PAS',
+            creativeAngle: { my: 'Angle', en: 'Angle' },
+            ugcFormat: { my: 'POV', en: 'POV' },
+            recommendedDuration: '25-35s',
+            hook3Layer: {
+              hookType: { my: 'HT', en: 'HT' },
+              visualHook: { my: 'VH', en: 'VH' },
+              verbalHook: { my: 'VB', en: 'VB' },
+              textHook: { my: 'TH', en: 'TH' },
+            },
+            bridgeHold: { my: 'BH', en: 'BH' },
+            bodyPlan: { my: 'BP', en: 'BP' },
+            ctaAction: { my: 'CTA', en: 'CTA' },
+            muteTestVisual: { my: 'MT', en: 'MT' },
+            extraHookVariations: { my: [], en: [] },
+          },
+        ],
+        scalingPlan: {
+          commentMiningIdeas: { my: [], en: [] },
+          iterationRoadmap: { my: 'IR', en: 'IR' },
+          watchOuts: { my: [], en: [] },
+        },
+      },
+      productOverview: { my: '', en: '' },
+      salesAndPricingAudit: { my: '', en: '' },
+      profitCalculation: { my: '', en: '' },
+      silentVideoVerdict: { my: '', en: '' },
+      visualAngles: { my: [], en: [] },
+      deepDataSpecsAudit: { my: '', en: '' },
+      deepDataBuyerAudit: { my: '', en: '' },
+      risks: { my: [], en: '' as unknown as string[] },
+      missingDataNotes: { my: [], en: [] },
+      decision: 'strong_go',
+      bottomLine: { my: '', en: '' },
+    },
+  };
+  productWithIdeas.aiAnalysis!.risks.en = [];
+
   const studioBaseProps = {
-    product: makeProduct(),
+    product: productWithIdeas,
     isSaved: false,
-    plan: makeVideoPlan(),
-    style: 'cinematic' as const,
-    savedStyles: ['cinematic' as const],
-    isGenerating: false,
+    ideaPlans: { 0: makeVideoPlan() },
+    generatingIdeaIndex: null,
+    planErrorByIdea: {},
     isEnrichingProduct: false,
     isAnalyzingProduct: false,
     enrichError: null,
     analysisError: null,
-    error: null,
     cameFromHistory: false,
     language: 'en' as const,
     nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
@@ -730,8 +875,7 @@ test('Subpage and Pagination Architecture: eliminates long vertical scrolling ac
     t: TRANSLATIONS.en,
     onBack: () => {},
     onToggleSave: () => {},
-    onSelectStyle: () => {},
-    onConfirmGenerate: () => {},
+    onGenerateIdeaPlan: () => {},
     onFetchDeepInsights: async () => {},
     onAnalyzeProduct: async () => {},
     onOpenScoreDetails: () => {},
@@ -741,34 +885,35 @@ test('Subpage and Pagination Architecture: eliminates long vertical scrolling ac
     React.createElement(VideoStudioView, { ...studioBaseProps, initialSubpage: 'data' })
   );
   assert.ok(dataSubpageHtml.includes(TRANSLATIONS.en.studio.deepToggleTitle));
-  assert.ok(!dataSubpageHtml.includes('id="sec-concept"'));
+  assert.ok(!dataSubpageHtml.includes('id="sec-script"'));
 
   const promptSubpageHtml = renderToStaticMarkup(
     React.createElement(VideoStudioView, { ...studioBaseProps, initialSubpage: 'prompt' })
   );
   assert.ok(promptSubpageHtml.includes(TRANSLATIONS.en.studio.chatPrompt.title));
-  assert.ok(!promptSubpageHtml.includes('id="sec-concept"'));
+  assert.ok(!promptSubpageHtml.includes('id="sec-script"'));
 
-  const kitScriptHtml = renderToStaticMarkup(
+  const ideaScriptHtml = renderToStaticMarkup(
     React.createElement(VideoStudioView, {
       ...studioBaseProps,
-      initialSubpage: 'kit',
-      initialKitSection: 'script',
+      initialSubpage: 'ideas',
+      initialIdeasTab: 'idea_0',
+      initialPlanSection: 'script',
     })
   );
-  assert.ok(kitScriptHtml.includes('id="sec-script"'));
-  assert.ok(!kitScriptHtml.includes('id="sec-concept"'));
-  assert.ok(!kitScriptHtml.includes('id="sec-seo"'));
+  assert.ok(ideaScriptHtml.includes('id="sec-script"'));
+  assert.ok(!ideaScriptHtml.includes('id="sec-seo"'));
 
-  const kitSeoHtml = renderToStaticMarkup(
+  const ideaSeoHtml = renderToStaticMarkup(
     React.createElement(VideoStudioView, {
       ...studioBaseProps,
-      initialSubpage: 'kit',
-      initialKitSection: 'seo',
+      initialSubpage: 'ideas',
+      initialIdeasTab: 'idea_0',
+      initialPlanSection: 'seo',
     })
   );
-  assert.ok(kitSeoHtml.includes('id="sec-seo"'));
-  assert.ok(!kitSeoHtml.includes('id="sec-script"'));
+  assert.ok(ideaSeoHtml.includes('id="sec-seo"'));
+  assert.ok(!ideaSeoHtml.includes('id="sec-script"'));
 });
 
 

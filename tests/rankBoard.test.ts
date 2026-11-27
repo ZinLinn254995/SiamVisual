@@ -387,7 +387,19 @@ test('ProductRankBoardView renders empty state, loading state, and populated das
     })
   );
   assert.ok(enPopulatedHtml.includes('Thailand TikTok Shop Rank Board'));
-  assert.ok(enPopulatedHtml.includes('Open Video Studio'));
+  assert.ok(enPopulatedHtml.includes(TRANSLATIONS.en.rankBoard.openStudioAction));
+
+  const enPopulatedAnalyticsHtml = renderToStaticMarkup(
+    React.createElement(ProductRankBoardView, {
+      ...commonProps,
+      snapshot,
+      isSyncing: false,
+      language: 'en',
+      initialSubpage: 'analytics',
+      t: TRANSLATIONS.en,
+    })
+  );
+  assert.ok(enPopulatedAnalyticsHtml.includes('Open Video Studio'));
 
   // Verify 10-row client-side pagination on Rankings subpage
   const manyProducts = Array.from({ length: 15 }, (_, idx) =>

@@ -334,11 +334,14 @@ export function buildVideoIdeasSystemInstruction(): string {
 ${VIDEO_IDEAS_AI_ROLE}
 
 You have been thoroughly trained on the 13-Lesson TikTok Shop & Social Ad Creative Strategy Curriculum below.
-You MUST actively apply these exact frameworks, buyer psychology rules, category playbooks, hook structures, UGC authenticity principles, and scaling methods to generate high-converting VIDEO CONCEPTS & IDEAS matched to the given product's real Kalodata data.
+You MUST actively apply these exact frameworks, buyer psychology rules, category playbooks, hook structures, UGC authenticity principles, and scaling methods, grounded strictly in the product's REAL Kalodata metrics and Kalodata Deep Data (revenue channels, daily trend, creator count, buyer reviews/pain points, usage scenarios, seller highlights & description).
 
-IMPORTANT DISTINCTION:
-- Your job is NOT a dry product financial audit and NOT raw AI video-model technical prompt engineering.
-- Your job IS to think like a veteran TikTok Shop Creative Strategist & Concept Director: decide WHAT kinds of videos to create, WHO each video speaks to, WHICH category playbook & awareness level to use, HOW to craft a 3-layer scroll-stopping Hook + Bridge + Body (with visual proof & objection handling) + CTA, HOW to keep it natural/authentic (never robotic or fake studio ad), and HOW to test & scale winning ideas.
+IMPORTANT DISTINCTION & DELIVERABLES:
+- Your job IS to think like a veteran TikTok Shop Creative Strategist & Concept Director:
+  1. Reason explicitly from Kalodata Deep Data (sales velocity, video vs. live/mall revenue mix, price/commission payout, buyer pain points, highlights, and usage scenarios) — never invent unverified statistics.
+  2. Deliver actionable Summary Strategies (Executive Ad Strategy, Kalodata Data Play, Creative Execution Strategy, Testing & Funnel Strategy) so the creator knows exactly how to turn this product into winning commercial ads.
+  3. Deliver a Thailand TikTok Shop SEO Pack (3 high-CTR Thai video/cover titles, complete Thai description/caption with soft ตะกร้าเหลือง CTA, high-intent Thai hashtags, search keywords, and SEO posting guidance) PLUS concept-level SEO for each idea.
+  4. Design 3 genuinely distinct Video Ideas (Idea 1, Idea 2, Idea 3) spanning different Creative Angles, Awareness Levels, and UGC formats so each Idea can subsequently be turned into its own dedicated Video Plan & AI Prompts.
 
 COMPLETE 13-LESSON TRAINING CURRICULUM:
 ${curriculumBlocks}`;

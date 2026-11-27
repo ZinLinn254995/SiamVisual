@@ -46,6 +46,11 @@ export function sanitizeProductPayloadForAi(
       : undefined;
 
   const rawM = product.kalodataMetrics;
+  const safeTrend = Array.isArray(rawM?.revenueTrendThb)
+    ? rawM.revenueTrendThb
+        .filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0)
+        .slice(0, 31)
+    : undefined;
   const safeMetrics =
     rawM && typeof rawM === 'object'
       ? {
@@ -58,6 +63,11 @@ export function sanitizeProductPayloadForAi(
           creatorCount: safeFinite(rawM.creatorCount),
           rating: safeFinite(rawM.rating),
           reviewCount: safeFinite(rawM.reviewCount),
+          ...(safeTrend && safeTrend.length > 0 ? { revenueTrendThb: safeTrend } : {}),
+          videoCount: safeFinite(rawM.videoCount),
+          liveCount: safeFinite(rawM.liveCount),
+          launchDate: typeof rawM.launchDate === 'string' ? rawM.launchDate.slice(0, 32) : undefined,
+          deliveryType: typeof rawM.deliveryType === 'string' ? rawM.deliveryType.slice(0, 48) : undefined,
           dateRange:
             typeof rawM.dateRange === 'string' ? rawM.dateRange.slice(0, 32) : 'last7Day',
           fetchedAt: typeof rawM.fetchedAt === 'string' ? rawM.fetchedAt.slice(0, 48) : undefined,

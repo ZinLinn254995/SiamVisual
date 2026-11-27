@@ -6,13 +6,15 @@ import type {
   ProductItem,
   RankBoardSnapshot,
   SearchDateRange,
+  TikTokSeoPack,
   VideoAdPlan,
   VideoIdeaConcept,
+  VideoIdeaConceptSeo,
+  VideoIdeaIndex,
   VideoIdeasAwarenessLevel,
   VideoIdeasFramework,
   VideoIdeasPlaybookCategory,
   VideoIdeasStrategyPack,
-  VisualStyle,
 } from '../src/types.ts';
 import {
   inferSpecificProductCategory,
@@ -750,12 +752,127 @@ const bilingualSchema = {
   required: ['my', 'en'],
 };
 
+const bilingualListSchema = {
+  type: Type.OBJECT,
+  properties: {
+    my: { type: Type.ARRAY, items: { type: Type.STRING } },
+    en: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ['my', 'en'],
+};
+
+function summarizeRevenueTrend(trend?: number[] | null): string {
+  if (!Array.isArray(trend) || trend.length === 0) return 'NOT_AVAILABLE';
+  const clean = trend.filter((v) => typeof v === 'number' && Number.isFinite(v));
+  if (clean.length === 0) return 'NOT_AVAILABLE';
+  const min = Math.round(Math.min(...clean));
+  const max = Math.round(Math.max(...clean));
+  const first = Math.round(clean[0]);
+  const last = Math.round(clean[clean.length - 1]);
+  const avg = Math.round(clean.reduce((s, v) => s + v, 0) / clean.length);
+  return `${clean.length} days tracked (start ฿${first.toLocaleString()} -> latest ฿${last.toLocaleString()}, avg ฿${avg.toLocaleString()}/day, range ฿${min.toLocaleString()}–฿${max.toLocaleString()})`;
+}
+
+function buildKalodataContextPayload(product: ProductItem) {
+  const m = product.kalodataMetrics;
+  const d = product.deepInsights;
+
+  const hasSalesVolume = typeof m?.salesVolume7d === 'number' && Number.isFinite(m.salesVolume7d);
+  const hasRevenue = typeof m?.revenueThb7d === 'number' && Number.isFinite(m.revenueThb7d);
+  const hasVideoRevenue =
+    typeof m?.videoRevenueThb7d === 'number' && Number.isFinite(m.videoRevenueThb7d);
+  const hasLiveRevenue =
+    typeof m?.liveRevenueThb7d === 'number' && Number.isFinite(m.liveRevenueThb7d);
+  const hasMallRevenue =
+    typeof m?.shoppingMallRevenueThb7d === 'number' && Number.isFinite(m.shoppingMallRevenueThb7d);
+  const hasGrowth =
+    typeof m?.revenueGrowthRate === 'number' && Number.isFinite(m.revenueGrowthRate);
+  const hasCreatorCount = typeof m?.creatorCount === 'number' && Number.isFinite(m.creatorCount);
+  const hasRating = typeof m?.rating === 'number' && Number.isFinite(m.rating);
+  const hasReviewCount = typeof m?.reviewCount === 'number' && Number.isFinite(m.reviewCount);
+
+  const totalRev = hasRevenue ? (m!.revenueThb7d as number) : 0;
+  const videoSharePct =
+    hasRevenue && hasVideoRevenue && totalRev > 0
+      ? Math.round(((m!.videoRevenueThb7d as number) / totalRev) * 1000) / 10
+      : null;
+  const liveSharePct =
+    hasRevenue && hasLiveRevenue && totalRev > 0
+      ? Math.round(((m!.liveRevenueThb7d as number) / totalRev) * 1000) / 10
+      : null;
+  const mallSharePct =
+    hasRevenue && hasMallRevenue && totalRev > 0
+      ? Math.round(((m!.shoppingMallRevenueThb7d as number) / totalRev) * 1000) / 10
+      : null;
+
+  const hasSalesMetrics = Boolean(hasSalesVolume || hasRevenue || hasVideoRevenue);
+  const hasDetails = Boolean(d?.description && d.description.trim());
+  const hasSpecs = Boolean(d?.highlights && d.highlights.length > 0);
+  const hasComments = Boolean(
+    (d?.painPoints && d.painPoints.length > 0) ||
+      (d?.usageScenarios && d.usageScenarios.length > 0)
+  );
+
+  const missingFields: string[] = [];
+  if (product.priceThb === null) missingFields.push('Price (THB)');
+  if (!hasDetails) missingFields.push('Seller Description');
+  if (!hasSpecs) missingFields.push('Selling Specs & Highlights');
+  if (!hasComments) missingFields.push('Buyer Reviews & Pain Points');
+
+  const payload = {
+    productId: product.id,
+    originalProductName: product.thaiTitle,
+    shopName: product.shopName,
+    category: product.categoryLabel.en,
+    priceThb: product.priceThb ?? 'NOT_AVAILABLE',
+    commissionRatePct: product.commissionRate ?? 'NOT_AVAILABLE',
+    commissionPerSaleThb: product.commissionThb ?? 'NOT_AVAILABLE',
+    reportingPeriod: m?.dateRange || 'last7Day',
+    kalodataMetrics: {
+      salesVolume: hasSalesVolume ? m?.salesVolume7d : 'NOT_AVAILABLE',
+      totalRevenueThb: hasRevenue ? m?.revenueThb7d : 'NOT_AVAILABLE',
+      videoRevenueThb: hasVideoRevenue ? m?.videoRevenueThb7d : 'NOT_AVAILABLE',
+      videoRevenueSharePct: videoSharePct !== null ? `${videoSharePct}%` : 'NOT_AVAILABLE',
+      liveRevenueThb: hasLiveRevenue ? m?.liveRevenueThb7d : 'NOT_AVAILABLE',
+      liveRevenueSharePct: liveSharePct !== null ? `${liveSharePct}%` : 'NOT_AVAILABLE',
+      mallRevenueThb: hasMallRevenue ? m?.shoppingMallRevenueThb7d : 'NOT_AVAILABLE',
+      mallRevenueSharePct: mallSharePct !== null ? `${mallSharePct}%` : 'NOT_AVAILABLE',
+      revenueGrowthRatePct: hasGrowth ? m?.revenueGrowthRate : 'NOT_AVAILABLE',
+      dailyRevenueTrend: summarizeRevenueTrend(m?.revenueTrendThb),
+      activeCreatorCount: hasCreatorCount ? m?.creatorCount : 'NOT_AVAILABLE',
+      videoCount: typeof m?.videoCount === 'number' ? m.videoCount : 'NOT_AVAILABLE',
+      liveCount: typeof m?.liveCount === 'number' ? m.liveCount : 'NOT_AVAILABLE',
+      rating: hasRating ? m?.rating : 'NOT_AVAILABLE',
+      reviewCount: hasReviewCount ? m?.reviewCount : 'NOT_AVAILABLE',
+      launchDate: m?.launchDate || 'NOT_AVAILABLE',
+      deliveryType: m?.deliveryType || 'NOT_AVAILABLE',
+    },
+    kalodataDeepInsights: {
+      sellerDescription: hasDetails ? d?.description?.slice(0, 650) : 'NOT_FETCHED_YET',
+      sellingSpecsHighlights: hasSpecs ? d?.highlights?.slice(0, 8) : 'NOT_FETCHED_YET',
+      buyerPainPoints: d?.painPoints?.length ? d.painPoints.slice(0, 6) : 'NOT_FETCHED_YET',
+      buyerUsageScenarios: d?.usageScenarios?.length ? d.usageScenarios.slice(0, 6) : 'NOT_FETCHED_YET',
+    },
+  };
+
+  return {
+    payload,
+    hasSalesMetrics,
+    hasDetails,
+    hasSpecs,
+    hasComments,
+    hasAnyDeepInsights: Boolean(hasDetails || hasSpecs || hasComments),
+    missingFields,
+  };
+}
+
 const videoPlanSchema = {
   type: Type.OBJECT,
   properties: {
     conceptTitle: bilingualSchema,
     conceptSummary: bilingualSchema,
     visualDirection: bilingualSchema,
+    productionStrategy: bilingualSchema,
     hooks: {
       type: Type.ARRAY,
       items: {
@@ -816,13 +933,23 @@ const videoPlanSchema = {
     seo: {
       type: Type.OBJECT,
       properties: {
+        titlesTh: { type: Type.ARRAY, items: { type: Type.STRING } },
+        titlesMeaning: bilingualSchema,
         captionTh: { type: Type.STRING },
         captionMeaning: bilingualSchema,
         hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
         keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
         postingTip: bilingualSchema,
       },
-      required: ['captionTh', 'captionMeaning', 'hashtags', 'keywords', 'postingTip'],
+      required: [
+        'titlesTh',
+        'titlesMeaning',
+        'captionTh',
+        'captionMeaning',
+        'hashtags',
+        'keywords',
+        'postingTip',
+      ],
     },
     masterVideoPrompt: bilingualSchema,
   },
@@ -830,6 +957,7 @@ const videoPlanSchema = {
     'conceptTitle',
     'conceptSummary',
     'visualDirection',
+    'productionStrategy',
     'hooks',
     'storyboard',
     'aiVideoPrompts',
@@ -839,67 +967,88 @@ const videoPlanSchema = {
   ],
 };
 
-const STYLE_DIRECTIONS: Record<VisualStyle, string> = {
-  cinematic: 'Cinematic Macro & Luxury Studio Visuals — smooth slow-motion reveals, crisp rim lighting, glossy commercial aesthetics, zero talking.',
-  asmr: 'Satisfying ASMR & Tactile Texture Focus — close-up textures, clicks, snaps, pours, crisp sound effects, pure sensory satisfaction, zero talking.',
-  before_after: 'Instant Visual Before & After Transformation — dramatic split-second contrast showing immediate visible results on camera, zero talking.',
-  problem_fix: 'Everyday Frustration to Effortless Instant Fix — 2-second visual problem followed by smooth one-motion product rescue, zero talking.',
-};
+function normalizeIdeaIndex(raw: unknown): VideoIdeaIndex {
+  if (raw === 1 || raw === 2) return raw;
+  return 0;
+}
 
-export async function generateSilentVideoPlan(
-  product: ProductItem,
-  style: VisualStyle,
+export async function generateIdeaVideoPlan(
+  params: {
+    product: ProductItem;
+    ideaIndex: number;
+    concept?: VideoIdeaConcept | null;
+    videoIdeasPack?: VideoIdeasStrategyPack | null;
+  },
   onProgress?: () => void
 ): Promise<VideoAdPlan> {
-  const priceLine =
-    product.priceThb !== null ? `฿${product.priceThb} THB` : 'Not specified';
-  const commissionLine =
-    product.commissionRate !== null
-      ? `${product.commissionRate}%${product.commissionThb ? ` (฿${product.commissionThb}/sale)` : ''}`
-      : 'Not specified';
+  const safeIdx = normalizeIdeaIndex(params.ideaIndex);
+  const { product } = params;
+  const kalodataCtx = buildKalodataContextPayload(product);
+  const pack = params.videoIdeasPack ?? product.aiAnalysis?.videoIdeasPack ?? null;
+  const selectedConcept = params.concept ?? pack?.concepts?.[safeIdx] ?? null;
 
-  const deepBlocks: string[] = [];
-  if (product.deepInsights?.description) {
-    deepBlocks.push(`Seller Description (Kalodata): ${product.deepInsights.description.slice(0, 450)}`);
-  }
-  if (product.deepInsights?.highlights?.length) {
-    deepBlocks.push(`Key Selling Highlights (Kalodata): ${product.deepInsights.highlights.slice(0, 6).join(', ')}`);
-  }
-  if (product.deepInsights?.painPoints?.length) {
-    deepBlocks.push(`Real Thai Buyer Pain Points (Kalodata Reviews): ${product.deepInsights.painPoints.slice(0, 4).join('; ')}`);
-  }
-  if (product.deepInsights?.usageScenarios?.length) {
-    deepBlocks.push(`Real Usage Scenarios (Kalodata Reviews): ${product.deepInsights.usageScenarios.slice(0, 4).join('; ')}`);
-  }
+  const displayEn = product.clearTitle.en || product.thaiTitle;
+  const displayMy = product.clearTitle.my || product.thaiTitle;
 
-  const hasDeepInsights = deepBlocks.length > 0;
-  const displayEn =
-    product.aiAnalysis?.cleanName?.en?.trim() || product.clearTitle.en || product.thaiTitle;
-  const displayMy =
-    product.aiAnalysis?.cleanName?.my?.trim() || product.clearTitle.my || product.thaiTitle;
+  const conceptContextBlock = selectedConcept
+    ? `SELECTED VIDEO IDEA #${safeIdx + 1} TO PRODUCE:
+${JSON.stringify({
+  ideaNumber: safeIdx + 1,
+  title: selectedConcept.title,
+  targetSegment: selectedConcept.targetSegment,
+  awarenessLevel: selectedConcept.awarenessLevel,
+  framework: selectedConcept.framework,
+  creativeAngle: selectedConcept.creativeAngle,
+  ugcFormat: selectedConcept.ugcFormat,
+  recommendedDuration: selectedConcept.recommendedDuration,
+  kalodataBasis: selectedConcept.kalodataBasis,
+  hook3Layer: selectedConcept.hook3Layer,
+  bridgeHold: selectedConcept.bridgeHold,
+  bodyPlan: selectedConcept.bodyPlan,
+  ctaAction: selectedConcept.ctaAction,
+  extraHookVariations: selectedConcept.extraHookVariations,
+  visualShootingTips: selectedConcept.visualShootingTips,
+  conceptSeo: selectedConcept.seo,
+})}`
+    : `NO PRE-GENERATED CONCEPT PROVIDED — Design a dedicated conversion plan for Video Idea #${safeIdx + 1} tailored to the product's Kalodata metrics and Deep Insights.`;
 
-  const prompt = `Create a crisp, high-converting, 100% SILENT (ZERO SPOKEN DIALOGUE, ZERO VOICEOVER) AI visual TikTok Shop Thailand video kit:
+  const strategySummaryContext = pack
+    ? `\nOVERALL STRATEGY CONTEXT:\n${JSON.stringify({
+        playbookCategory: pack.playbookCategory,
+        coreUsp: pack.productAnalysis.coreUsp,
+        emotionalBenefit: pack.productAnalysis.emotionalBenefit,
+        primaryBuyer: pack.targetAudience.primaryBuyer,
+        buyerVoiceInsight: pack.targetAudience.buyerVoiceInsight,
+        executiveSummary: pack.summaryStrategies?.executiveSummary,
+      })}`
+    : '';
 
-Product (EN): ${displayEn}
-Product (MY): ${displayMy}
-Thai Listing: ${product.thaiTitle}
-Price: ${priceLine} | Commission: ${commissionLine}
-Visual Style: ${STYLE_DIRECTIONS[style]}
-${hasDeepInsights ? `\nKALODATA DEEP INSIGHTS:\n${deepBlocks.join('\n')}` : ''}
+  const prompt = `Build a complete, ready-to-produce TikTok Shop Thailand Video Plan & AI Generation Prompt Pack EXCLUSIVELY for Video Idea #${safeIdx + 1} below.
 
-STRICT RULES (ULTRA-CONCISE FOR FAST RESPONSE):
-1. ZERO TALKING / VOICEOVER. Sell purely via AI visuals, camera motion, ASMR beats, and ultra-short Thai text overlays.
-2. Fill every bilingual field in natural Myanmar ("my") and clear English ("en") — max 1 short punchy sentence (10–18 words) per field.
-3. Natural Thailand TikTok Shop Thai for onScreenTextTh and captionTh (include soft CTA to ตะกร้าเหลือง).
-4. hooks: 3 distinct 0–3s visual hooks (short title + 1-line visual action + 3–5 word Thai overlay).
-5. storyboard: 4 tight scenes ("0-3s", "3-7s", "7-11s", "11-15s"), ultra-short 1-line visual, camera, ASMR sound, and Thai text.
-6. aiVideoPrompts: 3 ready-to-paste English prompts (25–40 words each, vertical 9:16, ending with "silent visual commercial, no dialogue, photorealistic 4K").
-7. aiImagePrompts: 2 ready-to-paste English start-frame prompts (20–30 words each, vertical 9:16, studio photo, no text).
-8. seo: 2-line Thai caption, 6 Thailand TikTok Shop hashtags (#...), 4 search keywords, 1 short posting tip.
-9. masterVideoPrompt: 1 comprehensive, all-in-one English master video prompt (80-120 words) that compiles the entire 0-15s silent video sequence (Hook + Scene 1 + Scene 2 + Scene 3 + Scene 4 + ASMR audio cues + Thai text overlays) into a single master prompt for Veo/Kling/Runway/Sora, plus its Myanmar translation.`;
+REAL PRODUCT & KALODATA DEEP DATA (JSON):
+${JSON.stringify(kalodataCtx.payload)}
+
+${conceptContextBlock}
+${strategySummaryContext}
+
+STRICT EXECUTION RULES:
+1. TAILORED TO VIDEO IDEA #${safeIdx + 1} ONLY: Every hook, storyboard scene, AI video prompt, keyframe image prompt, and SEO element must directly execute Video Idea #${safeIdx + 1}'s exact creative angle, UGC format, awareness level, and target buyer segment — NOT a generic or silent-only template. (Include natural spoken voiceover/dialogue cues when the UGC format uses speech, OR tactile ASMR/visual beats when it's POV/hands-only).
+2. KALODATA DEEP DATA GROUNDING: Explicitly weave verified Kalodata insights (real selling specs, buyer pain points, usage scenarios, channel dominance, and pricing/commission value) into the productionStrategy and storyboard without inventing unverified claims or fake stats.
+3. KEEP ORIGINAL PRODUCT NAME: Never translate "${product.thaiTitle}" into Myanmar when citing the listing name.
+4. BILINGUAL QUALITY: Fill every "my" field in natural, conversational Myanmar (Burmese) and every "en" field in crisp English (1–2 punchy sentences per field). Use natural Thailand TikTok Shop Thai for onScreenTextTh, titlesTh, and captionTh (with a natural ตะกร้าเหลือง CTA).
+5. DELIVERABLES:
+   - conceptTitle & conceptSummary: Clear title and 1–2 sentence production brief for Idea #${safeIdx + 1}.
+   - visualDirection: Camera aesthetic, lighting (e.g., natural daylight), pacing, and voice/sound direction matching the UGC format.
+   - productionStrategy: Practical ad-creation & Kalodata conversion strategy for executing Idea #${safeIdx + 1} effectively.
+   - hooks: 3 hook execution variations (0–3s) adapted from Idea #${safeIdx + 1}'s 3-Layer Hook + Extra Hooks (short title, visual action, short Thai overlay text + meaning).
+   - storyboard: 4–5 timed scenes covering Hook -> Bridge/Hold -> Body (Demo + USP + Objection Handling) -> CTA, including visual scene, camera move, voiceover/audio direction (soundDesign), and Thai on-screen text + meaning.
+   - masterVideoPrompt: 1 detailed all-in-one English AI video generator prompt (90–140 words, vertical 9:16, subject/product continuity, lighting, scene progression, camera movement, audio mood) for Veo/Kling/Runway/Sora, plus Myanmar summary.
+   - aiVideoPrompts: 3–4 scene-by-scene English AI video generation prompts (30–50 words each, vertical 9:16, ready to copy into Kling/Runway/Veo/Sora/Wan).
+   - aiImagePrompts: 2–3 English start-frame/keyframe image generation prompts (25–40 words each, vertical 9:16, realistic reference frame, clean lighting, no text overlay) for Midjourney/Flux/Imagen.
+   - seo: 3 high-CTR Thai video/cover titles (titlesTh) + Myanmar/English meanings (titlesMeaning), full Thai TikTok description/caption (captionTh) + meaning (captionMeaning), 8 Thailand TikTok Shop hashtags (#...), 6 TikTok search SEO keywords, and a practical posting/SEO tip.`;
 
   const data = await generateStructuredJsonStream<
-    Omit<VideoAdPlan, 'id' | 'productId' | 'style' | 'createdAt'>
+    Omit<VideoAdPlan, 'id' | 'productId' | 'ideaIndex' | 'ideaTitle' | 'ideaFramework' | 'createdAt'>
   >({
     contents: prompt,
     config: {
@@ -907,48 +1056,79 @@ STRICT RULES (ULTRA-CONCISE FOR FAST RESPONSE):
       responseSchema: videoPlanSchema,
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
     },
-    timeoutMs: 45000,
+    timeoutMs: 65000,
     retries: 1,
-    label: 'VIDEO_PLAN',
+    label: `VIDEO_PLAN_IDEA_${safeIdx + 1}`,
     onProgress,
   });
 
+  const normalizedSeo: TikTokSeoPack = {
+    titlesTh: Array.isArray(data.seo?.titlesTh)
+      ? data.seo.titlesTh.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 4)
+      : [],
+    titlesMeaning: cleanBilingual(data.seo?.titlesMeaning),
+    captionTh: typeof data.seo?.captionTh === 'string' ? data.seo.captionTh.trim() : '',
+    captionMeaning: cleanBilingual(data.seo?.captionMeaning),
+    hashtags: Array.isArray(data.seo?.hashtags)
+      ? data.seo.hashtags
+          .filter((h): h is string => typeof h === 'string' && h.trim().length > 0)
+          .map((h) => (h.trim().startsWith('#') ? h.trim() : `#${h.trim()}`))
+          .slice(0, 10)
+      : [],
+    keywords: Array.isArray(data.seo?.keywords)
+      ? data.seo.keywords.filter((k): k is string => typeof k === 'string' && k.trim().length > 0).slice(0, 8)
+      : [],
+    postingTip: cleanBilingual(data.seo?.postingTip),
+  };
+
   return {
-    id: `plan_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    id: `plan_${product.id}_idea${safeIdx + 1}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     productId: product.id,
-    style,
+    ideaIndex: safeIdx,
+    ...(selectedConcept
+      ? {
+          ideaTitle: selectedConcept.title,
+          ideaFramework: selectedConcept.framework,
+        }
+      : {}),
     createdAt: new Date().toISOString(),
-    conceptTitle: data.conceptTitle || { my: displayMy, en: displayEn },
-    conceptSummary: data.conceptSummary || { my: '', en: '' },
-    visualDirection: data.visualDirection || { my: '', en: '' },
-    hooks: Array.isArray(data.hooks) ? data.hooks.slice(0, 3) : [],
-    storyboard: Array.isArray(data.storyboard) ? data.storyboard.slice(0, 5) : [],
-    aiVideoPrompts: Array.isArray(data.aiVideoPrompts) ? data.aiVideoPrompts.slice(0, 4) : [],
-    aiImagePrompts: Array.isArray(data.aiImagePrompts) ? data.aiImagePrompts.slice(0, 3) : [],
-    seo: {
-      captionTh: data.seo?.captionTh || '',
-      captionMeaning: data.seo?.captionMeaning || { my: '', en: '' },
-      hashtags: Array.isArray(data.seo?.hashtags)
-        ? data.seo.hashtags.map((h) => (h.startsWith('#') ? h : `#${h}`))
-        : [],
-      keywords: Array.isArray(data.seo?.keywords) ? data.seo.keywords : [],
-      postingTip: data.seo?.postingTip || { my: '', en: '' },
-    },
-    masterVideoPrompt: data.masterVideoPrompt || {
-      en: `Vertical 9:16 zero-speech TikTok commercial for ${displayEn}. 0-3s hook with instant visual shock, followed by 3-15s smooth macro ASMR texture and before/after transformation. Photorealistic 4K, studio lighting, no dialogue.`,
-      my: `${displayMy} အတွက် 0 မှ 15 စက္ကန့်အထိ အစအဆုံး တစ်ခါတည်းထွက်မည့် 100% စကားမပြောဘဲ ချက်ချင်းဆွဲဆောင်မည့် 9:16 Vertical AI Video Master Prompt ဖြစ်ပါသည်။`,
-    },
-    usedDeepInsights: hasDeepInsights,
+    conceptTitle: data.conceptTitle || selectedConcept?.title || { my: displayMy, en: displayEn },
+    conceptSummary: cleanBilingual(data.conceptSummary),
+    visualDirection: cleanBilingual(data.visualDirection),
+    productionStrategy: cleanBilingual(data.productionStrategy),
+    hooks: Array.isArray(data.hooks) ? data.hooks.slice(0, 4) : [],
+    storyboard: Array.isArray(data.storyboard) ? data.storyboard.slice(0, 6) : [],
+    aiVideoPrompts: Array.isArray(data.aiVideoPrompts) ? data.aiVideoPrompts.slice(0, 5) : [],
+    aiImagePrompts: Array.isArray(data.aiImagePrompts) ? data.aiImagePrompts.slice(0, 4) : [],
+    seo: normalizedSeo,
+    masterVideoPrompt: data.masterVideoPrompt
+      ? cleanBilingual(data.masterVideoPrompt)
+      : {
+          en: `Vertical 9:16 TikTok Shop Thailand commercial for ${displayEn} following Idea #${safeIdx + 1}. Realistic handheld UGC daylight framing, crisp product close-ups, natural pacing, photorealistic 4K.`,
+          my: `${displayMy} (Video Idea ${safeIdx + 1}) အတွက် 9:16 Vertical AI Video Master Prompt ဖြစ်ပါသည်။`,
+        },
+    usedDeepInsights: kalodataCtx.hasAnyDeepInsights,
   };
 }
 
-const bilingualListSchema = {
+const conceptSeoSchema = {
   type: Type.OBJECT,
   properties: {
-    my: { type: Type.ARRAY, items: { type: Type.STRING } },
-    en: { type: Type.ARRAY, items: { type: Type.STRING } },
+    titleTh: { type: Type.STRING },
+    titleMeaning: bilingualSchema,
+    descriptionTh: { type: Type.STRING },
+    descriptionMeaning: bilingualSchema,
+    hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+    keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
   },
-  required: ['my', 'en'],
+  required: [
+    'titleTh',
+    'titleMeaning',
+    'descriptionTh',
+    'descriptionMeaning',
+    'hashtags',
+    'keywords',
+  ],
 };
 
 const videoIdeaConceptSchema = {
@@ -971,6 +1151,8 @@ const videoIdeaConceptSchema = {
       type: Type.STRING,
       description: 'Recommended duration e.g. "20–30s", "30–45s", or "45–75s"',
     },
+    kalodataBasis: bilingualSchema,
+    visualShootingTips: bilingualSchema,
     hook3Layer: {
       type: Type.OBJECT,
       properties: {
@@ -986,6 +1168,7 @@ const videoIdeaConceptSchema = {
     ctaAction: bilingualSchema,
     muteTestVisual: bilingualSchema,
     extraHookVariations: bilingualListSchema,
+    seo: conceptSeoSchema,
   },
   required: [
     'title',
@@ -995,12 +1178,15 @@ const videoIdeaConceptSchema = {
     'creativeAngle',
     'ugcFormat',
     'recommendedDuration',
+    'kalodataBasis',
+    'visualShootingTips',
     'hook3Layer',
     'bridgeHold',
     'bodyPlan',
     'ctaAction',
     'muteTestVisual',
     'extraHookVariations',
+    'seo',
   ],
 };
 
@@ -1013,6 +1199,43 @@ const videoIdeasStrategySchema = {
         'One of: problem_solving, impulse_trendy, aesthetic_lifestyle, high_ticket_trust, food_beverage',
     },
     playbookReason: bilingualSchema,
+    kalodataEvidenceSummary: bilingualSchema,
+    summaryStrategies: {
+      type: Type.OBJECT,
+      properties: {
+        executiveSummary: bilingualSchema,
+        kalodataDataPlay: bilingualSchema,
+        creativeExecutionStrategy: bilingualSchema,
+        testingAndFunnelStrategy: bilingualSchema,
+      },
+      required: [
+        'executiveSummary',
+        'kalodataDataPlay',
+        'creativeExecutionStrategy',
+        'testingAndFunnelStrategy',
+      ],
+    },
+    seoPack: {
+      type: Type.OBJECT,
+      properties: {
+        titlesTh: { type: Type.ARRAY, items: { type: Type.STRING } },
+        titlesMeaning: bilingualSchema,
+        descriptionTh: { type: Type.STRING },
+        descriptionMeaning: bilingualSchema,
+        hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+        keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+        postingTip: bilingualSchema,
+      },
+      required: [
+        'titlesTh',
+        'titlesMeaning',
+        'descriptionTh',
+        'descriptionMeaning',
+        'hashtags',
+        'keywords',
+        'postingTip',
+      ],
+    },
     productAnalysis: {
       type: Type.OBJECT,
       properties: {
@@ -1056,6 +1279,9 @@ const videoIdeasStrategySchema = {
   required: [
     'playbookCategory',
     'playbookReason',
+    'kalodataEvidenceSummary',
+    'summaryStrategies',
+    'seoPack',
     'productAnalysis',
     'targetAudience',
     'concepts',
@@ -1119,81 +1345,63 @@ function cleanBilingualList(
   };
 }
 
+function cleanHashtagList(raw: unknown, maxItems = 10): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    .map((h) => (h.trim().startsWith('#') ? h.trim() : `#${h.trim()}`))
+    .slice(0, maxItems);
+}
+
+function cleanStringList(raw: unknown, maxItems = 8): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    .map((s) => s.trim())
+    .slice(0, maxItems);
+}
+
+function cleanConceptSeo(raw: VideoIdeaConceptSeo | undefined): VideoIdeaConceptSeo | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  return {
+    titleTh: typeof raw.titleTh === 'string' ? raw.titleTh.trim() : '',
+    titleMeaning: cleanBilingual(raw.titleMeaning),
+    descriptionTh: typeof raw.descriptionTh === 'string' ? raw.descriptionTh.trim() : '',
+    descriptionMeaning: cleanBilingual(raw.descriptionMeaning),
+    hashtags: cleanHashtagList(raw.hashtags, 8),
+    keywords: cleanStringList(raw.keywords, 6),
+  };
+}
+
 export async function analyzeProductWithAi(
   product: ProductItem,
   onProgress?: () => void
 ): Promise<ProductAiAnalysis> {
-  const m = product.kalodataMetrics;
-  const d = product.deepInsights;
+  const kalodataCtx = buildKalodataContextPayload(product);
 
-  const hasSalesVolume = typeof m?.salesVolume7d === 'number' && Number.isFinite(m.salesVolume7d);
-  const hasRevenue = typeof m?.revenueThb7d === 'number' && Number.isFinite(m.revenueThb7d);
-  const hasVideoRevenue =
-    typeof m?.videoRevenueThb7d === 'number' && Number.isFinite(m.videoRevenueThb7d);
-  const hasLiveRevenue =
-    typeof m?.liveRevenueThb7d === 'number' && Number.isFinite(m.liveRevenueThb7d);
-  const hasGrowth =
-    typeof m?.revenueGrowthRate === 'number' && Number.isFinite(m.revenueGrowthRate);
-  const hasCreatorCount = typeof m?.creatorCount === 'number' && Number.isFinite(m.creatorCount);
-  const hasRating = typeof m?.rating === 'number' && Number.isFinite(m.rating);
-  const hasReviewCount = typeof m?.reviewCount === 'number' && Number.isFinite(m.reviewCount);
+  const prompt = `Create a comprehensive, Kalodata-grounded TikTok Shop Video Ideas Strategy & SEO Pack for the product below by strictly applying ALL 13 Lessons from your system training curriculum AND analyzing every available Kalodata Deep Data signal.
 
-  const hasSalesMetrics = Boolean(hasSalesVolume || hasRevenue || hasVideoRevenue);
-  const hasDetails = Boolean(d?.description && d.description.trim());
-  const hasSpecs = Boolean(d?.highlights && d.highlights.length > 0);
-  const hasComments = Boolean(
-    (d?.painPoints && d.painPoints.length > 0) ||
-      (d?.usageScenarios && d.usageScenarios.length > 0)
-  );
-
-  const missingFields: string[] = [];
-  if (product.priceThb === null) missingFields.push('Price (THB)');
-  if (!hasDetails) missingFields.push('Seller Description');
-  if (!hasSpecs) missingFields.push('Selling Specs & Highlights');
-  if (!hasComments) missingFields.push('Buyer Reviews & Pain Points');
-
-  const payloadForAi = {
-    productId: product.id,
-    originalProductName: product.thaiTitle,
-    shopName: product.shopName,
-    category: product.categoryLabel.en,
-    priceThb: product.priceThb,
-    commissionRatePct: product.commissionRate,
-    commissionPerSaleThb: product.commissionThb,
-    kalodataMetrics7d: {
-      salesVolume7d: hasSalesVolume ? m?.salesVolume7d : 'NOT_AVAILABLE',
-      revenueThb7d: hasRevenue ? m?.revenueThb7d : 'NOT_AVAILABLE',
-      videoRevenueThb7d: hasVideoRevenue ? m?.videoRevenueThb7d : 'NOT_AVAILABLE',
-      liveRevenueThb7d: hasLiveRevenue ? m?.liveRevenueThb7d : 'NOT_AVAILABLE',
-      revenueGrowthRate: hasGrowth ? m?.revenueGrowthRate : 'NOT_AVAILABLE',
-      creatorCount: hasCreatorCount ? m?.creatorCount : 'NOT_AVAILABLE',
-      rating: hasRating ? m?.rating : 'NOT_AVAILABLE',
-      reviewCount: hasReviewCount ? m?.reviewCount : 'NOT_AVAILABLE',
-    },
-    kalodataDeepData: {
-      sellerDescription: hasDetails ? d?.description?.slice(0, 500) : 'NOT_FETCHED_YET',
-      sellingSpecsHighlights: hasSpecs ? d?.highlights?.slice(0, 6) : 'NOT_FETCHED_YET',
-      buyerPainPoints: d?.painPoints?.length ? d.painPoints.slice(0, 5) : 'NOT_FETCHED_YET',
-      buyerUsageScenarios: d?.usageScenarios?.length ? d.usageScenarios.slice(0, 5) : 'NOT_FETCHED_YET',
-    },
-  };
-
-  const prompt = `Create a complete, practical TikTok Shop Video Ideas Strategy Pack for the product below by strictly applying ALL 13 Lessons from your system training curriculum.
-
-REAL PRODUCT & KALODATA DATA (JSON):
-${JSON.stringify(payloadForAi)}
+REAL PRODUCT & KALODATA DEEP DATA (JSON):
+${JSON.stringify(kalodataCtx.payload)}
 
 STRICT EXECUTION RULES:
 1. NEVER TRANSLATE THE PRODUCT NAME: Keep the original product name ("${product.thaiTitle}") and brand/shop name as-is whenever referenced. Do NOT translate it into Myanmar.
-2. LANGUAGE: Write every 'my' field in natural, fluent, everyday Myanmar (Burmese) — NEVER Thai. Write every 'en' field in crisp English.
-3. NATURAL SPOKEN TONE (Lesson 6 & Lesson 12): Every verbalHook and spoken line in 'my' must sound like telling a close friend over coffee ("ဟဲ့...", "အစကတော့...", "တကယ်တမ်းကျ...") — ZERO formal broadcaster greetings ("မင်္ဂလာပါရှင်...") and ZERO spoken framework headings ("ပြဿနာကတော့...").
-4. ZERO HALLUCINATION: Use ONLY real facts, price, specs, and buyer pain points present in the JSON above. Never invent unverified FDA approvals, fake warranties, fake percentages, or fake discounts. If Deep Data is "NOT_FETCHED_YET", design practical visual concepts from the real listing/category/price and note what to verify physically.
-5. EXACTLY 3 GENUINELY DISTINCT VIDEO CONCEPTS (Lesson 2, 3, 6, 12):
-   - Each concept MUST have a DIFFERENT Creative Angle (1 Video = 1 Focused Angle; never combine 3 angles into 1 video).
-   - Span different Awareness Levels and/or Target Buyer Segments (e.g., Concept 1 = Cold Discovery Unaware/Problem Aware; Concept 2 = Solution Aware USP/Demo; Concept 3 = Product Aware Proof/Skeptic Converted/Gift/Honest Disqualification).
-   - Match the Module 3 Category Playbook (Lessons 7–11: Problem-Solving, Impulse/Trendy, Aesthetic/Lifestyle, High-Ticket/Trust, or Food & Beverage) in duration, visual proof, doubt-crushing, and CTA friction level.
-   - Include a tight 3-Layer Hook (Visual + Verbal + short Text Hook), Bridge/Hold (3–10s), Body (Show-Don't-Tell demo + 1–2 core benefits + 1 concrete Objection Handling / Flaw-Trust Hack), CTA (Clear Action + believable Reason Why Now), Mute Test check, and 2 extraHookVariations ("1 Body, 3–5 Hooks" testing).
-6. KEEP EVERY FIELD CRISP & ACTIONABLE (1–2 tight sentences per text field; 2–3 concise bullets for lists) so the creator can shoot immediately.`;
+2. LANGUAGE: Write every 'my' field in natural, fluent, everyday Myanmar (Burmese) — NEVER Thai. Write every 'en' field in crisp English. Write Thai SEO fields (titlesTh, titleTh, descriptionTh) in authentic Thailand TikTok Shop Thai (with ตะกร้าเหลือง CTA).
+3. NATURAL SPOKEN TONE (Lesson 6 & Lesson 12): Every verbalHook and spoken line in 'my' must sound like telling a close friend over coffee ("ဟဲ့...", "အစကတော့...", "တကယ်တမ်းကျ...") — ZERO formal broadcaster greetings and ZERO spoken framework headings.
+4. KALODATA DEEP DATA GROUNDING & ZERO HALLUCINATION:
+   - Use ONLY real figures, price, commission, video/live share, daily trend, specs, and buyer pain points present in the JSON above. Never invent unverified FDA approvals, fake warranties, or fake percentages.
+   - Explicitly explain in 'kalodataEvidenceSummary' and 'summaryStrategies.kalodataDataPlay' what the real Kalodata metrics & Deep Insights tell us (e.g., if Video Revenue dominates vs Live Revenue, if creator competition is low/high, what buyer reviews complain about or praise, or which Deep Data layers are still "NOT_FETCHED_YET").
+5. SUMMARY STRATEGIES (Actionable Commercial Playbook):
+   - executiveSummary: Winning positioning & core value proposition for TikTok ads.
+   - kalodataDataPlay: Concrete strategic takeaways from Kalodata Deep Data (sales momentum, video share, margin, pain points, highlights).
+   - creativeExecutionStrategy: Visual proof, lighting, camera style, objection handling, and UGC authenticity rules tailored to this product.
+   - testingAndFunnelStrategy: How to test Video Ideas 1, 2, 3 in sequence (Cold Discovery -> USP Demo -> Trust/Closing) + CTA/offer angle.
+6. TIKTOK SEO PACK:
+   - Provide pack-level seoPack (3 Thai cover/SEO titles + Myanmar/English meanings, full Thai conversion description/caption + meaning, 8 hashtags, 6 search keywords, posting/pinned-comment SEO tip) AND concept-level seo inside each of the 3 concepts.
+7. EXACTLY 3 GENUINELY DISTINCT VIDEO IDEAS (Concepts 1, 2, 3):
+   - Each concept MUST have a DIFFERENT Creative Angle, Awareness Level, and/or Target Buyer Segment (1 Video = 1 Focused Angle).
+   - Include kalodataBasis (explicit link to Kalodata data/reviews), visualShootingTips, 3-Layer Hook, Bridge/Hold, Body, CTA, Mute Test, 3 extraHookVariations, and concept-specific SEO.
+8. KEEP EVERY FIELD CRISP & ACTIONABLE (1–2 tight, information-dense sentences per text field) so the creator can immediately shoot and generate per-idea Video Plans.`;
 
   const parsed = await generateStructuredJsonStream<VideoIdeasStrategyPack>({
     contents: prompt,
@@ -1203,7 +1411,7 @@ STRICT EXECUTION RULES:
       responseSchema: videoIdeasStrategySchema,
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
     },
-    timeoutMs: 45000,
+    timeoutMs: 65000,
     retries: 1,
     label: 'VIDEO_IDEAS_STRATEGY',
     onProgress,
@@ -1221,6 +1429,8 @@ STRICT EXECUTION RULES:
           typeof c?.recommendedDuration === 'string' && c.recommendedDuration.trim()
             ? c.recommendedDuration.trim()
             : '25–40s',
+        kalodataBasis: cleanBilingual(c?.kalodataBasis),
+        visualShootingTips: cleanBilingual(c?.visualShootingTips),
         hook3Layer: {
           hookType: cleanBilingual(c?.hook3Layer?.hookType),
           visualHook: cleanBilingual(c?.hook3Layer?.visualHook),
@@ -1232,12 +1442,34 @@ STRICT EXECUTION RULES:
         ctaAction: cleanBilingual(c?.ctaAction),
         muteTestVisual: cleanBilingual(c?.muteTestVisual),
         extraHookVariations: cleanBilingualList(c?.extraHookVariations, 3),
+        seo: cleanConceptSeo(c?.seo),
       }))
     : [];
 
   const videoIdeasPack: VideoIdeasStrategyPack = {
     playbookCategory: normalizePlaybookCategory(parsed.playbookCategory),
     playbookReason: cleanBilingual(parsed.playbookReason),
+    kalodataEvidenceSummary: cleanBilingual(parsed.kalodataEvidenceSummary),
+    summaryStrategies: {
+      executiveSummary: cleanBilingual(parsed.summaryStrategies?.executiveSummary),
+      kalodataDataPlay: cleanBilingual(parsed.summaryStrategies?.kalodataDataPlay),
+      creativeExecutionStrategy: cleanBilingual(
+        parsed.summaryStrategies?.creativeExecutionStrategy
+      ),
+      testingAndFunnelStrategy: cleanBilingual(parsed.summaryStrategies?.testingAndFunnelStrategy),
+    },
+    seoPack: {
+      titlesTh: cleanStringList(parsed.seoPack?.titlesTh, 4),
+      titlesMeaning: cleanBilingual(parsed.seoPack?.titlesMeaning),
+      descriptionTh:
+        typeof parsed.seoPack?.descriptionTh === 'string'
+          ? parsed.seoPack.descriptionTh.trim()
+          : '',
+      descriptionMeaning: cleanBilingual(parsed.seoPack?.descriptionMeaning),
+      hashtags: cleanHashtagList(parsed.seoPack?.hashtags, 10),
+      keywords: cleanStringList(parsed.seoPack?.keywords, 8),
+      postingTip: cleanBilingual(parsed.seoPack?.postingTip),
+    },
     productAnalysis: {
       coreFeature: cleanBilingual(parsed.productAnalysis?.coreFeature),
       functionalBenefit: cleanBilingual(parsed.productAnalysis?.functionalBenefit),
@@ -1261,10 +1493,10 @@ STRICT EXECUTION RULES:
   return {
     analyzedAt: new Date().toISOString(),
     dataSnapshot: {
-      hasSalesMetrics,
-      hasDetails,
-      hasSpecs,
-      hasComments,
+      hasSalesMetrics: kalodataCtx.hasSalesMetrics,
+      hasDetails: kalodataCtx.hasDetails,
+      hasSpecs: kalodataCtx.hasSpecs,
+      hasComments: kalodataCtx.hasComments,
     },
     cleanName: {
       my: product.thaiTitle,
@@ -1272,8 +1504,11 @@ STRICT EXECUTION RULES:
     },
     videoIdeasPack,
     // Populate legacy fields cleanly for backup & external AI Chat prompt compatibility
-    productOverview: videoIdeasPack.productAnalysis.emotionalBenefit,
-    salesAndPricingAudit: videoIdeasPack.playbookReason,
+    productOverview:
+      videoIdeasPack.summaryStrategies?.executiveSummary ||
+      videoIdeasPack.productAnalysis.emotionalBenefit,
+    salesAndPricingAudit:
+      videoIdeasPack.summaryStrategies?.kalodataDataPlay || videoIdeasPack.playbookReason,
     profitCalculation: videoIdeasPack.productAnalysis.coreUsp,
     silentVideoVerdict: videoIdeasPack.productAnalysis.visualProofIdea,
     visualAngles: {
@@ -1284,10 +1519,12 @@ STRICT EXECUTION RULES:
     deepDataBuyerAudit: videoIdeasPack.targetAudience.buyerVoiceInsight,
     risks: videoIdeasPack.scalingPlan.watchOuts,
     missingDataNotes: {
-      my: missingFields.length > 0 ? missingFields : [],
-      en: missingFields.length > 0 ? missingFields : [],
+      my: kalodataCtx.missingFields.length > 0 ? kalodataCtx.missingFields : [],
+      en: kalodataCtx.missingFields.length > 0 ? kalodataCtx.missingFields : [],
     },
     decision: 'strong_go',
-    bottomLine: videoIdeasPack.scalingPlan.iterationRoadmap,
+    bottomLine:
+      videoIdeasPack.summaryStrategies?.testingAndFunnelStrategy ||
+      videoIdeasPack.scalingPlan.iterationRoadmap,
   };
 }

@@ -42,32 +42,38 @@ export function AiChatPromptCard({ product, t, onNotifyToast }: AiChatPromptCard
 
   return (
     <section className="mt-3.5 rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 overflow-hidden">
-      <div className="p-3 sm:p-3.5 flex flex-wrap items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => setShowPreview((prev) => !prev)}
-          className="h-10 sm:h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white inline-flex items-center gap-1.5 transition-all active:scale-[0.98] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-        >
-          {showPreview ? (
-            <EyeOff className="w-3.5 h-3.5 shrink-0" />
-          ) : (
-            <Eye className="w-3.5 h-3.5 shrink-0" />
-          )}
-          <span>{showPreview ? cp.hidePreviewBtn : cp.previewBtn}</span>
-        </button>
+      <div className="p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
+          {cp.title}
+        </h2>
 
-        <button
-          type="button"
-          onClick={handleCopyPrompt}
-          className="h-10 sm:h-9 flex-1 sm:flex-none px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-        >
-          {copied ? (
-            <Check className="w-3.5 h-3.5 shrink-0" />
-          ) : (
-            <Copy className="w-3.5 h-3.5 shrink-0" />
-          )}
-          <span>{copied ? cp.copiedBtn : cp.copyBtn}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => setShowPreview((prev) => !prev)}
+            className="h-10 sm:h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white inline-flex items-center gap-1.5 transition-all active:scale-[0.98] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+          >
+            {showPreview ? (
+              <EyeOff className="w-3.5 h-3.5 shrink-0" />
+            ) : (
+              <Eye className="w-3.5 h-3.5 shrink-0" />
+            )}
+            <span>{showPreview ? cp.hidePreviewBtn : cp.previewBtn}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopyPrompt}
+            className="h-10 sm:h-9 flex-1 sm:flex-none px-4 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+          >
+            {copied ? (
+              <Check className="w-3.5 h-3.5 shrink-0" />
+            ) : (
+              <Copy className="w-3.5 h-3.5 shrink-0" />
+            )}
+            <span>{copied ? cp.copiedBtn : cp.copyBtn}</span>
+          </button>
+        </div>
       </div>
 
       {/* Optional Live Prompt Preview */}

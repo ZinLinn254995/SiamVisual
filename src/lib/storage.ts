@@ -17,6 +17,8 @@ import type {
   SavedDeepInsightRecord,
   SavedHistoryEntry,
   Theme,
+  VideoAdPlan,
+  VideoIdeaIndex,
 } from '../types';
 import {
   inferSpecificProductCategory,
@@ -40,6 +42,7 @@ const RECENT_SEARCHES_KEY = 'siamvisual_recent_searches_v1';
 const DEEP_INSIGHTS_KEY = 'siamvisual_deep_insights_v1';
 const AI_EXPLANATIONS_KEY = 'siamvisual_ai_explanations_v1';
 const PRODUCT_ANALYSIS_KEY = 'siamvisual_product_analysis_v1';
+const IDEA_PLANS_KEY = 'siamvisual_idea_plans_v1';
 const THEME_KEY = 'siamvisual_theme_v1';
 const LANG_KEY = 'siamvisual_lang_v1';
 const KALO_LIMITS_KEY = 'siamvisual_kalo_limits_v1';
@@ -220,17 +223,46 @@ export function upsertHistoryEntry(
   current: SavedHistoryEntry[],
   newEntry: SavedHistoryEntry
 ): SavedHistoryEntry[] {
+  const existingForProduct = current.filter((item) => item.product.id === newEntry.product.id);
+  const existingIdeaPlans = existingForProduct.reduce<Partial<Record<VideoIdeaIndex, VideoAdPlan>>>(
+    (acc, item) => ({ ...acc, ...(item.ideaPlans ?? {}) }),
+    {}
+  );
+  const hasNewIdeaPlans = Boolean(newEntry.ideaPlans && Object.keys(newEntry.ideaPlans).length > 0);
+
+  if (hasNewIdeaPlans) {
+    const mergedIdeaPlans: Partial<Record<VideoIdeaIndex, VideoAdPlan>> = {
+      ...existingIdeaPlans,
+      ...(newEntry.ideaPlans ?? {}),
+    };
+    const legacyPlan = existingForProduct.find((item) => Boolean(item.plan?.style))?.plan ?? newEntry.plan;
+    const primaryExisting = existingForProduct[0];
+    const mergedEntry: SavedHistoryEntry = {
+      id: primaryExisting?.id || newEntry.id || `prod_${newEntry.product.id}`,
+      savedAt: newEntry.savedAt,
+      product: newEntry.product,
+      ...(legacyPlan ? { plan: legacyPlan } : {}),
+      ideaPlans: mergedIdeaPlans,
+    };
+    const filtered = current.filter((item) => item.product.id !== newEntry.product.id);
+    const next = [mergedEntry, ...filtered].slice(0, 120);
+    persistSavedHistory(next);
+    return next;
+  }
+
   const filtered = current.filter((item) => {
     if (item.product.id !== newEntry.product.id) return true;
     if (newEntry.plan) {
-      // Replace same-style plan OR upgrade any plan-less bookmark for this product
       if (!item.plan) return false;
       return item.plan.style !== newEntry.plan.style;
     }
-    // Plan-less bookmark replaces existing plan-less bookmark for the same product
-    return Boolean(item.plan);
+    return Boolean(item.plan || (item.ideaPlans && Object.keys(item.ideaPlans).length > 0));
   });
-  const next = [newEntry, ...filtered].slice(0, 120);
+  const entryWithMergedPlans: SavedHistoryEntry =
+    Object.keys(existingIdeaPlans).length > 0
+      ? { ...newEntry, ideaPlans: existingIdeaPlans }
+      : newEntry;
+  const next = [entryWithMergedPlans, ...filtered].slice(0, 120);
   persistSavedHistory(next);
   return next;
 }
@@ -754,6 +786,56 @@ export function saveProductAnalysisForProduct(
   persistProductAnalysisCache(cache);
 }
 
+// Permanent Browser Storage for Per-Idea Video Plans (keyed by product.id -> 0 | 1 | 2)
+export function loadIdeaPlansCache(): Record<string, Partial<Record<VideoIdeaIndex, VideoAdPlan>>> {
+  try {
+    const raw = localStorage.getItem(IDEA_PLANS_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as Record<string, Partial<Record<VideoIdeaIndex, VideoAdPlan>>>;
+  } catch {
+    return {};
+  }
+}
+
+export function persistIdeaPlansCache(
+  cache: Record<string, Partial<Record<VideoIdeaIndex, VideoAdPlan>>>
+): void {
+  try {
+    localStorage.setItem(IDEA_PLANS_KEY, JSON.stringify(cache));
+  } catch {
+    const sorted = Object.entries(cache).slice(-60);
+    try {
+      localStorage.setItem(IDEA_PLANS_KEY, JSON.stringify(Object.fromEntries(sorted)));
+    } catch {
+      // Ignore gracefully
+    }
+  }
+}
+
+export function getIdeaPlansForProduct(
+  productId: string
+): Partial<Record<VideoIdeaIndex, VideoAdPlan>> {
+  const cache = loadIdeaPlansCache();
+  return cache[productId] ?? {};
+}
+
+export function saveIdeaPlanForProduct(
+  productId: string,
+  ideaIndex: VideoIdeaIndex,
+  plan: VideoAdPlan
+): Partial<Record<VideoIdeaIndex, VideoAdPlan>> {
+  const cache = loadIdeaPlansCache();
+  const nextForProduct: Partial<Record<VideoIdeaIndex, VideoAdPlan>> = {
+    ...(cache[productId] ?? {}),
+    [ideaIndex]: plan,
+  };
+  cache[productId] = nextForProduct;
+  persistIdeaPlansCache(cache);
+  return nextForProduct;
+}
+
 // Permanent Browser Storage for Manual AI Explanations (keyed by product.id)
 interface SavedAiExplanationRecord {
   clearTitle: ProductItem['clearTitle'];
@@ -962,11 +1044,13 @@ export function buildBackupPayload(params: {
   recentSearches?: RecentSearchEntry[];
   deepInsightsCache?: Record<string, SavedDeepInsightRecord>;
   productAnalysisCache?: Record<string, ProductAiAnalysis>;
+  ideaPlansCache?: Record<string, Partial<Record<VideoIdeaIndex, VideoAdPlan>>>;
   productSnapshots?: Record<string, ProductObservationSnapshot[]>;
   exportedAt?: string;
 }): BackupPayload {
   const deepInsightsCache = params.deepInsightsCache ?? loadDeepInsightsCache();
   const productAnalysisCache = params.productAnalysisCache ?? loadProductAnalysisCache();
+  const ideaPlansCache = params.ideaPlansCache ?? loadIdeaPlansCache();
   const productSnapshots = params.productSnapshots ?? loadProductSnapshotsFromStorage();
 
   return {
@@ -978,6 +1062,7 @@ export function buildBackupPayload(params: {
     recentSearches: params.recentSearches,
     deepInsightsCache,
     productAnalysisCache,
+    ideaPlansCache,
     productSnapshots,
   };
 }
@@ -1012,6 +1097,7 @@ export interface ParsedBackupResult {
   recentSearches?: RecentSearchEntry[];
   deepInsightsCache?: Record<string, SavedDeepInsightRecord>;
   productAnalysisCache?: Record<string, ProductAiAnalysis>;
+  ideaPlansCache?: Record<string, Partial<Record<VideoIdeaIndex, VideoAdPlan>>>;
   productSnapshots?: Record<string, ProductObservationSnapshot[]>;
 }
 
@@ -1029,6 +1115,7 @@ export function parseBackupFile(
     let recentSearches: RecentSearchEntry[] | undefined;
     let deepInsightsCache: Record<string, SavedDeepInsightRecord> | undefined;
     let productAnalysisCache: Record<string, ProductAiAnalysis> | undefined;
+    let ideaPlansCache: Record<string, Partial<Record<VideoIdeaIndex, VideoAdPlan>>> | undefined;
     let productSnapshots: Record<string, ProductObservationSnapshot[]> | undefined;
 
     if ('entries' in parsed && Array.isArray((parsed as BackupPayload).entries)) {
@@ -1071,6 +1158,13 @@ export function parseBackupFile(
         productAnalysisCache = payload.productAnalysisCache;
       }
       if (
+        payload.ideaPlansCache &&
+        typeof payload.ideaPlansCache === 'object' &&
+        !Array.isArray(payload.ideaPlansCache)
+      ) {
+        ideaPlansCache = payload.ideaPlansCache;
+      }
+      if (
         payload.productSnapshots &&
         typeof payload.productSnapshots === 'object' &&
         !Array.isArray(payload.productSnapshots)
@@ -1096,6 +1190,7 @@ export function parseBackupFile(
       recentSearches,
       deepInsightsCache,
       productAnalysisCache,
+      ideaPlansCache,
       productSnapshots,
     };
   } catch {
@@ -1156,6 +1251,9 @@ function isValidHistoryEntry(value: unknown): value is SavedHistoryEntry {
   if (!obj.product || typeof obj.product !== 'object') return false;
   const product = obj.product as Record<string, unknown>;
   if (typeof product.id !== 'string' || typeof product.thaiTitle !== 'string') return false;
+  if (obj.ideaPlans !== undefined && obj.ideaPlans !== null) {
+    if (typeof obj.ideaPlans !== 'object' || Array.isArray(obj.ideaPlans)) return false;
+  }
   if (obj.plan === undefined || obj.plan === null) {
     return true;
   }
