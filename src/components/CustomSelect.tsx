@@ -224,7 +224,7 @@ export function CustomSelect({
           className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${
             isOpen
               ? 'rotate-180 text-teal-600 dark:text-teal-400'
-              : 'rotate-0 text-slate-400 dark:text-slate-500'
+              : 'rotate-0 text-slate-500 dark:text-slate-400'
           }`}
         />
       </button>
@@ -251,12 +251,12 @@ export function CustomSelect({
               data-sheet-handle="true"
               className="px-4 pt-1 pb-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0 touch-none"
             >
-              <h3
+              <h2
                 id={sheetTitleId}
                 className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
               >
                 {ariaLabel || selectedOption?.label}
-              </h3>
+              </h2>
               <button
                 type="button"
                 onClick={() => {
@@ -264,7 +264,7 @@ export function CustomSelect({
                   triggerRef.current?.focus();
                 }}
                 aria-label="Close"
-                className="h-10 w-10 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center justify-center shrink-0 active:scale-95 cursor-pointer"
+                className="h-10 w-10 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center justify-center shrink-0 active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -289,7 +289,7 @@ export function CustomSelect({
                       setIsOpen(false);
                       triggerRef.current?.focus();
                     }}
-                    className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3 text-left text-sm transition-colors cursor-pointer active:scale-[0.99] ${
+                    className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3 text-left text-sm transition-colors cursor-pointer active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                       mono ? 'font-mono-num tabular-nums' : ''
                     } ${
                       isSelected
@@ -364,7 +364,7 @@ export function CustomSelect({
                           : 'min-h-[44px] sm:min-h-0 sm:h-9 px-3 sm:px-2.5 text-sm sm:text-xs'
                       } ${
                         mono ? 'font-mono-num tabular-nums' : ''
-                      } rounded-lg flex items-center justify-between gap-2.5 text-left transition-colors cursor-pointer ${
+                      } rounded-lg flex items-center justify-between gap-2.5 text-left transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                         isSelected
                           ? 'bg-teal-50/90 dark:bg-teal-950/55 text-teal-800 dark:text-teal-300 font-semibold'
                           : isFocused

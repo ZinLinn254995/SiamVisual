@@ -6,6 +6,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CompactFilterBar } from '../src/components/CompactFilterBar.tsx';
 import { CustomSelect } from '../src/components/CustomSelect.tsx';
+import { HistoryView } from '../src/components/HistoryView.tsx';
 import { InfoTooltip } from '../src/components/InfoTooltip.tsx';
 import { ProductCard } from '../src/components/ProductCard.tsx';
 import {
@@ -14,12 +15,19 @@ import {
 } from '../src/components/ProductRankBoardView.tsx';
 import { ScoreDetailContent } from '../src/components/ScoreDetailDialog.tsx';
 import { SearchConfigDrawer } from '../src/components/SearchConfigDrawer.tsx';
+import { SearchHistoryView } from '../src/components/SearchHistoryView.tsx';
 import { TopBar } from '../src/components/TopBar.tsx';
 import { VideoStudioView } from '../src/components/VideoStudioView.tsx';
 import { TRANSLATIONS } from '../src/i18n.ts';
 import { createRecommendedSearchConfigDraft } from '../src/lib/discoveryFilterEngine.ts';
 import { buildRankBoardSnapshot } from '../src/lib/rankBoardAnalytics.ts';
-import type { KalodataCategoryItem, ProductItem, VideoAdPlan } from '../src/types.ts';
+import type {
+  KalodataCategoryItem,
+  ProductItem,
+  RecentSearchEntry,
+  SavedHistoryEntry,
+  VideoAdPlan,
+} from '../src/types.ts';
 
 function makeVideoPlan(productId = '172999888777'): VideoAdPlan {
   return {
@@ -388,7 +396,7 @@ test('Phase 2 P1: BottomSheet provides nest-safe scroll lock, focus trap, visual
   assert.ok(customSelectSrc.includes('min-h-[44px]'));
 });
 
-test('Phase 2 P1: ProductCard collapses secondary metrics below lg on spacious mobile cards & enables Myanmar typography + select-text opt-in', () => {
+test('Phase 2 P1: ProductCard renders streamlined core metrics on spacious mobile cards & enables Myanmar typography + select-text opt-in', () => {
   const html = renderToStaticMarkup(
     React.createElement(ProductCard, {
       product: makeProduct(),
@@ -405,8 +413,9 @@ test('Phase 2 P1: ProductCard collapses secondary metrics below lg on spacious m
     })
   );
 
-  assert.ok(html.includes('hidden lg:block space-y-2.5'));
-  assert.ok(html.includes(TRANSLATIONS.my.card.showDetailsToggle));
+  assert.ok(html.includes(TRANSLATIONS.my.card.price));
+  assert.ok(html.includes(TRANSLATIONS.my.card.commission));
+  assert.ok(html.includes(TRANSLATIONS.my.card.createPlan));
   assert.ok(html.includes('leading-[1.55]'));
   assert.ok(html.includes('select-text'));
   assert.ok(html.includes('before:-inset-1'));
@@ -513,4 +522,254 @@ test('Phase 2 P1: App.tsx wires mobile 2-col default, floating Filter · Sort pi
   assert.ok(appSrc.includes("window.addEventListener('offline', handleOffline)"));
   assert.ok(appSrc.includes('t.kalodata.offlineNotice'));
 });
+
+test('Phase 3 P2 (Item 15 & 20): Per-tab scroll restoration, active tab re-tap scroll-to-top, and credit-safe pull-to-refresh confirmation', () => {
+  const appSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+  const topBarSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TopBar.tsx'), 'utf8');
+
+  // Item 15: Per-tab scroll restoration & active tab re-tap scroll-to-top
+  assert.ok(appSrc.includes('tabScrollPositionsRef'));
+  assert.ok(appSrc.includes('pendingTabScrollRestoreRef'));
+  assert.ok(appSrc.includes('window.requestAnimationFrame'));
+  assert.ok(appSrc.includes("behavior: 'instant'"));
+  assert.ok(appSrc.includes('if (tab === activeTab)'));
+  assert.ok(appSrc.includes("window.scrollTo({ top: 0, behavior: 'smooth' })"));
+  assert.ok(!topBarSrc.includes('if (tab === activeTab) return;'));
+
+  // Item 20: Credit-safe pull-to-refresh (confirmation BottomSheet + multi-touch pinch exclusion)
+  assert.ok(appSrc.includes('ptrConfirmScope'));
+  assert.ok(appSrc.includes('pullConfirmTitle'));
+  assert.ok(appSrc.includes('historyKey="ptr_confirm"'));
+  assert.ok(appSrc.includes('e.touches.length !== 1'));
+  assert.ok(appSrc.includes('pullToRefreshHint'));
+  assert.ok(appSrc.includes('pullToRefreshRelease'));
+});
+
+test('Phase 3 P2 (Item 16 & 19): Mobile landscape compaction and horizontal chip strip gesture isolation', () => {
+  const cssSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/index.css'), 'utf8');
+  const topBarSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TopBar.tsx'), 'utf8');
+  const bottomSheetSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/BottomSheet.tsx'), 'utf8');
+  const compactBarSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/CompactFilterBar.tsx'), 'utf8');
+  const discoveryBarSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/DiscoveryFilterBar.tsx'), 'utf8');
+  const studioSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/VideoStudioView.tsx'), 'utf8');
+  const appSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+
+  // Item 16: Landscape <= 500px media query and mobile-landscape-* utility hooks
+  assert.ok(cssSrc.includes('@media (max-height: 500px) and (max-width: 1023px)'));
+  assert.ok(cssSrc.includes('.mobile-landscape-header-row'));
+  assert.ok(cssSrc.includes('.mobile-landscape-bottom-nav-row'));
+  assert.ok(cssSrc.includes('.mobile-landscape-sheet-panel'));
+  assert.ok(topBarSrc.includes('mobile-landscape-header-row'));
+  assert.ok(topBarSrc.includes('mobile-landscape-bottom-nav-row'));
+  assert.ok(bottomSheetSrc.includes('mobile-landscape-sheet-panel'));
+  assert.ok(studioSrc.includes('mobile-landscape-studio-sticky'));
+  assert.ok(appSrc.includes('mobile-landscape-main'));
+
+  // Item 19: Horizontal strips isolated with touch-pan-x & overscroll-x-contain
+  assert.ok(compactBarSrc.includes('touch-pan-x'));
+  assert.ok(compactBarSrc.includes('overscroll-x-contain'));
+  assert.ok(discoveryBarSrc.includes('touch-pan-x'));
+  assert.ok(discoveryBarSrc.includes('overscroll-x-contain'));
+  assert.ok(studioSrc.includes('touch-pan-x'));
+  assert.ok(studioSrc.includes('overscroll-x-contain'));
+  assert.ok(cssSrc.includes('overscroll-behavior-x: contain'));
+});
+
+test('Phase 3 P2 (Item 17 & 18): Color-blind dual coding, contrast upgrades, heading hierarchy, and focus-visible rings', () => {
+  const rankBoardSnapshot = buildRankBoardSnapshot({
+    products: [makeProduct()],
+    liveCategories: [],
+    dateRange: 'last7Day',
+    syncedAt: '2026-11-26T10:00:00.000Z',
+    creditsUsed: 0.4,
+  });
+  const rankBoardHtml = renderToStaticMarkup(
+    React.createElement(ProductRankBoardView, {
+      snapshot: rankBoardSnapshot,
+      dateRange: 'last7Day',
+      isSyncing: false,
+      syncError: null,
+      limitWarning: null,
+      kalodataStatus: { connected: true, keySource: 'ui', maskedKey: 'kalo***', balance: null },
+      savedProductIds: new Set<string>(),
+      language: 'my',
+      nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
+      t: TRANSLATIONS.my,
+      onChangeDateRange: () => {},
+      onSync: () => {},
+      onOpenConnectPanel: () => {},
+      onSelectProduct: () => {},
+      onToggleSaveProduct: () => {},
+    })
+  );
+  // Dual coding symbol for score badge & Sweet Spot
+  assert.ok(
+    rankBoardHtml.includes('★') ||
+      rankBoardHtml.includes('◆') ||
+      rankBoardHtml.includes('●') ||
+      rankBoardHtml.includes('▾')
+  );
+  assert.ok(rankBoardHtml.includes('<h1'));
+
+  const cardHtml = renderToStaticMarkup(
+    React.createElement(ProductCard, {
+      product: makeProduct(),
+      index: 0,
+      language: 'my',
+      isSaved: false,
+      viewMode: 'grid',
+      density: 'standard',
+      nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
+      t: TRANSLATIONS.my,
+      onSelect: () => {},
+      onToggleSave: () => {},
+      onOpenScoreDetails: () => {},
+    })
+  );
+  assert.ok(
+    cardHtml.includes('★') ||
+      cardHtml.includes('◆') ||
+      cardHtml.includes('●') ||
+      cardHtml.includes('▾')
+  );
+  assert.ok(cardHtml.includes('focus-visible:ring-2'));
+
+  const studioSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/VideoStudioView.tsx'), 'utf8');
+  const scoreRingSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/ScoreRing.tsx'), 'utf8');
+  const historySrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/HistoryView.tsx'), 'utf8');
+  const searchHistorySrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/SearchHistoryView.tsx'),
+    'utf8'
+  );
+  const appSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+
+  assert.ok(studioSrc.includes('▲ +'));
+  assert.ok(studioSrc.includes('▼ '));
+  assert.ok(scoreRingSrc.includes('#64748B'));
+  assert.ok(appSrc.includes('<h1 className="sr-only">'));
+  assert.ok(historySrc.includes('<h1') && !historySrc.includes('<h3'));
+  assert.ok(searchHistorySrc.includes('<h1') && !searchHistorySrc.includes('<h3'));
+  assert.ok(appSrc.includes('focus-visible:ring-teal-500'));
+});
+
+test('Subpage and Pagination Architecture: eliminates long vertical scrolling across Discover, History, SearchHistory, and VideoStudioView', () => {
+  const appSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+  assert.ok(appSrc.includes('DISCOVER_PAGE_SIZE = 12'));
+  assert.ok(appSrc.includes('<PaginationBar'));
+
+  // HistoryView: 6 items per page + PaginationBar
+  const savedEntries: SavedHistoryEntry[] = Array.from({ length: 8 }, (_, idx) => ({
+    id: `hist_${idx + 1}`,
+    savedAt: '2026-11-26T12:00:00.000Z',
+    product: { ...makeProduct(), id: `prod_hist_${idx + 1}`, thaiTitle: `Saved Item #${idx + 1}` },
+  }));
+  const historyHtml = renderToStaticMarkup(
+    React.createElement(HistoryView, {
+      entries: savedEntries,
+      language: 'en',
+      nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
+      t: TRANSLATIONS.en,
+      onOpenEntry: () => {},
+      onDeleteEntry: () => {},
+      onExportBackup: () => {},
+      onImportBackupFile: () => {},
+      onGoDiscover: () => {},
+    })
+  );
+  assert.ok(historyHtml.includes('Saved Item #1'));
+  assert.ok(historyHtml.includes('Saved Item #6'));
+  assert.ok(!historyHtml.includes('Saved Item #7'));
+  assert.ok(historyHtml.includes('aria-label="Pagination"'));
+
+  // SearchHistoryView: 6 items per page + PaginationBar
+  const recentEntries: RecentSearchEntry[] = Array.from({ length: 8 }, (_, idx) => ({
+    id: `srch_${idx + 1}`,
+    searchedAt: '2026-11-26T12:00:00.000Z',
+    query: `Search Query #${idx + 1}`,
+    cateIds: [],
+    cateLabels: [],
+    mode: 'rank',
+    products: [{ ...makeProduct(), id: `sp_${idx + 1}` }],
+    creditsUsed: 0.2,
+  }));
+  const searchHistoryHtml = renderToStaticMarkup(
+    React.createElement(SearchHistoryView, {
+      entries: recentEntries,
+      activeRecentId: 'srch_1',
+      language: 'en',
+      t: TRANSLATIONS.en,
+      onOpenEntry: () => {},
+      onDeleteEntry: () => {},
+      onClearAll: () => {},
+      onGoDiscover: () => {},
+    })
+  );
+  assert.ok(searchHistoryHtml.includes('Search Query #1'));
+  assert.ok(searchHistoryHtml.includes('Search Query #6'));
+  assert.ok(!searchHistoryHtml.includes('Search Query #7'));
+  assert.ok(searchHistoryHtml.includes('aria-label="Pagination"'));
+
+  // VideoStudioView: 4 isolated subpages + 4 isolated Video Kit sub-tabs
+  const studioBaseProps = {
+    product: makeProduct(),
+    isSaved: false,
+    plan: makeVideoPlan(),
+    style: 'cinematic' as const,
+    savedStyles: ['cinematic' as const],
+    isGenerating: false,
+    isEnrichingProduct: false,
+    isAnalyzingProduct: false,
+    enrichError: null,
+    analysisError: null,
+    error: null,
+    cameFromHistory: false,
+    language: 'en' as const,
+    nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
+    kalodataStatus: { connected: true, keySource: 'ui' as const, maskedKey: 'kalo***', balance: null },
+    kalodataLimits: { maxSpendCredits: null, minBalanceReserve: null, trackedSpentCredits: 0 },
+    t: TRANSLATIONS.en,
+    onBack: () => {},
+    onToggleSave: () => {},
+    onSelectStyle: () => {},
+    onConfirmGenerate: () => {},
+    onFetchDeepInsights: async () => {},
+    onAnalyzeProduct: async () => {},
+    onOpenScoreDetails: () => {},
+  };
+
+  const dataSubpageHtml = renderToStaticMarkup(
+    React.createElement(VideoStudioView, { ...studioBaseProps, initialSubpage: 'data' })
+  );
+  assert.ok(dataSubpageHtml.includes(TRANSLATIONS.en.studio.deepToggleTitle));
+  assert.ok(!dataSubpageHtml.includes('id="sec-concept"'));
+
+  const promptSubpageHtml = renderToStaticMarkup(
+    React.createElement(VideoStudioView, { ...studioBaseProps, initialSubpage: 'prompt' })
+  );
+  assert.ok(promptSubpageHtml.includes(TRANSLATIONS.en.studio.chatPrompt.title));
+  assert.ok(!promptSubpageHtml.includes('id="sec-concept"'));
+
+  const kitScriptHtml = renderToStaticMarkup(
+    React.createElement(VideoStudioView, {
+      ...studioBaseProps,
+      initialSubpage: 'kit',
+      initialKitSection: 'script',
+    })
+  );
+  assert.ok(kitScriptHtml.includes('id="sec-script"'));
+  assert.ok(!kitScriptHtml.includes('id="sec-concept"'));
+  assert.ok(!kitScriptHtml.includes('id="sec-seo"'));
+
+  const kitSeoHtml = renderToStaticMarkup(
+    React.createElement(VideoStudioView, {
+      ...studioBaseProps,
+      initialSubpage: 'kit',
+      initialKitSection: 'seo',
+    })
+  );
+  assert.ok(kitSeoHtml.includes('id="sec-seo"'));
+  assert.ok(!kitSeoHtml.includes('id="sec-script"'));
+});
+
+
 

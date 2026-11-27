@@ -564,10 +564,9 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
       })
     );
 
-    assert.ok(cardHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.demand.short));
-    assert.ok(cardHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.earning.short));
-    assert.ok(cardHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.videoProof.short));
-    assert.ok(cardHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.priceFit.short));
+    assert.ok(cardHtml.includes(TRANSLATIONS.en.card.price));
+    assert.ok(cardHtml.includes(TRANSLATIONS.en.card.commission));
+    assert.ok(cardHtml.includes(TRANSLATIONS.en.card.createPlan));
     assert.ok(!cardHtml.includes('Data Confidence'));
 
     const dialogHtml = renderToStaticMarkup(
@@ -654,38 +653,48 @@ describe('Phase 5 — UI Migration & Product Intelligence V2 Release', () => {
     );
     assert.ok(microZeroHtml.length > 0);
 
-    const studioHtml = renderToStaticMarkup(
-      React.createElement(VideoStudioView, {
-        product: extremeComp,
-        isSaved: false,
-        plan: null,
-        style: 'cinematic',
-        savedStyles: [],
-        isGenerating: false,
-        isEnrichingProduct: false,
-        isAnalyzingProduct: false,
-        enrichError: null,
-        analysisError: null,
-        error: null,
-        cameFromHistory: false,
-        language: 'en',
-        nowMs: NOW_MS,
-        kalodataStatus: { connected: false, keySource: 'none', maskedKey: null, balance: null },
-        kalodataLimits: { maxSpendCredits: null, minBalanceReserve: null, trackedSpentCredits: 0 },
-        t: TRANSLATIONS.en,
-        onBack: () => {},
-        onToggleSave: () => {},
-        onSelectStyle: () => {},
-        onConfirmGenerate: () => {},
-        onFetchDeepInsights: async () => {},
-        onAnalyzeProduct: async () => {},
-        onOpenScoreDetails: () => {},
-      })
+    const studioBaseProps = {
+      product: extremeComp,
+      isSaved: false,
+      plan: null,
+      style: 'cinematic' as const,
+      savedStyles: [],
+      isGenerating: false,
+      isEnrichingProduct: false,
+      isAnalyzingProduct: false,
+      enrichError: null,
+      analysisError: null,
+      error: null,
+      cameFromHistory: false,
+      language: 'en' as const,
+      nowMs: NOW_MS,
+      kalodataStatus: { connected: false, keySource: 'none' as const, maskedKey: null, balance: null },
+      kalodataLimits: { maxSpendCredits: null, minBalanceReserve: null, trackedSpentCredits: 0 },
+      t: TRANSLATIONS.en,
+      onBack: () => {},
+      onToggleSave: () => {},
+      onSelectStyle: () => {},
+      onConfirmGenerate: () => {},
+      onFetchDeepInsights: async () => {},
+      onAnalyzeProduct: async () => {},
+      onOpenScoreDetails: () => {},
+    };
+
+    const studioDataHtml = renderToStaticMarkup(
+      React.createElement(VideoStudioView, { ...studioBaseProps, initialSubpage: 'data' })
     );
-    assert.ok(!studioHtml.includes(TRANSLATIONS.en.v2.confidenceLabel));
-    assert.ok(studioHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.demand.short));
-    assert.ok(studioHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.videoProof.short));
-    assert.ok(studioHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.priceFit.short));
+    assert.ok(!studioDataHtml.includes(TRANSLATIONS.en.v2.confidenceLabel));
+    assert.ok(studioDataHtml.includes(TRANSLATIONS.en.studio.deepToggleTitle));
+
+    const studioIdeasHtml = renderToStaticMarkup(
+      React.createElement(VideoStudioView, { ...studioBaseProps, initialSubpage: 'ideas' })
+    );
+    assert.ok(studioIdeasHtml.includes(TRANSLATIONS.en.studio.analysisBtn));
+
+    const studioKitHtml = renderToStaticMarkup(
+      React.createElement(VideoStudioView, { ...studioBaseProps, initialSubpage: 'kit' })
+    );
+    assert.ok(studioKitHtml.includes(TRANSLATIONS.en.studio.generateNowBtn));
 
     const historyHtml = renderToStaticMarkup(
       React.createElement(HistoryView, {

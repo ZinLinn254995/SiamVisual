@@ -80,7 +80,7 @@ test('InfoTooltip renders SSR-safe trigger and accessible sr-only explanation fo
   assert.equal(emptyHtml, '');
 });
 
-test('Refactored SiamVisual views keep explanatory texts inside InfoTooltip triggers in MY & EN', () => {
+test('Simplified SiamVisual views omit InfoTooltip clutter and retain primary controls in MY & EN', () => {
   const product = makeProduct();
 
   for (const lang of ['my', 'en'] as const) {
@@ -100,8 +100,9 @@ test('Refactored SiamVisual views keep explanatory texts inside InfoTooltip trig
         onSaveLimits: () => {},
       })
     );
-    assert.ok(kalodataHtml.includes('role="tooltip"'));
-    assert.ok(kalodataHtml.includes(t.kalodata.subtitle));
+    assert.ok(!kalodataHtml.includes('role="tooltip"'));
+    assert.ok(!kalodataHtml.includes(t.kalodata.subtitle));
+    assert.ok(kalodataHtml.includes(t.kalodata.connectBtn));
 
     const filterHtml = renderToStaticMarkup(
       React.createElement(DiscoveryFilterBar, {
@@ -120,8 +121,9 @@ test('Refactored SiamVisual views keep explanatory texts inside InfoTooltip trig
         onChange: () => {},
       })
     );
-    assert.ok(filterHtml.includes('role="tooltip"'));
-    assert.ok(filterHtml.includes(t.v2.discoveryFilter.zeroCreditHint));
+    assert.ok(!filterHtml.includes('role="tooltip"'));
+    assert.ok(filterHtml.includes(t.v2.discoveryFilter.presets.all));
+    assert.ok(filterHtml.includes(t.v2.discoveryFilter.sortOptions.search_score_desc));
 
     const historyHtml = renderToStaticMarkup(
       React.createElement(HistoryView, {
@@ -136,8 +138,9 @@ test('Refactored SiamVisual views keep explanatory texts inside InfoTooltip trig
         onGoDiscover: () => {},
       })
     );
-    assert.ok(historyHtml.includes(t.history.subtitle));
-    assert.ok(historyHtml.includes(t.history.emptyDesc));
+    assert.ok(!historyHtml.includes('role="tooltip"'));
+    assert.ok(!historyHtml.includes(t.history.subtitle));
+    assert.ok(historyHtml.includes(t.history.goDiscover));
 
     const searchHistoryHtml = renderToStaticMarkup(
       React.createElement(SearchHistoryView, {
@@ -151,13 +154,16 @@ test('Refactored SiamVisual views keep explanatory texts inside InfoTooltip trig
         onGoDiscover: () => {},
       })
     );
-    assert.ok(searchHistoryHtml.includes(t.searchHistoryPage.subtitle));
-    assert.ok(searchHistoryHtml.includes(t.searchHistoryPage.emptyDesc));
+    assert.ok(!searchHistoryHtml.includes('role="tooltip"'));
+    assert.ok(!searchHistoryHtml.includes(t.searchHistoryPage.subtitle));
+    assert.ok(searchHistoryHtml.includes(t.searchHistoryPage.goDiscover));
 
     const promptHtml = renderToStaticMarkup(
       React.createElement(AiChatPromptCard, { product, t })
     );
-    assert.ok(promptHtml.includes(t.studio.chatPrompt.subtitle));
+    assert.ok(!promptHtml.includes('role="tooltip"'));
+    assert.ok(!promptHtml.includes(t.studio.chatPrompt.subtitle));
+    assert.ok(promptHtml.includes(t.studio.chatPrompt.copyBtn));
 
     const scoreHtml = renderToStaticMarkup(
       React.createElement(ScoreDetailContent, {
@@ -168,8 +174,9 @@ test('Refactored SiamVisual views keep explanatory texts inside InfoTooltip trig
         onClose: () => {},
       })
     );
-    assert.ok(scoreHtml.includes(t.score.dialogSubtitle));
-    assert.ok(scoreHtml.includes(t.v2.searchScore.rankDataOnlyNote));
+    assert.ok(!scoreHtml.includes('role="tooltip"'));
+    assert.ok(!scoreHtml.includes(t.score.dialogSubtitle));
+    assert.ok(scoreHtml.includes(t.v2.searchScore.compositionTitle));
 
     const rankBoardHtml = renderToStaticMarkup(
       React.createElement(ProductRankBoardView, {
@@ -190,40 +197,50 @@ test('Refactored SiamVisual views keep explanatory texts inside InfoTooltip trig
         onToggleSaveProduct: () => {},
       })
     );
-    assert.ok(rankBoardHtml.includes(t.rankBoard.subtitle));
-    assert.ok(rankBoardHtml.includes(t.rankBoard.emptyDesc));
+    assert.ok(!rankBoardHtml.includes('role="tooltip"'));
+    assert.ok(!rankBoardHtml.includes(t.rankBoard.subtitle));
+    assert.ok(rankBoardHtml.includes(t.nav.connectApiShort));
 
-    const studioHtml = renderToStaticMarkup(
-      React.createElement(VideoStudioView, {
-        product,
-        isSaved: false,
-        plan: null,
-        style: 'cinematic',
-        savedStyles: [],
-        isGenerating: false,
-        isEnrichingProduct: false,
-        isAnalyzingProduct: false,
-        enrichError: null,
-        analysisError: null,
-        error: null,
-        cameFromHistory: false,
-        language: lang,
-        nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
-        kalodataStatus: { connected: true, keySource: 'ui', maskedKey: 'kalo***', balance: null },
-        kalodataLimits: { maxSpendCredits: null, minBalanceReserve: null, trackedSpentCredits: 0 },
-        t,
-        onBack: () => {},
-        onToggleSave: () => {},
-        onSelectStyle: () => {},
-        onConfirmGenerate: () => {},
-        onFetchDeepInsights: async () => {},
-        onAnalyzeProduct: async () => {},
-        onOpenScoreDetails: () => {},
-      })
+    const studioProps = {
+      product,
+      isSaved: false,
+      plan: null,
+      style: 'cinematic' as const,
+      savedStyles: [],
+      isGenerating: false,
+      isEnrichingProduct: false,
+      isAnalyzingProduct: false,
+      enrichError: null,
+      analysisError: null,
+      error: null,
+      cameFromHistory: false,
+      language: lang,
+      nowMs: Date.UTC(2026, 10, 26, 12, 0, 0),
+      kalodataStatus: { connected: true, keySource: 'ui' as const, maskedKey: 'kalo***', balance: null },
+      kalodataLimits: { maxSpendCredits: null, minBalanceReserve: null, trackedSpentCredits: 0 },
+      t,
+      onBack: () => {},
+      onToggleSave: () => {},
+      onSelectStyle: () => {},
+      onConfirmGenerate: () => {},
+      onFetchDeepInsights: async () => {},
+      onAnalyzeProduct: async () => {},
+      onOpenScoreDetails: () => {},
+    };
+
+    const studioIdeasHtml = renderToStaticMarkup(
+      React.createElement(VideoStudioView, { ...studioProps, initialSubpage: 'ideas' })
     );
-    assert.ok(studioHtml.includes(t.studio.commercialStudioNotice));
-    assert.ok(studioHtml.includes(t.studio.deepToggleHint));
-    assert.ok(studioHtml.includes(t.studio.analysisSubtitle));
-    assert.ok(studioHtml.includes(t.studio.readyDesc));
+    assert.ok(!studioIdeasHtml.includes('role="tooltip"'));
+    assert.ok(!studioIdeasHtml.includes(t.studio.commercialStudioNotice));
+    assert.ok(!studioIdeasHtml.includes(t.studio.analysisSubtitle));
+    assert.ok(studioIdeasHtml.includes(t.studio.analysisBtn));
+
+    const studioKitHtml = renderToStaticMarkup(
+      React.createElement(VideoStudioView, { ...studioProps, initialSubpage: 'kit' })
+    );
+    assert.ok(!studioKitHtml.includes('role="tooltip"'));
+    assert.ok(studioKitHtml.includes(t.studio.generateNowBtn));
   }
 });
+

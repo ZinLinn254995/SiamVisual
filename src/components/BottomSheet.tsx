@@ -359,7 +359,7 @@ export function BottomSheet({
             {showMobileHandle && (
               <div
                 data-sheet-handle="true"
-                className={`${showHandleOnDesktop ? 'flex' : 'flex sm:hidden'} pt-2.5 pb-1 justify-center shrink-0 touch-none cursor-grab active:cursor-grabbing`}
+                className={`${showHandleOnDesktop ? 'flex' : 'flex sm:hidden'} pt-2.5 pb-1 mobile-landscape-sheet-handle justify-center shrink-0 touch-none cursor-grab active:cursor-grabbing`}
               >
                 <span
                   aria-hidden="true"

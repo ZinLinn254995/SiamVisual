@@ -411,9 +411,9 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
       })
     );
 
-    assert.ok(rankedHtml.includes(TRANSLATIONS.en.v2.searchScore.videoPoolLabel));
-    assert.ok(rankedHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.videoProof.short));
-    assert.ok(rankedHtml.includes(TRANSLATIONS.en.v2.searchScore.pillars.priceFit.short));
+    assert.ok(rankedHtml.includes('฿499'));
+    assert.ok(rankedHtml.includes('20%'));
+    assert.ok(rankedHtml.includes(TRANSLATIONS.en.v2.searchScore.grades[strongEntry.searchScore.grade]));
 
     const zeroHtml = renderToStaticMarkup(
       React.createElement(ProductCard, {
@@ -558,8 +558,8 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
     );
 
     assert.ok(!enHtml.includes('အဓိပ္ပာယ်'), 'English VideoStudioView must not leak hardcoded Myanmar text');
-    assert.ok(enHtml.includes(TRANSLATIONS.en.studio.commercialStudioNotice));
-    assert.ok(enHtml.includes('scroll-mt-28 sm:scroll-mt-20'));
+    assert.ok(!enHtml.includes(TRANSLATIONS.en.studio.commercialStudioNotice));
+    assert.ok(enHtml.includes('scroll-mt-36 sm:scroll-mt-28'));
 
     const myHtml = renderToStaticMarkup(
       React.createElement(VideoStudioView, {
@@ -594,7 +594,7 @@ describe('Phase 7 UX & Mobile Audit Regression Suite', () => {
       myHtml.includes('အလှကုန်နှင့် တစ်ကိုယ်ရေသုံး'),
       'Myanmar VideoStudioView should localize English-only categoryLabel'
     );
-    assert.ok(myHtml.includes(TRANSLATIONS.my.studio.commercialStudioNotice));
+    assert.ok(!myHtml.includes(TRANSLATIONS.my.studio.commercialStudioNotice));
     assert.ok(myHtml.includes(`${TRANSLATIONS.my.studio.meaningLabel}:`));
   });
 

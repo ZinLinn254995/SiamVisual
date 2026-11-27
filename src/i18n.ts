@@ -91,6 +91,11 @@ export interface Translations {
     floatingFilterBtn: string;
     pullToRefreshHint: string;
     pullToRefreshRelease: string;
+    pullConfirmTitle: string;
+    pullConfirmDiscoverDesc: (cost: number) => string;
+    pullConfirmRankDesc: (cost: number) => string;
+    pullConfirmAction: string;
+    pullCancelAction: string;
   };
   card: {
     thaiOriginal: string;
@@ -192,6 +197,18 @@ export interface Translations {
     copy: string;
     regenerate: string;
     styleLabel: string;
+    subpages: {
+      data: string;
+      ideas: string;
+      kit: string;
+      prompt: string;
+    };
+    kitSubtabs: {
+      overview: string;
+      script: string;
+      prompts: string;
+      seo: string;
+    };
     generatingTitle: string;
     generatingDesc: string;
     autoSaved: string;
@@ -823,6 +840,17 @@ export interface Translations {
     noMatchesTitle: string;
     noMatchesDesc: string;
     sortLabel: string;
+    subpages: {
+      rankings: string;
+      analytics: string;
+      viewFilteredBtn: (count: number) => string;
+    };
+  };
+  pagination: {
+    prev: string;
+    next: string;
+    pageOf: (page: number, totalPages: number) => string;
+    goToPageAria: (page: number) => string;
   };
 }
 
@@ -906,6 +934,13 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       floatingFilterBtn: 'Filter · Sort',
       pullToRefreshHint: 'စစ်ဆေးပြန်စရန် အောက်သို့ ဆွဲချပါ',
       pullToRefreshRelease: 'လွှတ်လိုက်ပါ — ရှာဖွေမှု/စစ်ဆေးမှု ဖွင့်မယ်',
+      pullConfirmTitle: 'Kalodata Live Data အသစ်ပြန်ဆွဲမလား?',
+      pullConfirmDiscoverDesc: (cost: number) =>
+        `မတော်တဆ Credit မကုန်စေရန် အတည်ပြုပေးပါ — Live ရှာဖွေမှုအသစ်ပြန်ဆွဲပါက ~${cost} cr ကုန်ကျနိုင်ပါသည်။`,
+      pullConfirmRankDesc: (cost: number) =>
+        `မတော်တဆ Credit မကုန်စေရန် အတည်ပြုပေးပါ — Rank Board Live Sync ပြုလုပ်ပါက ~${cost} cr ကုန်ကျနိုင်ပါသည်။`,
+      pullConfirmAction: 'Live Refresh လုပ်မယ်',
+      pullCancelAction: 'မလုပ်သေးပါ',
     },
     card: {
       thaiOriginal: 'ထိုင်း TikTok နာမည်',
@@ -1007,6 +1042,18 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       copy: 'ကူးယူမယ်',
       regenerate: 'အသစ်ပြန်ထုတ်မယ်',
       styleLabel: 'Visual ပုံစံရွေးချယ်ရန်',
+      subpages: {
+        data: 'Deep Data',
+        ideas: 'Video Ideas',
+        kit: 'Video Kit',
+        prompt: 'AI Prompt',
+      },
+      kitSubtabs: {
+        overview: 'Concept & Hooks',
+        script: 'Script',
+        prompts: 'AI Prompts',
+        seo: 'TikTok SEO',
+      },
       generatingTitle: 'စကားမပြောဘဲ ဆွဲဆောင်မည့် AI Video Plan ဖန်တီးနေပါသည်',
       generatingDesc: 'Visual Hook၊ Silent Script၊ AI Video Prompts နှင့် ထိုင်း TikTok SEO များကို ပြင်ဆင်နေပါသည်...',
       autoSaved: 'သိမ်းထားသော ပစ္စည်းများတွင် အလိုအလျောက် သိမ်းဆည်းပြီးပါပြီ',
@@ -1899,6 +1946,17 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       noMatchesTitle: 'ရွေးထားသော Filter နှင့် ကိုက်ညီသည့် ပစ္စည်းမတွေ့ပါ',
       noMatchesDesc: 'Category၊ ချန်နယ် သို့မဟုတ် ရှာဖွေမှုစာသားကို ပြန်ဖြုတ်၍ အားလုံးကြည့်နိုင်ပါသည်။',
       sortLabel: 'စီစဉ်ပုံ',
+      subpages: {
+        rankings: 'အဆင့်ဇယား',
+        analytics: 'ဈေးကွက် Chart',
+        viewFilteredBtn: (count: number) => `ရွေးထားသော ${count} ခု ကြည့်မယ်`,
+      },
+    },
+    pagination: {
+      prev: 'ရှေ့',
+      next: 'နောက်',
+      pageOf: (page: number, totalPages: number) => `${page} / ${totalPages}`,
+      goToPageAria: (page: number) => `စာမျက်နှာ ${page}`,
     },
   },
   en: {
@@ -1980,6 +2038,13 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       floatingFilterBtn: 'Filter · Sort',
       pullToRefreshHint: 'Pull down to refresh view',
       pullToRefreshRelease: 'Release to open refresh options',
+      pullConfirmTitle: 'Refresh live Kalodata data?',
+      pullConfirmDiscoverDesc: (cost: number) =>
+        `Confirm before spending credits — running a fresh live product search may use ~${cost} cr.`,
+      pullConfirmRankDesc: (cost: number) =>
+        `Confirm before spending credits — syncing live Rank Board data may use ~${cost} cr.`,
+      pullConfirmAction: 'Refresh Live Data',
+      pullCancelAction: 'Cancel',
     },
     card: {
       thaiOriginal: 'Thai TikTok listing',
@@ -2081,6 +2146,18 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       copy: 'Copy',
       regenerate: 'Regenerate',
       styleLabel: 'Visual style',
+      subpages: {
+        data: 'Deep Data',
+        ideas: 'Video Ideas',
+        kit: 'Video Kit',
+        prompt: 'AI Prompt',
+      },
+      kitSubtabs: {
+        overview: 'Concept & Hooks',
+        script: 'Script',
+        prompts: 'AI Prompts',
+        seo: 'TikTok SEO',
+      },
       generatingTitle: 'Building your zero-speech AI video plan',
       generatingDesc: 'Crafting silent visual hooks, shot-by-shot storyboard, AI prompts, and Thailand TikTok SEO...',
       autoSaved: 'Saved automatically to Saved Products',
@@ -2974,6 +3051,17 @@ export const TRANSLATIONS: Record<Language, Translations> = {
       noMatchesTitle: 'No ranked products match these filters',
       noMatchesDesc: 'Reset your category, channel, or search filters to view the full leaderboard.',
       sortLabel: 'Sort by',
+      subpages: {
+        rankings: 'Rankings',
+        analytics: 'Market Charts',
+        viewFilteredBtn: (count: number) => `View ${count} matching`,
+      },
+    },
+    pagination: {
+      prev: 'Prev',
+      next: 'Next',
+      pageOf: (page: number, totalPages: number) => `${page} / ${totalPages}`,
+      goToPageAria: (page: number) => `Page ${page}`,
     },
   },
 };

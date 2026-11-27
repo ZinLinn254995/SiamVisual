@@ -68,7 +68,7 @@ export function CompactFilterBar({
             isLinkOrId ? 'opacity-45 pointer-events-none' : 'opacity-100'
           }`}
         >
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar overscroll-x-contain py-1 pr-5">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x overscroll-x-contain py-1 pl-0.5 pr-6">
             {categories.map((cat) => {
               const isAll = !cat.id;
               const isSelected = isAll

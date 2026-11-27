@@ -13,7 +13,6 @@ import type {
   ScoreGrade,
 } from '../types';
 import { BottomSheet } from './BottomSheet';
-import { InfoTooltip } from './InfoTooltip';
 import { ScoreRing } from './ScoreRing';
 
 interface ScoreDetailDialogProps {
@@ -55,6 +54,24 @@ function searchGradeToTextClass(grade: SearchScoreGrade): string {
     case 'INSUFFICIENT':
     default:
       return 'text-slate-600 dark:text-slate-400';
+  }
+}
+
+function searchGradeSymbol(grade: SearchScoreGrade): string {
+  switch (grade) {
+    case 'TOP':
+      return '★';
+    case 'STRONG':
+      return '◆';
+    case 'MODERATE':
+      return '●';
+    case 'WEAK':
+      return '▾';
+    case 'NOT_MONETIZABLE':
+      return '✕';
+    case 'INSUFFICIENT':
+    default:
+      return '◌';
   }
 }
 
@@ -127,12 +144,6 @@ export function ScoreDetailContent({
   const gradeToneClass = searchGradeToTextClass(searchScore.grade);
   const ringGrade = searchGradeToScoreGrade(searchScore.grade);
   const m = searchScore.metrics;
-
-  const isCapped =
-    searchScore.capsApplied.length > 0 &&
-    searchScore.rawWeightedScore !== null &&
-    searchScore.score !== null &&
-    Math.round(searchScore.rawWeightedScore) > searchScore.score;
 
   const priceZone = getPriceZoneKey(m.priceThb);
 
@@ -262,6 +273,7 @@ export function ScoreDetailContent({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                 <span className={`font-semibold ${gradeToneClass}`}>
+                  <span aria-hidden="true">{searchGradeSymbol(searchScore.grade)} </span>
                   {copy.grades[searchScore.grade]}
                 </span>
                 <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
@@ -270,16 +282,6 @@ export function ScoreDetailContent({
                 <span className="font-mono-num tabular-nums font-bold text-slate-900 dark:text-slate-100">
                   {searchScore.score !== null ? `${searchScore.score}/100` : '—'}
                 </span>
-                {isCapped && (
-                  <>
-                    <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
-                      ·
-                    </span>
-                    <span className="font-mono-num tabular-nums text-[11px] font-medium text-amber-700 dark:text-amber-400">
-                      {Math.round(searchScore.rawWeightedScore!)} → {searchScore.score}
-                    </span>
-                  </>
-                )}
               </div>
 
               <h2
@@ -335,25 +337,13 @@ export function ScoreDetailContent({
         data-sheet-scroll="true"
         className="flex-1 overflow-y-auto overscroll-contain divide-y divide-slate-100 dark:divide-slate-800/90"
       >
-        {/* Active Cap / 0% Commission Notice (Only when triggered) */}
-        {(searchScore.status === 'NOT_MONETIZABLE' || searchScore.capsApplied.length > 0) && (
-          <div className="px-4 sm:px-6 py-3 bg-amber-50/55 dark:bg-amber-950/20 flex items-start gap-2.5 text-xs">
-            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <div className="min-w-0 space-y-0.5">
-              {searchScore.status === 'NOT_MONETIZABLE' ? (
-                <p className="font-medium text-rose-700 dark:text-rose-400">
-                  {language === 'my'
-                    ? 'ကော်မရှင် 0% ဖြစ်သောကြောင့် Affiliate အမြတ်မရနိုင်၍ 0 မှတ်သတ်မှတ်ထားသည်'
-                    : '0% verified commission — non-monetizable for affiliates (Score 0)'}
-                </p>
-              ) : (
-                searchScore.capsApplied.map((capCode) => (
-                  <p key={capCode} className="font-medium text-amber-800 dark:text-amber-300">
-                    {copy.caps[capCode]}
-                  </p>
-                ))
-              )}
-            </div>
+        {/* 0% Commission Warning */}
+        {searchScore.status === 'NOT_MONETIZABLE' && (
+          <div className="px-4 sm:px-6 py-3 bg-rose-50/55 dark:bg-rose-950/20 flex items-center gap-2.5 text-xs">
+            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <p className="font-medium text-rose-700 dark:text-rose-400">
+              {copy.grades.NOT_MONETIZABLE} (0%)
+            </p>
           </div>
         )}
 
@@ -361,18 +351,11 @@ export function ScoreDetailContent({
         <div className="p-4 sm:p-6 space-y-4">
           <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
-              <div className="inline-flex items-center gap-1.5">
-                <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  {copy.compositionTitle}
-                </h3>
-                <InfoTooltip content={t.score.dialogSubtitle} ariaLabel={copy.compositionTitle} />
-              </div>
+              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                {copy.compositionTitle}
+              </h3>
               <span className="font-mono-num tabular-nums text-xs font-semibold text-slate-800 dark:text-slate-200">
-                {isCapped
-                  ? `${Math.round(searchScore.rawWeightedScore!)} → ${searchScore.score} / 100`
-                  : searchScore.rawWeightedScore !== null
-                    ? `${Math.round(searchScore.rawWeightedScore)} / 100`
-                    : '—'}
+                {searchScore.score !== null ? `${searchScore.score} / 100` : '—'}
               </span>
             </div>
 
@@ -426,7 +409,7 @@ export function ScoreDetailContent({
                       <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
                         {pillar.label}
                       </span>
-                      <span className="font-mono-num text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
+                      <span className="font-mono-num text-[11px] text-slate-500 dark:text-slate-400 shrink-0">
                         {pillar.weightLabel}
                       </span>
                     </div>
@@ -486,7 +469,7 @@ export function ScoreDetailContent({
                   )}
                   {mallPct > 0 && (
                     <div
-                      className="h-full bg-slate-400 dark:bg-slate-600 first:rounded-l-full last:rounded-r-full"
+                      className="h-full bg-slate-500 dark:bg-slate-400 first:rounded-l-full last:rounded-r-full"
                       style={{ width: `${mallPct}%` }}
                     />
                   )}
@@ -520,7 +503,7 @@ export function ScoreDetailContent({
                   {(mallPct > 0 || (m.showcaseRevenueThb !== null && m.showcaseRevenueThb > 0)) && (
                     <div className="flex items-center justify-between gap-2">
                       <span className="inline-flex items-center gap-1.5 font-sans text-slate-600 dark:text-slate-300">
-                        <span className="w-2 h-2 rounded-xs bg-slate-400 dark:bg-slate-600" />
+                        <span className="w-2 h-2 rounded-xs bg-slate-500 dark:bg-slate-400" />
                         {copy.channelShort.mall}
                       </span>
                       <span className="font-semibold text-slate-700 dark:text-slate-300">
@@ -534,7 +517,7 @@ export function ScoreDetailContent({
                 </div>
               </>
             ) : (
-              <div className="text-xs text-slate-400 dark:text-slate-500">—</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">—</div>
             )}
           </div>
 
@@ -583,7 +566,7 @@ export function ScoreDetailContent({
                 )}
               </div>
 
-              <div className="mt-2 flex items-center justify-between text-[10px] font-mono-num tabular-nums text-slate-400 dark:text-slate-500">
+              <div className="mt-2 flex items-center justify-between text-[10px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
                 <span>฿0</span>
                 <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
                   ฿150 – ฿790
@@ -677,7 +660,7 @@ export function ScoreDetailContent({
                           : 'text-rose-700 dark:text-rose-400'
                       }`}
                     >
-                      {detailTrend.growth7dPct > 0 ? '+' : ''}
+                      {detailTrend.growth7dPct > 0 ? '▲ +' : detailTrend.growth7dPct < 0 ? '▼ ' : '• '}
                       {detailTrend.growth7dPct}%
                     </span>
                   )}
@@ -712,7 +695,7 @@ export function ScoreDetailContent({
                 />
               </svg>
 
-              <div className="flex items-center justify-between gap-2 text-[10px] font-mono-num tabular-nums text-slate-400 dark:text-slate-500">
+              <div className="flex items-center justify-between gap-2 text-[10px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
                 <span>
                   {detailTrend.minDayThb !== null
                     ? `Min ${formatCompactThb(detailTrend.minDayThb)}`
@@ -735,18 +718,11 @@ export function ScoreDetailContent({
       </div>
 
       {/* Minimal Footer */}
-      <div className="px-4 sm:px-6 pt-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-3 shrink-0 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-between gap-3 bg-white dark:bg-[#131B24]">
-        <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 min-w-0">
-          <span className="truncate">{copy.badgeShort}</span>
-          <InfoTooltip
-            content={[copy.rankDataOnlyNote, copy.deepStudioHint]}
-            ariaLabel={copy.rankDataOnlyNote}
-          />
-        </div>
+      <div className="px-4 sm:px-6 pt-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-3 shrink-0 border-t border-slate-100 dark:border-slate-800/90 flex items-center justify-end gap-3 bg-white dark:bg-[#131B24]">
         <button
           type="button"
           onClick={onClose}
-          className="h-10 sm:h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap shrink-0 cursor-pointer"
+          className="h-10 sm:h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
         >
           {t.score.closeBtn}
         </button>

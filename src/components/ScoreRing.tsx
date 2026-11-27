@@ -118,10 +118,10 @@ export function getV2ScoreTone(
 ): ScoreTone {
   if (score === null) {
     return {
-      stroke: '#94A3B8',
+      stroke: '#64748B',
       textClass: 'text-slate-600 dark:text-slate-400',
       labelClass: 'text-slate-600 dark:text-slate-400',
-      barClass: 'bg-slate-400 dark:bg-slate-600',
+      barClass: 'bg-slate-500 dark:bg-slate-400',
       trackClass: 'stroke-slate-200 dark:stroke-slate-700/80',
     };
   }

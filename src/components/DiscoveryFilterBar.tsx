@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ArrowUpDown, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import type { Translations } from '../i18n';
 import {
@@ -9,7 +10,6 @@ import {
   type DiscoverySortMode,
 } from '../lib/discoveryFilterEngine';
 import { CustomSelect, type CustomSelectOption } from './CustomSelect';
-import { InfoTooltip } from './InfoTooltip';
 
 interface DiscoveryFilterBarProps {
   state: DiscoveryFilterState;
@@ -43,9 +43,15 @@ export function DiscoveryFilterBar({
   t,
   onChange,
 }: DiscoveryFilterBarProps) {
+  const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
   const copy = t.v2.discoveryFilter;
   const effectiveSort: DiscoverySortMode =
     state.sortMode === 'intelligence' ? 'search_score_desc' : state.sortMode;
+  const activeAdvancedCount =
+    (state.minCommissionPct !== null ? 1 : 0) +
+    (state.minVideoSharePct !== null ? 1 : 0) +
+    (state.priceBand !== 'all' ? 1 : 0);
+  const showAdvancedRow = isFiltersExpanded || activeAdvancedCount > 0;
   const isDefault =
     state.preset === 'all' &&
     state.minCommissionPct === null &&
@@ -87,12 +93,12 @@ export function DiscoveryFilterBar({
   return (
     <section
       aria-label={copy.barAriaLabel}
-      className="mb-4 rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 overflow-hidden"
+      className="mb-2.5 rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 overflow-hidden"
     >
-      {/* Row 1: Evidence Shortlist Presets + Verified-Metric Sort */}
-      <div className="px-3.5 sm:px-4 py-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+      {/* Row 1: Presets + Sort + Compact Filter Toggle */}
+      <div className="px-3 sm:px-3.5 py-2 flex flex-col lg:flex-row lg:items-center justify-between gap-2">
         <div className="relative min-w-0 flex-1">
-          <div className="flex items-center gap-2 sm:gap-1.5 overflow-x-auto no-scrollbar pr-6 lg:pr-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x overscroll-x-contain pl-0.5 pr-6 lg:pr-0">
             {PRESET_ORDER.map((preset) => {
               const isSelected = state.preset === preset;
               const itemCount = presetCountMap[preset];
@@ -102,7 +108,7 @@ export function DiscoveryFilterBar({
                   type="button"
                   aria-pressed={isSelected}
                   onClick={() => onChange({ ...state, preset })}
-                  className={`h-10 sm:h-8 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                  className={`h-9 sm:h-8 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                     isSelected
                       ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 font-semibold'
                       : 'bg-slate-50 dark:bg-slate-900/70 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -113,9 +119,7 @@ export function DiscoveryFilterBar({
                     className={`font-mono-num tabular-nums text-[11px] ${
                       isSelected
                         ? 'text-white/80 dark:text-slate-950/75'
-                        : itemCount > 0
-                          ? 'text-slate-500 dark:text-slate-400'
-                          : 'text-slate-400 dark:text-slate-600'
+                        : 'text-slate-500 dark:text-slate-400'
                     }`}
                   >
                     {itemCount}
@@ -130,33 +134,60 @@ export function DiscoveryFilterBar({
           />
         </div>
 
-        {/* Custom Verified-Metric Sort Selector */}
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
-            <span>{copy.sortLabel}</span>
-          </span>
-          <CustomSelect
-            id="discovery-sort-select"
-            ariaLabel={copy.sortLabel}
-            size="sm"
-            value={effectiveSort}
-            options={sortOptions}
-            isHighlighted={effectiveSort !== 'search_score_desc'}
-            onChange={(val) => onChange({ ...state, sortMode: val as DiscoverySortMode })}
-          />
+        {/* Sort + Filter Toggle + Reset */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+            <CustomSelect
+              id="discovery-sort-select"
+              ariaLabel={copy.sortLabel}
+              size="sm"
+              value={effectiveSort}
+              options={sortOptions}
+              isHighlighted={effectiveSort !== 'search_score_desc'}
+              onChange={(val) => onChange({ ...state, sortMode: val as DiscoverySortMode })}
+            />
+          </div>
+
+          <button
+            type="button"
+            aria-expanded={showAdvancedRow}
+            aria-label={copy.zeroCreditHint}
+            onClick={() => setIsFiltersExpanded((prev) => !prev)}
+            className={`h-9 sm:h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+              showAdvancedRow || activeAdvancedCount > 0
+                ? 'border-teal-500/70 bg-teal-50/70 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300'
+                : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+            {activeAdvancedCount > 0 && (
+              <span className="font-mono-num tabular-nums text-[11px] font-semibold">
+                {activeAdvancedCount}
+              </span>
+            )}
+          </button>
+
+          {!isDefault && (
+            <button
+              type="button"
+              onClick={() =>
+                onChange({ ...DEFAULT_DISCOVERY_FILTER_STATE, sortMode: 'search_score_desc' })
+              }
+              aria-label={copy.resetBtn}
+              title={copy.resetBtn}
+              className="h-9 sm:h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1 active:scale-[0.97] transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            >
+              <RotateCcw className="w-3 h-3 shrink-0" />
+              <span className="hidden sm:inline">{copy.resetBtn}</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Row 2: Zero-Credit Local Affiliate Refinements + Live Match Summary */}
-      <div className="px-3.5 sm:px-4 py-2 border-t border-slate-100 dark:border-slate-800/85 bg-slate-50/55 dark:bg-slate-900/35 flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-            <SlidersHorizontal className="w-3 h-3 shrink-0" />
-            <span>0 cr</span>
-            <InfoTooltip content={copy.zeroCreditHint} ariaLabel={copy.zeroCreditHint} />
-          </span>
-
+      {/* Collapsible Row 2: Zero-Credit Local Affiliate Refinements */}
+      {showAdvancedRow && (
+        <div className="px-3 sm:px-3.5 py-2 border-t border-slate-100 dark:border-slate-800/85 bg-slate-50/55 dark:bg-slate-900/35 flex flex-wrap items-center gap-2.5 text-xs">
           {/* Min Commission Rate */}
           <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
             <span>{copy.minCommissionLabel}</span>
@@ -209,25 +240,7 @@ export function DiscoveryFilterBar({
             />
           </div>
         </div>
-
-        <div className="flex items-center gap-2.5 ml-auto">
-          <span className="font-mono-num tabular-nums text-[11px] text-slate-500 dark:text-slate-400">
-            {copy.showingCount(counts.filteredCount, counts.totalCount)}
-          </span>
-          {!isDefault && (
-            <button
-              type="button"
-              onClick={() =>
-                onChange({ ...DEFAULT_DISCOVERY_FILTER_STATE, sortMode: 'search_score_desc' })
-              }
-              className="h-10 sm:h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1 active:scale-[0.97] transition-transform cursor-pointer"
-            >
-              <RotateCcw className="w-3 h-3 shrink-0" />
-              <span>{copy.resetBtn}</span>
-            </button>
-          )}
-        </div>
-      </div>
+      )}
     </section>
   );
 }

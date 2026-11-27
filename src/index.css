@@ -103,14 +103,28 @@
   .mobile-landscape-header-row {
     height: 2.75rem;
   }
+  .mobile-landscape-bottom-nav-row {
+    padding-top: 0.125rem;
+    padding-bottom: 0.125rem;
+  }
   .mobile-landscape-bottom-nav-btn {
-    height: 2.35rem;
+    height: 2.25rem;
+  }
+  .mobile-landscape-main {
+    padding-bottom: calc(3.25rem + env(safe-area-inset-bottom));
   }
   .mobile-landscape-compact-bar {
     height: calc(44px + env(safe-area-inset-top));
   }
   .mobile-landscape-sheet-panel {
     max-height: 94dvh !important;
+  }
+  .mobile-landscape-sheet-handle {
+    padding-top: 0.375rem;
+    padding-bottom: 0.25rem;
+  }
+  .mobile-landscape-studio-sticky {
+    top: calc(2.75rem + env(safe-area-inset-top));
   }
 }
 

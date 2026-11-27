@@ -23,7 +23,6 @@ import { inspectQueryLink } from '../lib/productLinkInspector';
 import type { KalodataCategoryItem, Language } from '../types';
 import { BottomSheet } from './BottomSheet';
 import { CustomSelect, type CustomSelectOption } from './CustomSelect';
-import { InfoTooltip } from './InfoTooltip';
 
 interface SearchConfigDrawerProps {
   isOpen: boolean;
@@ -139,19 +138,6 @@ export function SearchConfigDrawer({
     });
   }
 
-  const windowTag = draft.dateRange === 'last30Day' ? '30d' : '7d';
-  const summaryText =
-    linkInfo.isLinkOrId && linkInfo.productId
-      ? copy.summaryLink(linkInfo.productId, leanSearchCost)
-      : linkInfo.isLinkOrId && linkInfo.isShortLink
-        ? copy.summaryShortLink(leanSearchCost)
-        : copy.summaryRank(
-            draft.pageSize,
-            windowTag,
-            filterCopy.presets[draft.filterState.preset],
-            leanSearchCost
-          );
-
   return (
     <BottomSheet
       isOpen={isOpen}
@@ -164,20 +150,14 @@ export function SearchConfigDrawer({
       labelledBy="search-config-drawer-title"
       showHandleOnDesktop
     >
-      {/* Sticky Drawer Header (swipeable via BottomSheet) */}
+      {/* Minimal Drag Header (swipeable via BottomSheet) */}
       <div
         data-sheet-handle="true"
-        className="px-4 sm:px-6 pt-1 pb-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-start justify-between gap-3 shrink-0 touch-none"
+        className="px-4 sm:px-6 pt-1 pb-2.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-end gap-3 shrink-0 touch-none"
       >
-        <div className="min-w-0 flex items-center gap-1.5">
-          <h2
-            id="search-config-drawer-title"
-            className="font-display text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100 leading-snug"
-          >
-            {copy.title}
-          </h2>
-          <InfoTooltip content={copy.subtitle} ariaLabel={copy.title} size="md" />
-        </div>
+        <h2 id="search-config-drawer-title" className="sr-only">
+          {copy.title}
+        </h2>
 
         <button
           type="button"
@@ -201,15 +181,6 @@ export function SearchConfigDrawer({
         >
                 {/* Section 1: Keyword OR Single Product Link / ID */}
                 <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <label
-                      htmlFor="drawer-keyword-or-link"
-                      className="text-xs font-semibold text-slate-800 dark:text-slate-200"
-                    >
-                      {copy.keywordOrLinkLabel}
-                    </label>
-                    <InfoTooltip content={copy.keywordOrLinkHint} ariaLabel={copy.keywordOrLinkLabel} />
-                  </div>
                   <div className="relative flex items-center rounded-xl border border-slate-200/95 dark:border-slate-700/90 bg-slate-50/70 dark:bg-slate-900/65 focus-within:border-teal-500 dark:focus-within:border-teal-400 focus-within:bg-white dark:focus-within:bg-[#0E151D] transition-colors">
                     {linkInfo.isLinkOrId ? (
                       <Link2 className="w-4 h-4 text-teal-600 dark:text-teal-400 absolute left-3.5 pointer-events-none" />
@@ -220,6 +191,7 @@ export function SearchConfigDrawer({
                       ref={inputRef}
                       id="drawer-keyword-or-link"
                       type="text"
+                      aria-label={copy.keywordOrLinkLabel}
                       value={draft.query}
                       onChange={(e) =>
                         setDraft((prev) => ({ ...prev, query: e.target.value }))
@@ -235,7 +207,7 @@ export function SearchConfigDrawer({
                           inputRef.current?.focus();
                         }}
                         aria-label={t.history.clearFilterAria}
-                        className="absolute right-1 h-9 w-9 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 active:scale-95 cursor-pointer"
+                        className="absolute right-1 h-9 w-9 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -245,22 +217,12 @@ export function SearchConfigDrawer({
                   {linkInfo.isLinkOrId && linkInfo.productId ? (
                     <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-teal-700 dark:text-teal-400 font-mono-num">
                       <Link2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>ID: {linkInfo.productId} · ~{leanSearchCost} cr</span>
-                      <InfoTooltip
-                        tone="teal"
-                        content={t.search.linkModeNotice(linkInfo.productId)}
-                        ariaLabel={t.search.linkModeNotice(linkInfo.productId)}
-                      />
+                      <span>ID: {linkInfo.productId}</span>
                     </div>
                   ) : linkInfo.isLinkOrId && linkInfo.isShortLink ? (
                     <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-teal-700 dark:text-teal-400">
                       <Link2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>TikTok Short Link · ~{leanSearchCost} cr</span>
-                      <InfoTooltip
-                        tone="teal"
-                        content={t.search.shortLinkNotice}
-                        ariaLabel={t.search.shortLinkNotice}
-                      />
+                      <span>TikTok Link</span>
                     </div>
                   ) : isLinkBroken ? (
                     <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
@@ -277,15 +239,9 @@ export function SearchConfigDrawer({
                 >
                   {/* Product Count Selector (20 / 50 / 100) */}
                   <div>
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <div className="inline-flex items-center gap-1.5 min-w-0">
-                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                          {copy.countLabel}
-                        </span>
-                        <InfoTooltip content={copy.countCostNote} ariaLabel={copy.countLabel} />
-                      </div>
-                      <span className="font-mono-num tabular-nums text-[11px] text-teal-700 dark:text-teal-400 font-medium">
-                        ~{leanSearchCost} cr
+                    <div className="mb-2">
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                        {copy.countLabel}
                       </span>
                     </div>
                     <div
@@ -295,7 +251,6 @@ export function SearchConfigDrawer({
                     >
                       {SEARCH_PAGE_SIZE_OPTIONS.map((size) => {
                         const isSelected = draft.pageSize === size;
-                        const isMaxBest = size === 100;
                         return (
                           <button
                             key={size}
@@ -311,17 +266,6 @@ export function SearchConfigDrawer({
                             <span className="font-mono-num tabular-nums">
                               {copy.countUnit(size)}
                             </span>
-                            {isMaxBest && (
-                              <span
-                                className={`text-[10px] font-medium ${
-                                  isSelected
-                                    ? 'text-teal-300 dark:text-teal-700'
-                                    : 'text-teal-700 dark:text-teal-400'
-                                }`}
-                              >
-                                · {copy.recommendedTag}
-                              </span>
-                            )}
                           </button>
                         );
                       })}
@@ -330,11 +274,10 @@ export function SearchConfigDrawer({
 
                   {/* Sales Window Selector (7d / 30d) */}
                   <div>
-                    <div className="flex items-center gap-1.5 mb-2">
+                    <div className="mb-2">
                       <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
                         {copy.windowLabel}
                       </span>
-                      <InfoTooltip content={copy.windowNote} ariaLabel={copy.windowLabel} />
                     </div>
                     <div
                       role="group"
@@ -370,14 +313,6 @@ export function SearchConfigDrawer({
                       <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
                         {copy.categoriesLabel}
                       </span>
-                      <InfoTooltip
-                        content={
-                          linkInfo.isLinkOrId
-                            ? copy.categoriesDisabledInLinkMode
-                            : t.search.multiCategoryHint
-                        }
-                        ariaLabel={copy.categoriesLabel}
-                      />
                       {!linkInfo.isLinkOrId && draft.cateIds.length > 0 && (
                         <>
                           <span className="text-[11px] font-medium text-teal-700 dark:text-teal-400 font-mono-num">
@@ -386,19 +321,12 @@ export function SearchConfigDrawer({
                           <button
                             type="button"
                             onClick={() => setDraft((prev) => ({ ...prev, cateIds: [] }))}
-                            className="text-[11px] text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 underline cursor-pointer"
+                            className="text-[11px] text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 underline cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded-xs"
                           >
                             {t.search.clearCategories}
                           </button>
                         </>
                       )}
-                      {!linkInfo.isLinkOrId &&
-                        draft.cateIds.length === 0 &&
-                        hasLiveSyncedCategories && (
-                          <span className="text-[11px] font-medium text-teal-700 dark:text-teal-400">
-                            {t.search.liveSyncedTag}
-                          </span>
-                        )}
                     </div>
 
                     {isConnected && !linkInfo.isLinkOrId && (
@@ -406,7 +334,7 @@ export function SearchConfigDrawer({
                         type="button"
                         disabled={isSyncingCategories || Boolean(searchLimitWarning)}
                         onClick={onSyncCategories}
-                        className="text-[11px] font-medium text-slate-500 hover:text-teal-700 dark:text-slate-400 dark:hover:text-teal-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50"
+                        className="text-[11px] font-medium text-slate-500 hover:text-teal-700 dark:text-slate-400 dark:hover:text-teal-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded-xs"
                       >
                         <RefreshCw
                           className={`w-3 h-3 ${isSyncingCategories ? 'animate-spin' : ''}`}
@@ -421,7 +349,7 @@ export function SearchConfigDrawer({
                   </div>
 
                   {linkInfo.isLinkOrId ? (
-                    <div className="inline-flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+                    <div className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                       <span>—</span>
                     </div>
                   ) : (
@@ -452,7 +380,7 @@ export function SearchConfigDrawer({
                                 className={`font-mono-num tabular-nums text-[11px] ${
                                   isSelected
                                     ? 'text-white/75 dark:text-slate-950/70'
-                                    : 'text-slate-400 dark:text-slate-500'
+                                    : 'text-slate-500 dark:text-slate-400'
                                 }`}
                               >
                                 {matchCount}
@@ -465,34 +393,21 @@ export function SearchConfigDrawer({
                   )}
                 </div>
 
-                {/* Section 4: Affiliate Result Filters & Sort (0 cr local filtering) */}
+                {/* Section 4: Affiliate Result Filters & Sort */}
                 <div className="pt-4 border-t border-slate-100 dark:border-slate-800/85">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                    <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
-                      <SlidersHorizontal className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                      <span>{copy.affiliateFiltersLabel}</span>
-                      <InfoTooltip
-                        content={
-                          linkInfo.isLinkOrId
-                            ? copy.affiliateFiltersDisabledInLinkMode
-                            : copy.affiliateFiltersHint
-                        }
-                        ariaLabel={copy.affiliateFiltersLabel}
-                      />
-                    </div>
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 mb-2.5">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                    <span>{copy.affiliateFiltersLabel}</span>
                   </div>
 
                   {linkInfo.isLinkOrId ? (
-                    <div className="inline-flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+                    <div className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                       <span>—</span>
                     </div>
                   ) : (
                     <div className="space-y-3.5">
                       {/* Shortlist Preset Buttons */}
                       <div>
-                        <span className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">
-                          {copy.presetLabel}
-                        </span>
                         <div className="flex flex-wrap items-center gap-1.5">
                           {PRESET_ORDER.map((preset) => {
                             const isSelected = draft.filterState.preset === preset;
@@ -671,26 +586,21 @@ export function SearchConfigDrawer({
               </div>
 
               {/* Sticky Bottom Footer */}
-              <div className="px-4 sm:px-6 pt-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] border-t border-slate-200/85 dark:border-slate-800 bg-slate-50/85 dark:bg-[#0E151D] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
-                <div className="flex flex-wrap items-center justify-between sm:justify-start gap-x-3 gap-y-1.5 min-w-0">
-                  <button
-                    type="button"
-                    onClick={handleResetToRecommendedDefaults}
-                    className="h-9 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1.5 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-                    <span>{copy.resetDefaultsBtn}</span>
-                  </button>
-                  <span className="font-mono-num tabular-nums text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                    {summaryText}
-                  </span>
-                </div>
+              <div className="px-4 sm:px-6 pt-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] border-t border-slate-200/85 dark:border-slate-800 bg-slate-50/85 dark:bg-[#0E151D] flex flex-row items-center justify-between gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleResetToRecommendedDefaults}
+                  className="h-10 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1.5 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                  <span>{copy.resetDefaultsBtn}</span>
+                </button>
 
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={onClose}
-                    className="h-11 px-4 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer"
+                    className="h-11 px-4 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-[#131B24] text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                   >
                     {copy.cancelBtn}
                   </button>

@@ -158,13 +158,18 @@ test('VideoStudioView renders 13-lesson Video Ideas pack cleanly and handles leg
   const withPackHtml = renderToStaticMarkup(
     React.createElement(VideoStudioView, { ...commonProps, product: makeProduct(true) })
   );
-  assert.ok(withPackHtml.includes('AI ဖြင့် Video Ideas စဉ်းစားမယ်'));
+  assert.ok(withPackHtml.includes(t.studio.analysisReBtn));
+  assert.ok(!withPackHtml.includes(t.studio.analysisTitle));
   assert.ok(withPackHtml.includes('เตารีดไอน้ำพกพา Mini Steamer Pro'));
   assert.ok(withPackHtml.includes('PAS (Problem–Agitate–Solve)'));
   assert.ok(withPackHtml.includes('1 Body, 3 Hooks'));
 
   const legacyHtml = renderToStaticMarkup(
-    React.createElement(VideoStudioView, { ...commonProps, product: makeProduct(false) })
+    React.createElement(VideoStudioView, {
+      ...commonProps,
+      product: makeProduct(false),
+      initialSubpage: 'ideas',
+    })
   );
   assert.ok(legacyHtml.includes('Video Ideas စဉ်းစားမယ် (0 cr)'));
 });

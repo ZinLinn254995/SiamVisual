@@ -229,7 +229,7 @@ export function TopBar({
           hideBottomNav ? 'translate-y-full pointer-events-none' : 'translate-y-0'
         }`}
       >
-        <div className="max-w-6xl mx-auto grid grid-cols-4 px-1 py-1">
+        <div className="max-w-6xl mx-auto grid grid-cols-4 px-1 py-1 mobile-landscape-bottom-nav-row">
           <button
             type="button"
             onClick={() => onNavigate('discover')}

@@ -5,7 +5,9 @@ import type { Translations } from '../i18n';
 import { translateCategoryNameToMyanmar } from '../lib/categoryTranslations';
 import { getStudioFallbackImage } from '../lib/media';
 import type { BilingualText, Language, RecentSearchEntry } from '../types';
-import { InfoTooltip } from './InfoTooltip';
+import { PaginationBar } from './PaginationBar';
+
+const SEARCH_HISTORY_PAGE_SIZE = 6;
 
 interface SearchHistoryViewProps {
   entries: RecentSearchEntry[];
@@ -41,6 +43,7 @@ export function SearchHistoryView({
   const [filterQuery, setFilterQuery] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [page, setPage] = useState(1);
 
   const filteredEntries = useMemo(() => {
     const q = filterQuery.trim().toLowerCase();
@@ -56,6 +59,20 @@ export function SearchHistoryView({
       return `${entry.query} ${cateText} ${productText}`.toLowerCase().includes(q);
     });
   }, [entries, filterQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / SEARCH_HISTORY_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedEntries = useMemo(() => {
+    const start = (safePage - 1) * SEARCH_HISTORY_PAGE_SIZE;
+    return filteredEntries.slice(start, start + SEARCH_HISTORY_PAGE_SIZE);
+  }, [filteredEntries, safePage]);
+
+  function handlePageChange(nextPage: number) {
+    setPage(nextPage);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
 
   function formatDate(iso: string): string {
     try {
@@ -102,79 +119,17 @@ export function SearchHistoryView({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-      className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10"
+      className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6"
     >
-      {/* Header & Clear All Controls */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
-        <div className="max-w-2xl">
-          <div className="flex items-center gap-2">
-            <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              {t.searchHistoryPage.title}
-            </h1>
-            <InfoTooltip
-              content={t.searchHistoryPage.subtitle}
-              ariaLabel={t.searchHistoryPage.title}
-              size="md"
-            />
-          </div>
-          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 font-mono-num tabular-nums">
-            {t.searchHistoryPage.totalCount(entries.length)}
-          </p>
-        </div>
-
-        {entries.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {confirmClearAll ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClearAll();
-                    setConfirmClearAll(false);
-                  }}
-                  className="h-11 sm:h-10 px-4 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
-                >
-                  {t.searchHistoryPage.confirmClearAll}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmClearAll(false)}
-                  className="h-11 sm:h-10 px-3.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-300 text-sm font-medium whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer"
-                >
-                  {t.searchHistoryPage.cancel}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmClearAll(true)}
-                className="h-11 sm:h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-600 dark:text-slate-300 hover:text-red-600 hover:border-red-200 dark:hover:text-red-400 dark:hover:border-red-900/60 text-sm font-medium inline-flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4 shrink-0" />
-                <span>{t.searchHistoryPage.clearAllBtn}</span>
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      <h1 className="sr-only">{t.searchHistoryPage.title}</h1>
 
       {/* Empty State */}
       {entries.length === 0 ? (
-        <div className="py-16 sm:py-20 text-center max-w-md mx-auto">
-          <div className="inline-flex items-center justify-center gap-1.5">
-            <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
-              {t.searchHistoryPage.emptyTitle}
-            </h2>
-            <InfoTooltip
-              content={t.searchHistoryPage.emptyDesc}
-              ariaLabel={t.searchHistoryPage.emptyTitle}
-              size="md"
-            />
-          </div>
+        <div className="py-16 text-center max-w-md mx-auto">
           <button
             type="button"
             onClick={onGoDiscover}
-            className="mt-6 h-11 px-5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-sm font-semibold inline-flex items-center gap-2 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            className="h-11 px-5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-sm font-semibold inline-flex items-center gap-2 transition-colors duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             <span>{t.searchHistoryPage.goDiscover}</span>
             <ArrowRight className="w-4 h-4" />
@@ -182,25 +137,64 @@ export function SearchHistoryView({
         </div>
       ) : (
         <>
-          {/* Client-side Filter Bar */}
-          <div className="mt-6 max-w-md">
-            <div className="relative">
+          {/* Action Bar: Filter + Clear All */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3.5 border-b border-slate-200 dark:border-slate-800">
+            <div className="relative w-full md:max-w-md">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={filterQuery}
-                onChange={(e) => setFilterQuery(e.target.value)}
+                onChange={(e) => {
+                  setFilterQuery(e.target.value);
+                  setPage(1);
+                }}
                 placeholder={t.searchHistoryPage.searchPlaceholder}
-                className="w-full h-11 pl-10 pr-11 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B24] text-base sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full h-11 sm:h-10 pl-10 pr-11 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131B24] text-base sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               {filterQuery && (
                 <button
                   type="button"
-                  onClick={() => setFilterQuery('')}
+                  onClick={() => {
+                    setFilterQuery('');
+                    setPage(1);
+                  }}
                   aria-label={t.history.clearFilterAria}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 cursor-pointer"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 inline-flex items-center justify-center rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                 >
                   <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {confirmClearAll ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClearAll();
+                      setConfirmClearAll(false);
+                    }}
+                    className="h-11 sm:h-10 px-4 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                  >
+                    {t.searchHistoryPage.confirmClearAll}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClearAll(false)}
+                    className="h-11 sm:h-10 px-3.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-700 dark:text-slate-300 text-sm font-medium whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                  >
+                    {t.searchHistoryPage.cancel}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearAll(true)}
+                  className="h-11 sm:h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131B24] text-slate-600 dark:text-slate-300 hover:text-red-600 hover:border-red-200 dark:hover:text-red-400 dark:hover:border-red-900/60 text-sm font-medium inline-flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                >
+                  <Trash2 className="w-4 h-4 shrink-0" />
+                  <span>{t.searchHistoryPage.clearAllBtn}</span>
                 </button>
               )}
             </div>
@@ -211,8 +205,9 @@ export function SearchHistoryView({
               {t.searchHistoryPage.noFilterMatches}
             </p>
           ) : (
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-5">
-              {filteredEntries.map((entry) => {
+            <>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {pagedEntries.map((entry) => {
                 const isLatest = entries[0]?.id === entry.id;
                 const isCurrentlyShown = activeRecentId === entry.id;
                 const isConfirming = confirmDeleteId === entry.id;
@@ -221,7 +216,7 @@ export function SearchHistoryView({
                 return (
                   <article
                     key={entry.id}
-                    className={`flex flex-col bg-white dark:bg-[#131B24] border rounded-xl p-5 transition-colors ${
+                    className={`flex flex-col bg-white dark:bg-[#131B24] border rounded-xl p-3.5 transition-colors ${
                       isCurrentlyShown
                         ? 'border-teal-400/90 dark:border-teal-700'
                         : 'border-slate-200/90 dark:border-slate-800'
@@ -246,24 +241,16 @@ export function SearchHistoryView({
                       <span className="font-mono-num tabular-nums">
                         {t.recent.itemsCount(entry.products.length)}
                       </span>
-                      {typeof entry.creditsUsed === 'number' && entry.creditsUsed > 0 && (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span className="font-mono-num tabular-nums">
-                            {t.searchHistoryPage.creditsSpent(entry.creditsUsed)}
-                          </span>
-                        </>
-                      )}
                     </div>
 
                     {/* Search Title */}
-                    <h3 className="mt-2 font-display text-base font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 select-text">
+                    <h2 className="mt-1.5 font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 select-text">
                       {getEntryTitle(entry)}
-                    </h3>
+                    </h2>
 
                     {/* Product Thumbnail Strip Preview */}
                     {previews.length > 0 && (
-                      <div className="mt-3.5 flex items-center gap-2">
+                      <div className="mt-2.5 flex items-center gap-1.5">
                         {previews.map((product) => {
                           const fallback = getStudioFallbackImage(product.category);
                           return (
@@ -277,7 +264,7 @@ export function SearchHistoryView({
                                   e.currentTarget.src = fallback;
                                 }
                               }}
-                              className="w-12 h-12 rounded-lg object-cover bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 shrink-0"
+                              className="w-10 h-10 rounded-lg object-cover bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 shrink-0"
                             />
                           );
                         })}
@@ -291,17 +278,17 @@ export function SearchHistoryView({
 
                     {/* Top Product Sample Line */}
                     {entry.products[0] && (
-                      <p className="mt-2.5 text-xs text-slate-500 dark:text-slate-400 truncate select-text">
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 truncate select-text">
                         {entry.products[0].clearTitle[language]}
                       </p>
                     )}
 
                     {/* Action Buttons */}
-                    <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800/90 flex flex-wrap items-center gap-2">
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/90 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => onOpenEntry(entry)}
-                        className="flex-1 min-w-[140px] h-10 px-3.5 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer"
+                        className="flex-1 min-w-[140px] h-10 px-3.5 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                       >
                         <span>{t.searchHistoryPage.openResultsBtn}</span>
                         <ArrowRight className="w-3.5 h-3.5" />
@@ -315,14 +302,14 @@ export function SearchHistoryView({
                               onDeleteEntry(entry.id);
                               setConfirmDeleteId(null);
                             }}
-                            className="h-10 px-3 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold whitespace-nowrap cursor-pointer"
+                            className="h-10 px-3 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                           >
                             {t.searchHistoryPage.confirmDelete}
                           </button>
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteId(null)}
-                            className="h-10 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap cursor-pointer"
+                            className="h-10 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                           >
                             {t.searchHistoryPage.cancel}
                           </button>
@@ -333,7 +320,7 @@ export function SearchHistoryView({
                           onClick={() => setConfirmDeleteId(entry.id)}
                           aria-label={t.searchHistoryPage.deleteBtn}
                           title={t.searchHistoryPage.deleteBtn}
-                          className="h-10 w-10 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-red-600 hover:border-red-200 dark:hover:border-red-900/60 transition-colors duration-150 shrink-0 cursor-pointer"
+                          className="h-10 w-10 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-red-600 hover:border-red-200 dark:hover:border-red-900/60 transition-colors duration-150 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -342,7 +329,15 @@ export function SearchHistoryView({
                   </article>
                 );
               })}
-            </div>
+              </div>
+              <PaginationBar
+                currentPage={safePage}
+                totalPages={totalPages}
+                t={t}
+                onPageChange={handlePageChange}
+                className="mt-5"
+              />
+            </>
           )}
         </>
       )}

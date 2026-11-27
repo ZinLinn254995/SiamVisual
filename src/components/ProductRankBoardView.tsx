@@ -1,23 +1,23 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle,
   ArrowDown,
+  ArrowRight,
   ArrowUpRight,
   BarChart3,
   Bookmark,
   Check,
   Filter,
   Layers,
+  ListOrdered,
   RefreshCw,
   Search,
   Sparkles,
-  TrendingUp,
   X,
 } from 'lucide-react';
 import type { Translations } from '../i18n';
 import { getStudioFallbackImage } from '../lib/media';
 import { CustomSelect } from './CustomSelect';
-import { InfoTooltip } from './InfoTooltip';
+import { PaginationBar } from './PaginationBar';
 import {
   type ComputedRankProductRow,
   computeRankProductRow,
@@ -36,6 +36,8 @@ import type {
 } from '../types';
 
 export const RANK_BOARD_SYNC_COST = 0.4;
+export type RankBoardSubpage = 'rankings' | 'analytics';
+const RANK_BOARD_PAGE_SIZE = 10;
 
 interface ProductRankBoardViewProps {
   snapshot: RankBoardSnapshot | null;
@@ -47,6 +49,7 @@ interface ProductRankBoardViewProps {
   savedProductIds: Set<string>;
   language: Language;
   nowMs: number;
+  initialSubpage?: RankBoardSubpage;
   t: Translations;
   onChangeDateRange: (next: SearchDateRange) => void;
   onSync: (targetRange?: SearchDateRange) => void;
@@ -70,21 +73,6 @@ function formatCompactCount(count: number | null | undefined): string {
   if (abs >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
   if (abs >= 10_000) return `${(count / 1_000).toFixed(1)}K`;
   return Math.round(count).toLocaleString();
-}
-
-function formatSyncTimestamp(iso: string, language: Language): string {
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return iso;
-  try {
-    return new Intl.DateTimeFormat(language === 'my' ? 'my-MM' : 'en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(ms));
-  } catch {
-    return new Date(ms).toLocaleString();
-  }
 }
 
 // Piecewise X-axis mapping for Price (THB) so ฿0–฿600 (Sweet Spot zone) gets 56% of horizontal width
@@ -162,7 +150,7 @@ export function findNearestScatterPointId(params: {
 
 function getScoreBadgeClass(score: number | null): string {
   if (score === null) {
-    return 'text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/40';
+    return 'text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/40';
   }
   if (score >= 78) {
     return 'text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800/80 bg-teal-50/70 dark:bg-teal-950/40';
@@ -176,6 +164,14 @@ function getScoreBadgeClass(score: number | null): string {
   return 'text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50';
 }
 
+function getScoreTierSymbol(score: number | null): string {
+  if (score === null) return '◌';
+  if (score >= 78) return '★';
+  if (score >= 60) return '◆';
+  if (score >= 42) return '●';
+  return '▾';
+}
+
 export function ProductRankBoardView({
   snapshot,
   dateRange,
@@ -185,7 +181,7 @@ export function ProductRankBoardView({
   kalodataStatus,
   savedProductIds,
   language,
-  nowMs,
+  initialSubpage = 'rankings',
   t,
   onChangeDateRange,
   onSync,
@@ -195,7 +191,9 @@ export function ProductRankBoardView({
 }: ProductRankBoardViewProps) {
   const rb = t.rankBoard;
 
-  // Cross-filtering & table state (0 cr — strictly client-side over synced snapshot)
+  // Subpage & pagination + cross-filtering state (0 cr — strictly client-side over synced snapshot)
+  const [activeSubpage, setActiveSubpage] = useState<RankBoardSubpage>(initialSubpage);
+  const [tablePage, setTablePage] = useState<number>(1);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [channelFilter, setChannelFilter] = useState<RankBoardChannelFilter>('all');
   const [quickFilter, setQuickFilter] = useState<RankBoardQuickFilter>('all');
@@ -226,6 +224,27 @@ export function ProductRankBoardView({
       }),
     [allComputedRows, selectedCategory, quickFilter, channelFilter, searchQuery, sortBy]
   );
+
+  const totalTablePages = Math.max(1, Math.ceil(filteredRows.length / RANK_BOARD_PAGE_SIZE));
+  const safeTablePage = Math.min(tablePage, totalTablePages);
+  const pagedRows = useMemo(() => {
+    const start = (safeTablePage - 1) * RANK_BOARD_PAGE_SIZE;
+    return filteredRows.slice(start, start + RANK_BOARD_PAGE_SIZE);
+  }, [filteredRows, safeTablePage]);
+
+  function handleSubpageChange(next: RankBoardSubpage) {
+    setActiveSubpage(next);
+    if (typeof window !== 'undefined' && window.scrollY > 140) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  function handleTablePageChange(nextPage: number) {
+    setTablePage(nextPage);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
 
   // Scatter matrix rows: only products with verified price & commission
   const scatterRows = useMemo(() => {
@@ -291,32 +310,10 @@ export function ProductRankBoardView({
     }
   }
 
-  const isStale = useMemo(() => {
-    if (!snapshot?.syncedAt) return false;
-    const syncedMs = Date.parse(snapshot.syncedAt);
-    return Number.isFinite(syncedMs) && nowMs - syncedMs > 24 * 3_600_000;
-  }, [snapshot, nowMs]);
-
-  const hasActiveFilters = Boolean(
-    selectedCategory || channelFilter !== 'all' || quickFilter !== 'all' || searchQuery.trim()
-  );
-
-  function handleResetFilters() {
-    setSelectedCategoryId(null);
-    setChannelFilter('all');
-    setQuickFilter('all');
-    setSearchQuery('');
-  }
-
-  function handleToggleCategoryFilter(catId: string) {
-    setSelectedCategoryId((prev) => (prev === catId ? null : catId));
-  }
-
   function handleToggleChannelFilter(channel: Exclude<RankBoardChannelFilter, 'all'>) {
     setChannelFilter((prev) => (prev === channel ? 'all' : channel));
+    setTablePage(1);
   }
-
-  const windowTag = (snapshot?.dateRange ?? dateRange) === 'last30Day' ? '30d' : '7d';
 
   // Donut Chart geometry (r = 62, circumference = 2 * pi * 62 ≈ 389.56)
   const donutRadius = 62;
@@ -336,9 +333,9 @@ export function ProductRankBoardView({
       return { label: rb.channelVideo, pct: videoPct, color: 'text-teal-700 dark:text-teal-400' };
     }
     if (livePct >= videoPct && livePct >= shopPct) {
-      return { label: rb.channelLive, pct: livePct, color: 'text-indigo-600 dark:text-indigo-400' };
+      return { label: rb.channelLive, pct: livePct, color: 'text-indigo-700 dark:text-indigo-400' };
     }
-    return { label: rb.channelShop, pct: shopPct, color: 'text-amber-600 dark:text-amber-400' };
+    return { label: rb.channelShop, pct: shopPct, color: 'text-amber-700 dark:text-amber-400' };
   })();
 
   const sweetX1 = mapPriceToX(100);
@@ -346,100 +343,73 @@ export function ProductRankBoardView({
   const sweetY1 = mapCommToY(MAX_COMM_PLOT);
   const sweetY2 = mapCommToY(10);
 
+  const hasActiveFilters = Boolean(
+    selectedCategory || channelFilter !== 'all' || quickFilter !== 'all' || searchQuery.trim()
+  );
+
+  function handleResetFilters() {
+    setSelectedCategoryId(null);
+    setChannelFilter('all');
+    setQuickFilter('all');
+    setSearchQuery('');
+    setTablePage(1);
+  }
+
+  function handleToggleCategoryFilter(catId: string) {
+    setSelectedCategoryId((prev) => (prev === catId ? null : catId));
+    setTablePage(1);
+  }
+
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-9 space-y-6">
-      {/* Executive Header Bar */}
-      <section className="rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-4 sm:p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-teal-600 dark:text-teal-400 shrink-0" />
-              <h1 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-                {rb.title}
-              </h1>
-              <InfoTooltip content={rb.subtitle} ariaLabel={rb.title} size="md" />
-            </div>
-            {snapshot && (
-              <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
-                <span>
-                  {rb.lastSyncedLabel}:{' '}
-                  <strong className="font-medium text-slate-700 dark:text-slate-200">
-                    {formatSyncTimestamp(snapshot.syncedAt, language)}
-                  </strong>
-                </span>
-                <span aria-hidden="true">·</span>
-                <span>{rb.productsUnit(snapshot.products.length)}</span>
-                <span aria-hidden="true">·</span>
-                <span>{rb.categoriesUnit(snapshot.categoryMarket.length)}</span>
-                <span aria-hidden="true">·</span>
-                <span>{snapshot.dateRange === 'last30Day' ? '30d' : '7d'}</span>
-                {snapshot.creditsUsed !== null && (
-                  <>
-                    <span aria-hidden="true">·</span>
-                    <span>{snapshot.creditsUsed} cr</span>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Right Controls: 7d / 30d Segmented Switch + Manual Update Sync Button */}
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 shrink-0">
-            <div
-              role="group"
-              aria-label="Rank Board timeframe"
-              className="inline-flex items-center p-0.5 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80"
-            >
-              <button
-                type="button"
-                disabled={isSyncing}
-                onClick={() => onChangeDateRange('last7Day')}
-                aria-pressed={dateRange === 'last7Day'}
-                className={`h-9 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer disabled:opacity-50 ${
-                  dateRange === 'last7Day'
-                    ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                {rb.timeframe7d}
-              </button>
-              <button
-                type="button"
-                disabled={isSyncing}
-                onClick={() => onChangeDateRange('last30Day')}
-                aria-pressed={dateRange === 'last30Day'}
-                className={`h-9 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer disabled:opacity-50 ${
-                  dateRange === 'last30Day'
-                    ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                {rb.timeframe30d}
-              </button>
-            </div>
-
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-5 space-y-3.5">
+      <h1 className="sr-only">{rb.title}</h1>
+      {/* Action Bar: 7d / 30d Segmented Switch + Manual Sync Button */}
+      <section className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-2.5 sm:p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div
+            role="group"
+            aria-label="Rank Board timeframe"
+            className="inline-flex items-center p-0.5 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80"
+          >
             <button
               type="button"
               disabled={isSyncing}
-              onClick={() => onSync(dateRange)}
-              className="h-10 px-4 sm:px-5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap shrink-0 disabled:opacity-60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+              onClick={() => onChangeDateRange('last7Day')}
+              aria-pressed={dateRange === 'last7Day'}
+              className={`h-9 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                dateRange === 'last7Day'
+                  ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
             >
-              <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? rb.syncingBtn : rb.syncBtn(RANK_BOARD_SYNC_COST)}</span>
+              {rb.timeframe7d}
+            </button>
+            <button
+              type="button"
+              disabled={isSyncing}
+              onClick={() => onChangeDateRange('last30Day')}
+              aria-pressed={dateRange === 'last30Day'}
+              className={`h-9 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                dateRange === 'last30Day'
+                  ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              {rb.timeframe30d}
             </button>
           </div>
+
+          <button
+            type="button"
+            disabled={isSyncing}
+            onClick={() => onSync(dateRange)}
+            className="h-10 px-4 sm:px-5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap shrink-0 disabled:opacity-60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+          >
+            <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? rb.syncingBtn : rb.syncBtn(RANK_BOARD_SYNC_COST)}</span>
+          </button>
         </div>
 
-        {/* Notices: Stale / Limit Warning / Sync Error */}
-        {isStale && !isSyncing && (
-          <div className="mt-4 px-3.5 py-2 rounded-xl border border-amber-200/90 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 inline-flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span className="font-medium">
-              {language === 'my' ? '၂၄ နာရီကျော်ကြာ ဒေတာ' : 'Stale (24h+)'}
-            </span>
-            <InfoTooltip tone="amber" content={rb.staleNotice} ariaLabel={rb.staleNotice} />
-          </div>
-        )}
         {limitWarning && (
           <div className="mt-3 px-3.5 py-2.5 rounded-xl border border-amber-200/90 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 text-xs font-medium text-amber-800 dark:text-amber-300">
             {limitWarning}
@@ -480,53 +450,26 @@ export function ProductRankBoardView({
 
       {/* Empty State (before first Update Sync) */}
       {!isSyncing && !snapshot && (
-        <section className="max-w-xl mx-auto rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-950/50 border border-teal-200/70 dark:border-teal-800/70 flex items-center justify-center text-teal-600 dark:text-teal-400 shrink-0">
-                <TrendingUp className="w-5 h-5" />
-              </div>
-              <div className="flex items-center gap-1.5 min-w-0">
-                <h2 className="font-display text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  {rb.emptyTitle}
-                </h2>
-                <InfoTooltip
-                  title={rb.emptyTitle}
-                  content={rb.emptyDesc}
-                  bullets={rb.emptyBullets}
-                  ariaLabel={rb.emptyTitle}
-                  size="md"
-                />
-              </div>
-            </div>
-
-            {!kalodataStatus.connected ? (
-              <div className="flex items-center gap-2 shrink-0">
-                <InfoTooltip
-                  tone="amber"
-                  content={rb.connectPromptNote}
-                  ariaLabel={t.nav.connectApiShort}
-                />
-                <button
-                  type="button"
-                  onClick={onOpenConnectPanel}
-                  className="h-10 px-4 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold whitespace-nowrap cursor-pointer"
-                >
-                  {t.nav.connectApiShort}
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                disabled={Boolean(limitWarning)}
-                onClick={() => onSync(dateRange)}
-                className="h-10 px-5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-55"
-              >
-                <RefreshCw className="w-4 h-4 shrink-0" />
-                <span>{rb.emptyCtaBtn(RANK_BOARD_SYNC_COST)}</span>
-              </button>
-            )}
-          </div>
+        <section className="py-12 flex justify-center">
+          {!kalodataStatus.connected ? (
+            <button
+              type="button"
+              onClick={onOpenConnectPanel}
+              className="h-11 px-5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            >
+              {t.nav.connectApiShort}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={Boolean(limitWarning)}
+              onClick={() => onSync(dateRange)}
+              className="h-11 px-6 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            >
+              <RefreshCw className="w-4 h-4 shrink-0" />
+              <span>{rb.emptyCtaBtn(RANK_BOARD_SYNC_COST)}</span>
+            </button>
+          )}
         </section>
       )}
 
@@ -536,120 +479,115 @@ export function ProductRankBoardView({
           {/* 1. 4-Column Market KPI Strip */}
           <section
             aria-label="Market summary KPIs"
-            className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4"
+            className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3"
           >
             {/* KPI 1: Top 100 Total GMV */}
-            <div className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-4 flex flex-col justify-between">
+            <div className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-3 flex flex-col justify-between">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 {rb.kpiGmvTitle}
               </div>
-              <div className="mt-2 font-mono-num tabular-nums text-2xl sm:text-[26px] font-bold tracking-tight text-slate-900 dark:text-white">
+              <div className="mt-1 font-mono-num tabular-nums text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">
                 {formatCompactThb(summary.totalRevenueThb)}
-              </div>
-              <div className="mt-2 space-y-1.5">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  {rb.kpiGmvSub(windowTag)}
-                </div>
-                <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                  <div className="h-full w-full rounded-full bg-teal-600 dark:bg-teal-400" />
-                </div>
               </div>
             </div>
 
             {/* KPI 2: Total Units Sold */}
-            <div className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-4 flex flex-col justify-between">
+            <div className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-3 flex flex-col justify-between">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 {rb.kpiUnitsTitle}
               </div>
-              <div className="mt-2 font-mono-num tabular-nums text-2xl sm:text-[26px] font-bold tracking-tight text-slate-900 dark:text-white">
+              <div className="mt-1 font-mono-num tabular-nums text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">
                 {formatCompactCount(summary.totalSalesVolume)}
-              </div>
-              <div className="mt-2 space-y-1.5">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  {rb.kpiUnitsSub(summary.monetizableCount, snapshot.products.length)}
-                </div>
-                <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-slate-700 dark:bg-slate-300 transition-all duration-300"
-                    style={{
-                      width: `${
-                        snapshot.products.length > 0
-                          ? Math.min(100, (summary.monetizableCount / snapshot.products.length) * 100)
-                          : 0
-                      }%`,
-                    }}
-                  />
-                </div>
               </div>
             </div>
 
             {/* KPI 3: Short Video Share */}
-            <div className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-4 flex flex-col justify-between">
+            <div className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-3 flex flex-col justify-between">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 {rb.kpiVideoShareTitle}
               </div>
-              <div className="mt-2 font-mono-num tabular-nums text-2xl sm:text-[26px] font-bold tracking-tight text-teal-700 dark:text-teal-400">
+              <div className="mt-1 font-mono-num tabular-nums text-lg sm:text-xl font-bold tracking-tight text-teal-700 dark:text-teal-400">
                 {summary.videoSharePct.toFixed(1)}%
-              </div>
-              <div className="mt-2 space-y-1.5">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  {rb.kpiVideoShareSub(summary.videoProvenCount)}
-                </div>
-                <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-teal-600 dark:bg-teal-400 transition-all duration-300"
-                    style={{ width: `${Math.min(100, summary.videoSharePct)}%` }}
-                  />
-                </div>
               </div>
             </div>
 
-            {/* KPI 4: Avg Commission & Payout */}
-            <div className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-4 flex flex-col justify-between">
+            {/* KPI 4: Avg Commission */}
+            <div className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-3 flex flex-col justify-between">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 {rb.kpiAvgCommTitle}
               </div>
-              <div className="mt-2 font-mono-num tabular-nums text-2xl sm:text-[26px] font-bold tracking-tight text-slate-900 dark:text-white">
+              <div className="mt-1 font-mono-num tabular-nums text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">
                 {summary.avgCommissionRate !== null ? `${summary.avgCommissionRate.toFixed(1)}%` : '—'}
-              </div>
-              <div className="mt-2 space-y-1.5">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  {rb.kpiAvgCommSub(
-                    summary.avgPayoutThb !== null ? `฿${summary.avgPayoutThb}` : '—',
-                    summary.sweetSpotCount
-                  )}
-                </div>
-                <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-emerald-600 dark:bg-emerald-400 transition-all duration-300"
-                    style={{
-                      width: `${Math.min(100, ((summary.avgCommissionRate ?? 0) / 25) * 100)}%`,
-                    }}
-                  />
-                </div>
               </div>
             </div>
           </section>
 
-          {/* 2. Analytics Row 1: Channel Split Donut (Left) + Category Market Share Progress Bars (Right) */}
-          <section className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+          {/* Subpage Switcher: Rankings vs Market Charts */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div
+              role="tablist"
+              aria-label={rb.title}
+              className="inline-flex items-center p-1 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeSubpage === 'rankings'}
+                onClick={() => handleSubpageChange('rankings')}
+                className={`h-10 sm:h-9 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                  activeSubpage === 'rankings'
+                    ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <ListOrdered className="w-3.5 h-3.5 shrink-0" />
+                <span>{rb.subpages.rankings}</span>
+                <span className="font-mono-num tabular-nums text-[11px] opacity-75">
+                  ({filteredRows.length})
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeSubpage === 'analytics'}
+                onClick={() => handleSubpageChange('analytics')}
+                className={`h-10 sm:h-9 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+                  activeSubpage === 'analytics'
+                    ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+                <span>{rb.subpages.analytics}</span>
+              </button>
+            </div>
+
+            {activeSubpage === 'analytics' && hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => handleSubpageChange('rankings')}
+                className="h-10 sm:h-9 px-3.5 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+              >
+                <span>{rb.subpages.viewFilteredBtn(filteredRows.length)}</span>
+                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+              </button>
+            )}
+          </div>
+
+          {activeSubpage === 'analytics' && (
+            <>
+              {/* 2. Analytics Row 1: Channel Split Donut (Left) + Category Market Share Progress Bars (Right) */}
+              <section className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-stretch">
             {/* Left Card: Channel Revenue Split */}
-            <div className="lg:col-span-5 rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-5 flex flex-col justify-between">
+            <div className="lg:col-span-5 rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-3.5 sm:p-4 flex flex-col justify-between">
               <div>
-                <div className="flex items-center gap-1.5">
-                  <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
-                    {rb.channelSectionTitle}
-                  </h2>
-                  <InfoTooltip
-                    content={[rb.channelSectionSub, rb.channelClickHint]}
-                    ariaLabel={rb.channelSectionTitle}
-                    size="md"
-                  />
-                </div>
+                <h2 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
+                  {rb.channelSectionTitle}
+                </h2>
 
                 {/* Interactive SVG Donut + Center Readout */}
-                <div className="mt-5 flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center gap-5">
-                  <div className="relative w-40 h-40 shrink-0">
+                <div className="mt-3 flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center gap-3.5">
+                  <div className="relative w-32 h-32 shrink-0">
                     <svg
                       viewBox="0 0 180 180"
                       className="w-full h-full -rotate-90"
@@ -705,7 +643,7 @@ export function ProductRankBoardView({
                       )}
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none px-4">
-                      <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                         {rb.channelDominantLabel}
                       </span>
                       <span
@@ -720,7 +658,7 @@ export function ProductRankBoardView({
                   </div>
 
                   {/* Clickable Channel Rows */}
-                  <div className="flex-1 w-full space-y-2.5">
+                  <div className="flex-1 w-full space-y-1.5">
                     {(
                       [
                         {
@@ -762,7 +700,7 @@ export function ProductRankBoardView({
                           type="button"
                           aria-pressed={isSelected}
                           onClick={() => handleToggleChannelFilter(ch.key)}
-                          className={`w-full text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                          className={`w-full text-left p-2 rounded-lg border transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                             isSelected
                               ? ch.activeRing
                               : 'border-slate-200/75 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -777,8 +715,8 @@ export function ProductRankBoardView({
                               {ch.pct.toFixed(1)}%
                             </span>
                           </div>
-                          <div className="mt-1.5 flex items-center gap-2.5">
-                            <div className="flex-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                          <div className="mt-1 flex items-center gap-2">
+                            <div className="flex-1 h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                               <div
                                 className={`h-full rounded-full ${ch.barClass} transition-all duration-300`}
                                 style={{ width: `${Math.min(100, ch.pct)}%` }}
@@ -794,63 +732,17 @@ export function ProductRankBoardView({
                   </div>
                 </div>
               </div>
-
-              {/* 100% Stacked Proportion Bar */}
-              <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800/90">
-                <div className="h-2.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex">
-                  {videoPct > 0 && (
-                    <div
-                      className="h-full bg-teal-600 dark:bg-teal-400 transition-all duration-300"
-                      style={{ width: `${videoPct}%` }}
-                      title={`${rb.channelVideo}: ${videoPct.toFixed(1)}%`}
-                    />
-                  )}
-                  {livePct > 0 && (
-                    <div
-                      className="h-full bg-indigo-600 dark:bg-indigo-400 transition-all duration-300"
-                      style={{ width: `${livePct}%` }}
-                      title={`${rb.channelLive}: ${livePct.toFixed(1)}%`}
-                    />
-                  )}
-                  {shopPct > 0 && (
-                    <div
-                      className="h-full bg-amber-500 dark:bg-amber-400 transition-all duration-300"
-                      style={{ width: `${shopPct}%` }}
-                      title={`${rb.channelShop}: ${shopPct.toFixed(1)}%`}
-                    />
-                  )}
-                </div>
-              </div>
             </div>
 
             {/* Right Card: Category Market Share Progress Bars */}
-            <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-5 flex flex-col justify-between">
+            <div className="lg:col-span-7 rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-3.5 sm:p-4 flex flex-col justify-between">
               <div>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
-                      {rb.categorySectionTitle}
-                    </h2>
-                    <InfoTooltip
-                      content={[
-                        snapshot.categorySource === 'kalodata_category_rank'
-                          ? rb.categorySectionSubLive
-                          : rb.categorySectionSubAgg,
-                        rb.categoryClickHint,
-                      ]}
-                      ariaLabel={rb.categorySectionTitle}
-                      size="md"
-                    />
-                  </div>
-                  <span className="text-[11px] font-mono-num font-medium px-2 py-0.5 rounded-md border border-slate-200/90 dark:border-slate-700 text-slate-600 dark:text-slate-300 whitespace-nowrap shrink-0">
-                    {snapshot.categorySource === 'kalodata_category_rank'
-                      ? rb.categorySourceLiveTag
-                      : rb.categorySourceAggTag}
-                  </span>
-                </div>
+                <h2 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
+                  {rb.categorySectionTitle}
+                </h2>
 
                 {/* Progress Bar Rows */}
-                <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
+                <div className="mt-2.5 space-y-1 max-h-[230px] overflow-y-auto overscroll-contain pr-1">
                   {snapshot.categoryMarket.slice(0, 10).map((cat, idx) => {
                     const isSelected = selectedCategoryId === cat.id;
                     const relativeWidth = Math.max(
@@ -863,7 +755,7 @@ export function ProductRankBoardView({
                         type="button"
                         aria-pressed={isSelected}
                         onClick={() => handleToggleCategoryFilter(cat.id)}
-                        className={`w-full min-h-[44px] text-left px-3 py-2 rounded-xl border transition-all active:scale-[0.99] cursor-pointer ${
+                        className={`w-full min-h-[40px] text-left px-2.5 py-1.5 rounded-lg border transition-all active:scale-[0.99] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                           isSelected
                             ? 'border-teal-500/90 bg-teal-50/70 dark:bg-teal-950/40'
                             : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/45'
@@ -871,7 +763,7 @@ export function ProductRankBoardView({
                       >
                         <div className="flex items-center justify-between gap-2 text-xs">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="font-mono-num text-[11px] text-slate-400 dark:text-slate-500 w-4 shrink-0">
+                            <span className="font-mono-num text-[11px] text-slate-500 dark:text-slate-400 w-4 shrink-0">
                               {idx + 1}.
                             </span>
                             <span className="font-medium text-slate-800 dark:text-slate-100 truncate">
@@ -906,7 +798,7 @@ export function ProductRankBoardView({
                               style={{ width: `${relativeWidth}%` }}
                             />
                           </div>
-                          <span className="text-[10px] font-mono-num tabular-nums text-slate-400 dark:text-slate-500 whitespace-nowrap shrink-0">
+                          <span className="text-[10px] font-mono-num tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">
                             {rb.categoryTop100Count(cat.productCountInTop100)}
                           </span>
                         </div>
@@ -925,7 +817,7 @@ export function ProductRankBoardView({
                   <button
                     type="button"
                     onClick={() => setSelectedCategoryId(null)}
-                    className="font-semibold text-teal-700 dark:text-teal-400 hover:underline whitespace-nowrap cursor-pointer"
+                    className="font-semibold text-teal-700 dark:text-teal-400 hover:underline whitespace-nowrap cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                   >
                     {rb.clearAllFilters}
                   </button>
@@ -935,20 +827,13 @@ export function ProductRankBoardView({
           </section>
 
           {/* 3. Analytics Row 2: Full-Width Price × Commission Opportunity Matrix */}
-          <section className="rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-5">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-              <div className="flex items-center gap-1.5">
-                <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
-                  {rb.matrixSectionTitle}
-                </h2>
-                <InfoTooltip
-                  content={[rb.matrixSectionSub, rb.matrixTapHint]}
-                  ariaLabel={rb.matrixSectionTitle}
-                  size="md"
-                />
-              </div>
+          <section className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 p-3.5 sm:p-4">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+              <h2 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
+                {rb.matrixSectionTitle}
+              </h2>
               {/* Compact Semantic Legend */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+              <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-teal-600 dark:bg-teal-400" />
                   <span>{rb.matrixLegendVideo}</span>
@@ -964,9 +849,9 @@ export function ProductRankBoardView({
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+            <div className="mt-2.5 grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-stretch">
               {/* Interactive SVG Scatter Plot (SVG-level coordinate matching & drag scrubbing) */}
-              <div className="lg:col-span-8 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-[#0E151D] p-2 sm:p-3 overflow-hidden">
+              <div className="lg:col-span-8 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-[#0E151D] p-2 overflow-hidden">
                 <svg
                   ref={scatterSvgRef}
                   viewBox="0 0 760 278"
@@ -1025,7 +910,7 @@ export function ProductRankBoardView({
                     y={sweetY1 + 15}
                     className="fill-teal-700 dark:fill-teal-300 text-[10px] font-semibold"
                   >
-                    {rb.matrixSweetSpotLabel}
+                    ★ {rb.matrixSweetSpotLabel}
                   </text>
 
                   {/* Horizontal Gridlines & Y-Axis (Commission %) */}
@@ -1045,7 +930,7 @@ export function ProductRankBoardView({
                           x={PLOT_LEFT - 8}
                           y={y + 3.5}
                           textAnchor="end"
-                          className="fill-slate-400 dark:fill-slate-500 font-mono-num text-[10px]"
+                          className="fill-slate-500 dark:fill-slate-400 font-mono-num text-[10px]"
                         >
                           {commTick === 30 ? '30%+' : `${commTick}%`}
                         </text>
@@ -1071,7 +956,7 @@ export function ProductRankBoardView({
                           x={x}
                           y={PLOT_BOTTOM + 16}
                           textAnchor="middle"
-                          className="fill-slate-400 dark:fill-slate-500 font-mono-num text-[10px]"
+                          className="fill-slate-500 dark:fill-slate-400 font-mono-num text-[10px]"
                         >
                           {priceTick === 2500
                             ? '฿2.5K+'
@@ -1135,7 +1020,7 @@ export function ProductRankBoardView({
                             setInspectedProductId(row.product.id);
                           }
                         }}
-                        className="cursor-pointer focus:outline-none"
+                        className="cursor-pointer focus-visible:outline-2 focus-visible:outline-teal-500"
                       >
                         {isSelected && (
                           <>
@@ -1171,7 +1056,7 @@ export function ProductRankBoardView({
               </div>
 
               {/* Right Panel: Selected Product Inspector Card */}
-              <div className="lg:col-span-4 rounded-xl border border-slate-200/85 dark:border-slate-800 bg-slate-50/40 dark:bg-[#0E151D] p-4 flex flex-col justify-between">
+              <div className="lg:col-span-4 rounded-xl border border-slate-200/85 dark:border-slate-800 bg-slate-50/40 dark:bg-[#0E151D] p-3 flex flex-col justify-between">
                 {inspectedRow ? (
                   <>
                     <div>
@@ -1186,37 +1071,37 @@ export function ProductRankBoardView({
                         </span>
                       </div>
 
-                      <div className="mt-3 flex items-start gap-3">
+                      <div className="mt-2 flex items-start gap-2.5">
                         <img
                           src={
                             inspectedRow.product.imageUrl ||
                             getStudioFallbackImage(inspectedRow.product.category)
                           }
                           alt={inspectedRow.product.thaiTitle}
-                          className="w-16 h-16 rounded-lg object-cover border border-slate-200/80 dark:border-slate-700/80 shrink-0 bg-slate-100 dark:bg-slate-800"
+                          className="w-14 h-14 rounded-lg object-cover border border-slate-200/80 dark:border-slate-700/80 shrink-0 bg-slate-100 dark:bg-slate-800"
                         />
                         <div className="min-w-0">
                           <h3 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug">
                             {inspectedRow.product.thaiTitle}
                           </h3>
-                          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 truncate">
                             {inspectedRow.product.shopName}
                           </p>
                         </div>
                       </div>
 
                       {/* Inspector Key Numbers */}
-                      <div className="mt-4 grid grid-cols-2 gap-2.5 text-xs">
-                        <div className="p-2.5 rounded-lg bg-white dark:bg-[#131B24] border border-slate-200/75 dark:border-slate-800">
-                          <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
+                        <div className="p-2 rounded-lg bg-white dark:bg-[#131B24] border border-slate-200/75 dark:border-slate-800">
+                          <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
                             {rb.colRevenue}
                           </div>
                           <div className="mt-0.5 font-mono-num tabular-nums font-bold text-slate-900 dark:text-white">
                             {formatCompactThb(inspectedRow.revenueThb)}
                           </div>
                         </div>
-                        <div className="p-2.5 rounded-lg bg-white dark:bg-[#131B24] border border-slate-200/75 dark:border-slate-800">
-                          <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        <div className="p-2 rounded-lg bg-white dark:bg-[#131B24] border border-slate-200/75 dark:border-slate-800">
+                          <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
                             {rb.colPrice}
                           </div>
                           <div className="mt-0.5 font-mono-num tabular-nums font-bold text-slate-900 dark:text-white">
@@ -1225,8 +1110,8 @@ export function ProductRankBoardView({
                               : '—'}
                           </div>
                         </div>
-                        <div className="p-2.5 rounded-lg bg-white dark:bg-[#131B24] border border-slate-200/75 dark:border-slate-800">
-                          <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        <div className="p-2 rounded-lg bg-white dark:bg-[#131B24] border border-slate-200/75 dark:border-slate-800">
+                          <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
                             {rb.colCommission}
                           </div>
                           <div className="mt-0.5 font-mono-num tabular-nums font-bold text-teal-700 dark:text-teal-400">
@@ -1235,8 +1120,8 @@ export function ProductRankBoardView({
                               : '—'}
                           </div>
                         </div>
-                        <div className="p-2.5 rounded-lg bg-white dark:bg-[#131B24] border border-slate-200/75 dark:border-slate-800">
-                          <div className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        <div className="p-2 rounded-lg bg-white dark:bg-[#131B24] border border-slate-200/75 dark:border-slate-800">
+                          <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
                             {rb.colPayout}
                           </div>
                           <div className="mt-0.5 font-mono-num tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
@@ -1248,13 +1133,13 @@ export function ProductRankBoardView({
                       </div>
 
                       {/* Mini Stacked Channel Mix Bar */}
-                      <div className="mt-3.5">
+                      <div className="mt-2.5">
                         <div className="flex items-center justify-between text-[11px] font-mono-num text-slate-500 dark:text-slate-400">
                           <span>V {inspectedRow.videoSharePct.toFixed(0)}%</span>
                           <span>L {inspectedRow.liveSharePct.toFixed(0)}%</span>
                           <span>S {inspectedRow.shopSharePct.toFixed(0)}%</span>
                         </div>
-                        <div className="mt-1 h-2 w-full rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden flex">
+                        <div className="mt-1 h-1.5 w-full rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden flex">
                           <div
                             className="h-full bg-teal-600 dark:bg-teal-400"
                             style={{ width: `${inspectedRow.videoSharePct}%` }}
@@ -1274,7 +1159,7 @@ export function ProductRankBoardView({
                     <button
                       type="button"
                       onClick={() => onSelectProduct(inspectedRow.product)}
-                      className="mt-4 h-10 w-full rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      className="mt-3 h-9 w-full rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                     >
                       <Sparkles className="w-3.5 h-3.5 shrink-0" />
                       <span>{rb.matrixOpenStudioBtn}</span>
@@ -1289,23 +1174,22 @@ export function ProductRankBoardView({
               </div>
             </div>
           </section>
+            </>
+          )}
 
-          {/* 4. Ranked Product Leaderboard Table */}
-          <section className="rounded-2xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 overflow-hidden">
+          {/* 4. Ranked Product Leaderboard Table (Rankings Subpage) */}
+          {activeSubpage === 'rankings' && (
+          <section className="rounded-xl bg-white dark:bg-[#131B24] border border-slate-200/90 dark:border-slate-800 overflow-hidden">
             {/* Table Header & Controls */}
-            <div className="p-4 sm:p-5 border-b border-slate-200/80 dark:border-slate-800 space-y-3.5">
+            <div className="p-3 sm:p-4 border-b border-slate-200/80 dark:border-slate-800 space-y-2.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                     {rb.tableSectionTitle}
                   </h2>
                   <span className="text-xs font-mono-num tabular-nums text-slate-500 dark:text-slate-400">
-                    ({filteredRows.length}/{allComputedRows.length})
+                    ({filteredRows.length})
                   </span>
-                  <InfoTooltip
-                    content={rb.tableSectionSub(filteredRows.length, allComputedRows.length)}
-                    ariaLabel={rb.tableSectionTitle}
-                  />
                 </div>
 
                 {/* Live Search Input (0 cr) */}
@@ -1314,16 +1198,22 @@ export function ProductRankBoardView({
                   <input
                     type="text"
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setTablePage(1);
+                    }}
                     placeholder={rb.searchPlaceholder}
                     className="w-full h-11 sm:h-9 pl-9 pr-10 rounded-xl border border-slate-200/90 dark:border-slate-700/90 bg-slate-50/70 dark:bg-[#0E151D] text-base sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   {searchQuery && (
                     <button
                       type="button"
-                      onClick={() => setSearchQuery('')}
+                      onClick={() => {
+                        setSearchQuery('');
+                        setTablePage(1);
+                      }}
                       aria-label={t.history.clearFilterAria}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 sm:h-7 sm:w-7 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 cursor-pointer"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 sm:h-7 sm:w-7 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -1350,8 +1240,11 @@ export function ProductRankBoardView({
                       key={opt.key}
                       type="button"
                       aria-pressed={quickFilter === opt.key}
-                      onClick={() => setQuickFilter(opt.key)}
-                      className={`h-10 sm:h-8 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer ${
+                      onClick={() => {
+                        setQuickFilter(opt.key);
+                        setTablePage(1);
+                      }}
+                      className={`h-10 sm:h-8 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                         quickFilter === opt.key
                           ? 'bg-white dark:bg-[#131B24] text-slate-900 dark:text-white shadow-xs'
                           : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -1384,7 +1277,10 @@ export function ProductRankBoardView({
                       { value: 'videoShare', label: 'Video %' },
                       { value: 'score', label: rb.colScore },
                     ]}
-                    onChange={(val) => setSortBy(val as RankBoardSortKey)}
+                    onChange={(val) => {
+                      setSortBy(val as RankBoardSortKey);
+                      setTablePage(1);
+                    }}
                   />
                 </div>
 
@@ -1398,7 +1294,8 @@ export function ProductRankBoardView({
                         <button
                           type="button"
                           onClick={() => setSelectedCategoryId(null)}
-                          className="p-0.5 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                          aria-label={t.history.clearFilterAria}
+                          className="p-0.5 rounded hover:text-slate-900 dark:hover:text-white cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -1418,7 +1315,8 @@ export function ProductRankBoardView({
                         <button
                           type="button"
                           onClick={() => setChannelFilter('all')}
-                          className="p-0.5 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                          aria-label={t.history.clearFilterAria}
+                          className="p-0.5 rounded hover:text-slate-900 dark:hover:text-white cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -1427,7 +1325,7 @@ export function ProductRankBoardView({
                     <button
                       type="button"
                       onClick={handleResetFilters}
-                      className="text-slate-600 dark:text-slate-300 hover:text-teal-700 dark:hover:text-teal-400 font-medium underline cursor-pointer"
+                      className="text-slate-600 dark:text-slate-300 hover:text-teal-700 dark:hover:text-teal-400 font-medium underline cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                     >
                       {rb.clearAllFilters}
                     </button>
@@ -1437,22 +1335,12 @@ export function ProductRankBoardView({
             </div>
 
             {filteredRows.length === 0 ? (
-              <div className="p-10 text-center">
-                <div className="inline-flex items-center justify-center gap-1.5">
-                  <h3 className="font-display text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
-                    {rb.noMatchesTitle}
-                  </h3>
-                  <InfoTooltip
-                    content={rb.noMatchesDesc}
-                    ariaLabel={rb.noMatchesTitle}
-                    size="md"
-                  />
-                </div>
+              <div className="p-8 text-center">
                 {hasActiveFilters && (
                   <button
                     type="button"
                     onClick={handleResetFilters}
-                    className="mt-4 h-9 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold cursor-pointer"
+                    className="h-10 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                   >
                     {rb.clearAllFilters}
                   </button>
@@ -1483,8 +1371,11 @@ export function ProductRankBoardView({
                             {col.key ? (
                               <button
                                 type="button"
-                                onClick={() => setSortBy(col.key)}
-                                className={`inline-flex items-center gap-1 cursor-pointer transition-colors ${
+                                onClick={() => {
+                                  setSortBy(col.key);
+                                  setTablePage(1);
+                                }}
+                                className={`inline-flex items-center gap-1 cursor-pointer transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                                   sortBy === col.key
                                     ? 'text-teal-700 dark:text-teal-400'
                                     : 'hover:text-slate-800 dark:hover:text-slate-200'
@@ -1501,7 +1392,7 @@ export function ProductRankBoardView({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
-                      {filteredRows.map((row) => {
+                      {pagedRows.map((row) => {
                         const isSaved = savedProductIds.has(row.product.id);
                         const revBarPct = Math.max(
                           3,
@@ -1622,11 +1513,12 @@ export function ProductRankBoardView({
                             {/* Search Score */}
                             <td className="py-3 px-2.5 text-right whitespace-nowrap">
                               <span
-                                className={`inline-flex items-center justify-center min-w-[34px] h-6 px-1.5 rounded-md border font-mono-num tabular-nums text-[11px] font-bold ${getScoreBadgeClass(
+                                className={`inline-flex items-center justify-center gap-1 min-w-[34px] h-6 px-1.5 rounded-md border font-mono-num tabular-nums text-[11px] font-bold ${getScoreBadgeClass(
                                   row.searchScore
                                 )}`}
                               >
-                                {row.searchScore ?? '—'}
+                                <span aria-hidden="true">{getScoreTierSymbol(row.searchScore)}</span>
+                                <span>{row.searchScore ?? '—'}</span>
                               </span>
                             </td>
 
@@ -1643,10 +1535,10 @@ export function ProductRankBoardView({
                                     e.stopPropagation();
                                     onToggleSaveProduct(row.product);
                                   }}
-                                  className={`h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+                                  className={`h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                                     isSaved
                                       ? 'border-teal-500/70 bg-teal-50/70 dark:bg-teal-950/40 text-teal-700 dark:text-teal-400'
-                                      : 'border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                                      : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                                   }`}
                                 >
                                   <Bookmark
@@ -1659,7 +1551,7 @@ export function ProductRankBoardView({
                                     e.stopPropagation();
                                     onSelectProduct(row.product);
                                   }}
-                                  className="h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0E151D] group-hover:border-teal-500/80 group-hover:text-teal-700 dark:group-hover:text-teal-400 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                  className="h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0E151D] group-hover:border-teal-500/80 group-hover:text-teal-700 dark:group-hover:text-teal-400 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                                 >
                                   <span>{rb.openStudioAction}</span>
                                   <ArrowUpRight className="w-3 h-3" />
@@ -1675,13 +1567,13 @@ export function ProductRankBoardView({
 
                 {/* Mobile (< md) Structured Rank Cards */}
                 <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredRows.map((row) => {
+                  {pagedRows.map((row) => {
                     const isSaved = savedProductIds.has(row.product.id);
                     return (
                       <div
                         key={row.product.id}
                         onClick={() => onSelectProduct(row.product)}
-                        className="p-4 active:bg-slate-50 dark:active:bg-slate-800/50 transition-colors cursor-pointer"
+                        className="p-3 active:bg-slate-50 dark:active:bg-slate-800/50 transition-colors cursor-pointer"
                       >
                         <div className="flex items-start gap-3">
                           <div className="relative shrink-0">
@@ -1712,29 +1604,30 @@ export function ProductRankBoardView({
                             </div>
                           </div>
                           <span
-                            className={`inline-flex items-center justify-center min-w-[30px] h-6 px-1.5 rounded-md border font-mono-num text-[11px] font-bold shrink-0 ${getScoreBadgeClass(
+                            className={`inline-flex items-center justify-center gap-1 min-w-[30px] h-6 px-1.5 rounded-md border font-mono-num text-[11px] font-bold shrink-0 ${getScoreBadgeClass(
                               row.searchScore
                             )}`}
                           >
-                            {row.searchScore ?? '—'}
+                            <span aria-hidden="true">{getScoreTierSymbol(row.searchScore)}</span>
+                            <span>{row.searchScore ?? '—'}</span>
                           </span>
                         </div>
 
                         <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-mono-num tabular-nums">
                           <div className="p-2 rounded-lg bg-slate-50 dark:bg-[#0E151D] border border-slate-200/60 dark:border-slate-800">
-                            <div className="text-[10px] font-sans text-slate-400">{rb.colRevenue}</div>
+                            <div className="text-[10px] font-sans text-slate-500 dark:text-slate-400">{rb.colRevenue}</div>
                             <div className="font-semibold text-slate-900 dark:text-white select-text">
                               {formatCompactThb(row.revenueThb)}
                             </div>
                           </div>
                           <div className="p-2 rounded-lg bg-slate-50 dark:bg-[#0E151D] border border-slate-200/60 dark:border-slate-800">
-                            <div className="text-[10px] font-sans text-slate-400">{rb.colPrice}</div>
+                            <div className="text-[10px] font-sans text-slate-500 dark:text-slate-400">{rb.colPrice}</div>
                             <div className="font-semibold text-slate-900 dark:text-white select-text">
                               {row.priceThb !== null ? `฿${Math.round(row.priceThb)}` : '—'}
                             </div>
                           </div>
                           <div className="p-2 rounded-lg bg-slate-50 dark:bg-[#0E151D] border border-slate-200/60 dark:border-slate-800">
-                            <div className="text-[10px] font-sans text-slate-400">{rb.colCommission}</div>
+                            <div className="text-[10px] font-sans text-slate-500 dark:text-slate-400">{rb.colCommission}</div>
                             <div className="font-semibold text-teal-700 dark:text-teal-400 select-text">
                               {row.commissionRate !== null ? `${row.commissionRate}%` : '—'}
                               {row.payoutThb !== null ? ` · ฿${Math.round(row.payoutThb)}` : ''}
@@ -1772,10 +1665,10 @@ export function ProductRankBoardView({
                                 e.stopPropagation();
                                 onToggleSaveProduct(row.product);
                               }}
-                              className={`relative h-11 w-11 inline-flex items-center justify-center rounded-lg border transition-transform active:scale-95 cursor-pointer ${
+                              className={`relative h-11 w-11 inline-flex items-center justify-center rounded-lg border transition-transform active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                                 isSaved
                                   ? 'border-teal-500/70 bg-teal-50/70 dark:bg-teal-950/40 text-teal-700 dark:text-teal-400'
-                                  : 'border-slate-200 dark:border-slate-700 text-slate-400'
+                                  : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
                               }`}
                             >
                               <Bookmark
@@ -1788,7 +1681,7 @@ export function ProductRankBoardView({
                                 e.stopPropagation();
                                 onSelectProduct(row.product);
                               }}
-                              className="h-11 px-3.5 rounded-lg bg-teal-600 dark:bg-teal-500 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 active:scale-[0.98] transition-transform cursor-pointer"
+                              className="h-11 px-3.5 rounded-lg bg-teal-600 dark:bg-teal-500 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 active:scale-[0.98] transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                             >
                               <span>{rb.openStudioAction}</span>
                               <ArrowUpRight className="w-3.5 h-3.5" />
@@ -1799,9 +1692,20 @@ export function ProductRankBoardView({
                     );
                   })}
                 </div>
+                {totalTablePages > 1 && (
+                  <div className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800">
+                    <PaginationBar
+                      currentPage={safeTablePage}
+                      totalPages={totalTablePages}
+                      t={t}
+                      onPageChange={handleTablePageChange}
+                    />
+                  </div>
+                )}
               </>
             )}
           </section>
+          )}
         </>
       )}
     </div>

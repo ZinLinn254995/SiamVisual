@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   ArrowRight,
   Bookmark,
   Check,
-  ChevronDown,
-  ChevronUp,
   Copy,
   ExternalLink,
 } from 'lucide-react';
@@ -19,7 +16,6 @@ import {
 } from '../lib/productIntelligenceView.ts';
 import {
   evaluateSearchOpportunityScore,
-  type SearchScoreCapCode,
   type SearchScoreGrade,
 } from '../lib/searchScoreEngine.ts';
 import { getTikTokShopProductUrl } from '../lib/tiktokLink';
@@ -100,18 +96,21 @@ function searchGradeToTextClass(grade: SearchScoreGrade): string {
   }
 }
 
-function formatCapChip(cap: SearchScoreCapCode, language: Language): string {
-  switch (cap) {
-    case 'NO_VIDEO_SALES_CAP':
-      return language === 'my' ? 'Video ฿0' : '฿0 Video';
-    case 'LIVE_DEPENDENT_CAP':
-      return language === 'my' ? 'Live အဓိက' : 'Live-Led';
-    case 'WEAK_DEMAND_CAP':
-      return language === 'my' ? 'ရောင်းအားနည်း' : 'Low Sales';
-    case 'MISSING_VIDEO_DATA_CAP':
-      return language === 'my' ? 'Video Data မပါ' : 'No Video Data';
+function searchGradeSymbol(grade: SearchScoreGrade): string {
+  switch (grade) {
+    case 'TOP':
+      return '★';
+    case 'STRONG':
+      return '◆';
+    case 'MODERATE':
+      return '●';
+    case 'WEAK':
+      return '▾';
+    case 'NOT_MONETIZABLE':
+      return '✕';
+    case 'INSUFFICIENT':
     default:
-      return language === 'my' ? 'ကန့်သတ်ချက်' : 'Capped';
+      return '◌';
   }
 }
 
@@ -140,48 +139,8 @@ export function ProductCard({
   const [imgSrc, setImgSrc] = useState<string>(product.imageUrl || fallbackSrc);
   const [usingFallback, setUsingFallback] = useState<boolean>(!product.imageUrl);
   const [copiedField, setCopiedField] = useState<'thai' | 'id' | null>(null);
-  const [detailsExpanded, setDetailsExpanded] = useState<boolean>(false);
-
-  useEffect(() => {
-    setDetailsExpanded(false);
-  }, [product.id]);
 
   const validated = product.validatedMetrics!;
-  const historicalTrend = intelligenceItem?.historicalTrend;
-  const compactTrendChip = useMemo(() => {
-    if (!historicalTrend) return null;
-    const cls = historicalTrend.overallTrend;
-    const count = historicalTrend.comparableSnapshotCount;
-    if (cls === 'RISING') {
-      return {
-        text: `↗ ${count}d`,
-        tone: 'text-emerald-600 dark:text-emerald-400',
-        title: historicalTrend.overallExplanation,
-      };
-    }
-    if (cls === 'DECLINING') {
-      return {
-        text: `↘ ${count}d`,
-        tone: 'text-rose-600 dark:text-rose-400',
-        title: historicalTrend.overallExplanation,
-      };
-    }
-    if (cls === 'VOLATILE') {
-      return {
-        text: `↕ ${count}d`,
-        tone: 'text-amber-600 dark:text-amber-400',
-        title: historicalTrend.overallExplanation,
-      };
-    }
-    if (cls === 'STABLE') {
-      return {
-        text: `→ ${count}d`,
-        tone: 'text-slate-500 dark:text-slate-400',
-        title: historicalTrend.overallExplanation,
-      };
-    }
-    return null;
-  }, [historicalTrend]);
 
   const searchScore = useMemo(
     () =>
@@ -291,7 +250,7 @@ export function ProductCard({
         className={`relative ${sizeClass} rounded-lg inline-flex items-center justify-center transition-all active:scale-95 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 before:content-[""] before:absolute before:-inset-1 sm:before:hidden ${
           isSaved
             ? 'text-teal-700 dark:text-teal-400 bg-teal-50/90 dark:bg-teal-950/50 hover:bg-teal-100/80 dark:hover:bg-teal-950/80'
-            : 'text-slate-400 dark:text-slate-500 hover:text-teal-700 dark:hover:text-teal-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            : 'text-slate-500 dark:text-slate-400 hover:text-teal-700 dark:hover:text-teal-400 hover:bg-slate-100 dark:hover:bg-slate-800'
         }`}
       >
         <Bookmark className="w-3.5 h-3.5" fill={isSaved ? 'currentColor' : 'none'} />
@@ -325,63 +284,6 @@ export function ProductCard({
       ? formatCompactThb(metrics!.revenueThb7d!)
       : '—';
 
-  // 4 Unified Search Score Pillars — all computed directly from real search data
-  const pillars = [
-    {
-      key: 'demand',
-      label: t.v2.searchScore.pillars.demand.short,
-      score: searchScore.pillars.demand.score,
-      barClass: 'bg-emerald-500 dark:bg-emerald-400',
-      textClass: 'text-emerald-700 dark:text-emerald-400',
-    },
-    {
-      key: 'earning',
-      label: t.v2.searchScore.pillars.earning.short,
-      score: isZeroCommission ? 0 : searchScore.pillars.earning.score,
-      barClass: isZeroCommission ? 'bg-rose-500 dark:bg-rose-400' : 'bg-teal-500 dark:bg-teal-400',
-      textClass: isZeroCommission
-        ? 'text-rose-700 dark:text-rose-400'
-        : 'text-teal-700 dark:text-teal-400',
-    },
-    {
-      key: 'videoProof',
-      label: t.v2.searchScore.pillars.videoProof.short,
-      score: searchScore.pillars.videoProof.score,
-      barClass: 'bg-sky-500 dark:bg-sky-400',
-      textClass: 'text-sky-700 dark:text-sky-400',
-    },
-    {
-      key: 'priceFit',
-      label: t.v2.searchScore.pillars.priceFit.short,
-      score: searchScore.pillars.priceFit.score,
-      barClass: 'bg-indigo-500 dark:bg-indigo-400',
-      textClass: 'text-indigo-700 dark:text-indigo-400',
-    },
-  ];
-
-  // Channel split percentages for proportional Video / Live / Mall visual bar
-  const videoSharePct =
-    searchScore.metrics.videoSharePct !== null
-      ? Math.max(0, Math.min(100, Math.round(searchScore.metrics.videoSharePct)))
-      : null;
-  const liveSharePct =
-    searchScore.metrics.liveSharePct !== null
-      ? Math.max(
-          0,
-          Math.min(
-            videoSharePct !== null ? 100 - videoSharePct : 100,
-            Math.round(searchScore.metrics.liveSharePct)
-          )
-        )
-      : null;
-  const mallSharePct =
-    videoSharePct !== null
-      ? Math.max(0, 100 - videoSharePct - (liveSharePct ?? 0))
-      : null;
-
-  const videoPoolThb = searchScore.metrics.videoCommissionPoolThb;
-  const primaryCap = searchScore.capsApplied[0] ?? null;
-
   const renderUtilityButtons = (compactMode: boolean) => (
     <div className={`flex items-center shrink-0 ${compactMode ? 'gap-1.5 sm:gap-0.5' : 'gap-2 sm:gap-1'}`}>
       <button
@@ -391,11 +293,12 @@ export function ProductCard({
           handleCopy('thai', product.thaiTitle);
         }}
         title={t.card.copyThai}
+        aria-label={t.card.copyThai}
         className={`relative ${
           compactMode
             ? 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px] sm:text-[10px]'
             : 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px]'
-        } rounded-md font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-all active:scale-95 cursor-pointer before:content-[""] before:absolute before:-inset-1 sm:before:hidden`}
+        } rounded-md font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-all active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 before:content-[""] before:absolute before:-inset-1 sm:before:hidden`}
       >
         {copiedField === 'thai' ? (
           <Check className="w-3 h-3 text-teal-600 dark:text-teal-400" />
@@ -411,11 +314,12 @@ export function ProductCard({
           handleCopy('id', product.id);
         }}
         title={`${t.card.copyId}: ${product.id}`}
+        aria-label={`${t.card.copyId}: ${product.id}`}
         className={`relative ${
           compactMode
             ? 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px] sm:text-[10px]'
             : 'h-8 sm:h-7 px-2 sm:px-1.5 text-[11px]'
-        } rounded-md font-mono-num font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-all active:scale-95 cursor-pointer before:content-[""] before:absolute before:-inset-1 sm:before:hidden`}
+        } rounded-md font-mono-num font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-0.5 transition-all active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 before:content-[""] before:absolute before:-inset-1 sm:before:hidden`}
       >
         {copiedField === 'id' ? (
           <Check className="w-3 h-3 text-teal-600 dark:text-teal-400" />
@@ -453,7 +357,7 @@ export function ProductCard({
   // Hero 4-number visual strip: Price, Commission, 7d Sales, 7d Video/Total Rev
   const renderHeroMetricsStrip = (colsClass: string) => (
     <div
-      className={`grid ${colsClass} gap-x-3 gap-y-2 pt-2.5 border-t border-slate-100 dark:border-slate-800/80`}
+      className={`grid ${colsClass} gap-x-2.5 gap-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-800/80`}
     >
       <div className="min-w-0">
         <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
@@ -502,144 +406,6 @@ export function ProductCard({
       )}
     </div>
   );
-
-  // 4 Real Search Score Pillar Bars (Demand · Earning · Video · Price)
-  const renderPillarBars = (columnsClass: string) => (
-    <div
-      className={`grid ${columnsClass} gap-x-3.5 gap-y-2 pt-2.5 border-t border-slate-100 dark:border-slate-800/80`}
-    >
-      {pillars.map((pillar) => {
-        const hasScore = pillar.score !== null;
-        const rounded = hasScore ? Math.round(pillar.score!) : null;
-        const widthPct = rounded !== null ? Math.max(rounded > 0 ? 5 : 0, Math.min(100, rounded)) : 0;
-
-        return (
-          <div
-            key={pillar.key}
-            className="min-w-0"
-            title={`${pillar.label}: ${rounded !== null ? `${rounded}/100` : '—'}`}
-          >
-            <div className="flex items-baseline justify-between gap-1.5">
-              <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 truncate">
-                {pillar.label}
-              </span>
-              <span
-                className={`text-xs font-semibold font-mono-num tabular-nums shrink-0 ${
-                  rounded !== null ? pillar.textClass : 'text-slate-400 dark:text-slate-500'
-                }`}
-              >
-                {rounded !== null ? (pillar.key === 'earning' && isZeroCommission ? '0%' : rounded) : '—'}
-              </span>
-            </div>
-
-            <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800/90 overflow-hidden">
-              {rounded !== null && widthPct > 0 && (
-                <div
-                  className={`h-full rounded-full transition-all duration-200 ${pillar.barClass}`}
-                  style={{ width: `${widthPct}%` }}
-                />
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-
-  // Clean Visual Channel Split Bar + Affiliate Video Pool / Cap Signal
-  const renderChannelAndPoolStrip = () => {
-    const channelLegend =
-      videoSharePct !== null
-        ? `${t.v2.searchScore.channelShort.video} ${videoSharePct}%${
-            liveSharePct !== null && liveSharePct >= 10
-              ? ` · ${t.v2.searchScore.channelShort.live} ${liveSharePct}%`
-              : ''
-          }`
-        : '—';
-
-    return (
-      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-2 gap-x-3.5 items-end">
-        {/* Left: Proportional Video / Live / Mall Channel Bar */}
-        <div
-          className="min-w-0"
-          title={`${t.v2.searchScore.channelsTitle}: ${channelLegend}`}
-          aria-label={`${t.v2.searchScore.channelsTitle}: ${channelLegend}`}
-        >
-          <div className="flex items-baseline justify-between gap-1 text-[10px]">
-            <span className="text-slate-500 dark:text-slate-400 truncate">
-              {t.v2.searchScore.channelShort.video}
-            </span>
-            <span className="font-mono-num tabular-nums font-semibold text-slate-700 dark:text-slate-200 shrink-0">
-              {videoSharePct !== null ? `${videoSharePct}%` : '—'}
-            </span>
-          </div>
-          {videoSharePct !== null ? (
-            <div className="mt-1 h-1.5 w-full rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden flex">
-              {videoSharePct > 0 && (
-                <div
-                  className="h-full bg-sky-500 dark:bg-sky-400"
-                  style={{ width: `${videoSharePct}%` }}
-                />
-              )}
-              {liveSharePct !== null && liveSharePct > 0 && (
-                <div
-                  className="h-full bg-amber-400 dark:bg-amber-400/90"
-                  style={{ width: `${liveSharePct}%` }}
-                />
-              )}
-              {mallSharePct !== null && mallSharePct > 0 && (
-                <div
-                  className="h-full bg-slate-300 dark:bg-slate-600"
-                  style={{ width: `${mallSharePct}%` }}
-                />
-              )}
-            </div>
-          ) : (
-            <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800" />
-          )}
-        </div>
-
-        {/* Right: Video Commission Pool OR Active Cap / Zero Commission Alert */}
-        <div className="min-w-0 text-right">
-          {isZeroCommission ? (
-            <div className="inline-flex items-center justify-end gap-1 text-[11px] font-semibold text-rose-700 dark:text-rose-400">
-              <AlertTriangle className="w-3 h-3 shrink-0" />
-              <span className="truncate">{t.v2.searchScore.grades.NOT_MONETIZABLE}</span>
-            </div>
-          ) : primaryCap ? (
-            <div className="inline-flex items-center justify-end gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="w-3 h-3 shrink-0" />
-              <span className="truncate">{formatCapChip(primaryCap, language)}</span>
-              {compactTrendChip && (
-                <span className={`font-mono-num tabular-nums text-[10px] font-semibold ${compactTrendChip.tone}`}>
-                  {compactTrendChip.text}
-                </span>
-              )}
-            </div>
-          ) : (
-            <div className="min-w-0">
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                {t.v2.searchScore.videoPoolLabel}
-              </div>
-              <div className="mt-0.5 flex items-baseline justify-end gap-1.5 font-mono-num tabular-nums">
-                <span className="text-xs font-semibold text-teal-700 dark:text-teal-400 truncate">
-                  {videoPoolThb !== null && videoPoolThb > 0 ? formatCompactThb(videoPoolThb) : '—'}
-                </span>
-                {compactTrendChip && (
-                  <span
-                    className={`text-[10px] font-semibold shrink-0 ${compactTrendChip.tone}`}
-                    title={compactTrendChip.title}
-                  >
-                    {compactTrendChip.text}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   // =========================================================================
   // LIST VIEW — 3 Zoom Levels (Micro: Image + Name | Compact | Detailed)
@@ -734,14 +500,6 @@ export function ProductCard({
                 <span className="truncate" title={displayCategoryLabel}>
                   {displayCategoryLabel}
                 </span>
-                {videoSharePct !== null && (
-                  <>
-                    <span aria-hidden="true">·</span>
-                    <span className="font-mono-num tabular-nums text-sky-700 dark:text-sky-400 font-medium shrink-0">
-                      Video {videoSharePct}%
-                    </span>
-                  </>
-                )}
               </div>
 
               <button
@@ -783,7 +541,7 @@ export function ProductCard({
                 onClick={() => onOpenScoreDetails(product)}
                 title={scoreTooltipTitle}
                 aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? '—'}`}
-                className='relative inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors shrink-0 cursor-pointer before:content-[""] before:absolute before:-inset-1 sm:before:hidden'
+                className='relative inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 before:content-[""] before:absolute before:-inset-1 sm:before:hidden'
               >
                 <ScoreRing score={displayedScore} grade={scoreGrade} size={34} strokeWidth={3} />
               </button>
@@ -792,7 +550,7 @@ export function ProductCard({
                 type="button"
                 onClick={() => onSelect(product)}
                 aria-label={`${primaryTitle} — ${t.discover.openStudioShort}`}
-                className="h-10 sm:h-9 px-3 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-all active:scale-[0.98] cursor-pointer"
+                className="h-10 sm:h-9 px-3 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-all active:scale-[0.98] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               >
                 <span className="hidden sm:inline">{t.discover.openStudioShort}</span>
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />
@@ -836,7 +594,7 @@ export function ProductCard({
           />
         </button>
 
-        <div className="flex-1 min-w-0 p-3 sm:p-4 flex flex-col justify-between gap-2.5">
+        <div className="flex-1 min-w-0 p-2.5 sm:p-3 flex flex-col justify-between gap-1.5">
           <div>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
@@ -850,6 +608,7 @@ export function ProductCard({
                   </span>
                   <span aria-hidden="true">·</span>
                   <span className={`font-semibold shrink-0 ${statusToneTextClass}`}>
+                    <span aria-hidden="true">{searchGradeSymbol(searchScore.grade)} </span>
                     {headerStatusText}
                   </span>
                 </div>
@@ -872,7 +631,7 @@ export function ProductCard({
                   onClick={() => onOpenScoreDetails(product)}
                   title={scoreTooltipTitle}
                   aria-label={`${t.score.tooltipBtn}: ${displayedScore ?? '—'}`}
-                  className='relative sm:hidden inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 shrink-0 cursor-pointer before:content-[""] before:absolute before:-inset-1 sm:before:hidden'
+                  className='relative sm:hidden inline-flex items-center justify-center rounded-full p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800/80 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 before:content-[""] before:absolute before:-inset-1 sm:before:hidden'
                 >
                   <ScoreRing score={displayedScore} grade={scoreGrade} size={36} strokeWidth={3} />
                 </button>
@@ -888,15 +647,13 @@ export function ProductCard({
           </div>
 
           {renderHeroMetricsStrip('grid-cols-2 sm:grid-cols-4')}
-          {renderPillarBars('grid-cols-2 md:grid-cols-4')}
-          {renderChannelAndPoolStrip()}
 
           {/* Mobile Action Footer */}
           <div className="sm:hidden pt-1">
             <button
               type="button"
               onClick={() => onSelect(product)}
-              className="w-full h-10 sm:h-9 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer"
+              className="w-full h-10 sm:h-9 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap active:scale-[0.98] transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <span>{t.discover.openStudioShort}</span>
               <ArrowRight className="w-3.5 h-3.5 shrink-0" />
@@ -905,7 +662,7 @@ export function ProductCard({
         </div>
 
         {/* Desktop / Tablet Right Action Column */}
-        <div className="hidden sm:flex flex-col items-end justify-between gap-3 w-44 md:w-48 shrink-0 p-4 border-l border-slate-100 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-900/20">
+        <div className="hidden sm:flex flex-col items-end justify-between gap-2.5 w-44 md:w-48 shrink-0 p-3 border-l border-slate-100 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-900/20">
           <div className="w-full flex items-center justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
@@ -1000,7 +757,7 @@ export function ProductCard({
       ? 'aspect-square sm:aspect-[4/3]'
       : 'aspect-[4/3]';
 
-  const bodyPaddingClass = isSpacious ? 'p-4 sm:p-5' : isCompact ? 'p-3' : 'p-3.5 sm:p-4';
+  const bodyPaddingClass = isSpacious ? 'p-3.5 sm:p-4' : isCompact ? 'p-2.5' : 'p-3';
 
   return (
     <article
@@ -1055,6 +812,7 @@ export function ProductCard({
               <>
                 <span aria-hidden="true">·</span>
                 <span className={`font-semibold shrink-0 ${statusToneTextClass}`}>
+                  <span aria-hidden="true">{searchGradeSymbol(searchScore.grade)} </span>
                   {headerStatusText}
                 </span>
               </>
@@ -1101,14 +859,9 @@ export function ProductCard({
             <ScoreRing
               score={displayedScore}
               grade={scoreGrade}
-              size={isSpacious ? 46 : isCompact ? 34 : 42}
+              size={isSpacious ? 42 : isCompact ? 34 : 38}
               strokeWidth={isCompact ? 3 : 3.5}
             />
-            {!isCompact && (
-              <span className="mt-0.5 text-[9px] font-medium text-slate-400 dark:text-slate-500 leading-none">
-                {scoreRingCaption}
-              </span>
-            )}
           </button>
         </div>
 
@@ -1120,96 +873,45 @@ export function ProductCard({
           {renderUtilityButtons(isCompact)}
         </div>
 
-        {/* Visual Body: Hero Numbers -> 4 Real Search Score Pillar Bars -> Channel Split & Video Pool */}
+        {/* Visual Body: Clean Seller Metrics + Open Studio CTA */}
         {isCompact ? (
-          <>
-            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-2 gap-x-2 gap-y-1 font-mono-num tabular-nums">
-              {pillars.map((pillar) => (
-                <div key={pillar.key} className="min-w-0 flex items-baseline justify-between gap-1">
-                  <span className="font-sans text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                    {pillar.label}
-                  </span>
-                  <span
-                    className={`text-[11px] font-semibold shrink-0 ${
-                      pillar.score !== null ? pillar.textClass : 'text-slate-400 dark:text-slate-500'
-                    }`}
-                  >
-                    {pillar.score !== null
-                      ? pillar.key === 'earning' && isZeroCommission
-                        ? '0%'
-                        : Math.round(pillar.score)
-                      : '—'}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-auto pt-2.5">
-              <div className="border-t border-slate-100 dark:border-slate-800/90 pt-2 flex items-baseline justify-between gap-2">
-                <div className="text-xs sm:text-sm font-semibold font-mono-num tabular-nums text-slate-900 dark:text-slate-100 select-text">
-                  {product.priceThb !== null ? `฿${product.priceThb.toLocaleString()}` : '—'}
-                </div>
-                <div
-                  className={`text-[11px] sm:text-xs font-semibold font-mono-num tabular-nums truncate select-text ${
-                    isZeroCommission
-                      ? 'text-rose-700 dark:text-rose-400'
-                      : 'text-teal-700 dark:text-teal-400'
-                  }`}
-                >
-                  {commissionText}
-                </div>
+          <div className="mt-auto pt-2">
+            <div className="border-t border-slate-100 dark:border-slate-800/90 pt-1.5 grid grid-cols-2 gap-x-2 items-baseline">
+              <div className="text-xs sm:text-sm font-semibold font-mono-num tabular-nums text-slate-900 dark:text-slate-100 truncate select-text">
+                {product.priceThb !== null ? `฿${product.priceThb.toLocaleString()}` : '—'}
               </div>
-
-              <button
-                type="button"
-                onClick={() => onSelect(product)}
-                className="mt-2.5 w-full h-10 sm:h-9 px-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+              <div
+                className={`text-right text-[11px] sm:text-xs font-semibold font-mono-num tabular-nums truncate select-text ${
+                  isZeroCommission
+                    ? 'text-rose-700 dark:text-rose-400'
+                    : 'text-teal-700 dark:text-teal-400'
+                }`}
               >
-                <span className="truncate">{t.discover.openStudioShort}</span>
-                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-              </button>
+                {commissionText}
+              </div>
             </div>
-          </>
+
+            <button
+              type="button"
+              onClick={() => onSelect(product)}
+              className="mt-2 w-full h-9 px-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            >
+              <span className="truncate">{t.discover.openStudioShort}</span>
+              <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+            </button>
+          </div>
         ) : (
           <>
-            <div className="mt-2.5 space-y-2.5">
+            <div className="mt-1.5">
               {renderHeroMetricsStrip(isSpacious ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}
-              {isSpacious ? (
-                <>
-                  <div className={detailsExpanded ? 'space-y-2.5' : 'hidden lg:block space-y-2.5'}>
-                    {renderPillarBars('grid-cols-2 sm:grid-cols-4')}
-                    {renderChannelAndPoolStrip()}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setDetailsExpanded((prev) => !prev)}
-                    aria-expanded={detailsExpanded}
-                    className="lg:hidden h-9 px-2 -ml-1 rounded-lg text-xs font-medium text-teal-700 dark:text-teal-400 hover:bg-teal-50/80 dark:hover:bg-teal-950/40 inline-flex items-center gap-1 active:scale-95 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-                  >
-                    <span>
-                      {detailsExpanded ? t.card.hideDetailsToggle : t.card.showDetailsToggle}
-                    </span>
-                    {detailsExpanded ? (
-                      <ChevronUp className="w-3.5 h-3.5 shrink-0" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                    )}
-                  </button>
-                </>
-              ) : (
-                <>
-                  {renderPillarBars('grid-cols-2')}
-                  {renderChannelAndPoolStrip()}
-                </>
-              )}
             </div>
 
             {/* Clean Single-Action Studio CTA Footer */}
-            <div className="mt-auto pt-3">
+            <div className="mt-auto pt-2">
               <button
                 type="button"
                 onClick={() => onSelect(product)}
-                className="w-full h-10 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#131B24]"
+                className="w-full h-9 px-3.5 rounded-lg bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400 text-white dark:text-slate-950 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-150 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#131B24]"
               >
                 <span className="truncate">{t.discover.openStudioShort}</span>
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />

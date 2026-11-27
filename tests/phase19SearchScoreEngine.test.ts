@@ -321,10 +321,8 @@ test('Phase 19: ProductCard and visual ScoreDetailContent render unified Search 
     assert.ok(cardHtml.includes(String(entry.searchScore.score)));
     assert.ok(cardHtml.includes(t.v2.searchScore.badgeShort));
     assert.ok(cardHtml.includes(t.v2.searchScore.grades[entry.searchScore.grade]));
-    assert.ok(cardHtml.includes(t.v2.searchScore.pillars.demand.short));
-    assert.ok(cardHtml.includes(t.v2.searchScore.pillars.earning.short));
-    assert.ok(cardHtml.includes(t.v2.searchScore.pillars.videoProof.short));
-    assert.ok(cardHtml.includes(t.v2.searchScore.pillars.priceFit.short));
+    assert.ok(cardHtml.includes(t.card.price));
+    assert.ok(cardHtml.includes(t.card.commission));
     assert.ok(!cardHtml.includes('Data Confidence'));
     assert.ok(!cardHtml.includes('Insufficient Data'));
 

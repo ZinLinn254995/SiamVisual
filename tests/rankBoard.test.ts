@@ -334,7 +334,8 @@ test('ProductRankBoardView renders empty state, loading state, and populated das
       t: TRANSLATIONS.my,
     })
   );
-  assert.ok(emptyHtml.includes(TRANSLATIONS.my.rankBoard.emptyTitle));
+  assert.ok(emptyHtml.includes(TRANSLATIONS.my.rankBoard.emptyCtaBtn(0.4)));
+  assert.ok(!emptyHtml.includes(TRANSLATIONS.my.rankBoard.emptyDesc));
 
   const loadingHtml = renderToStaticMarkup(
     React.createElement(ProductRankBoardView, {
@@ -347,18 +348,34 @@ test('ProductRankBoardView renders empty state, loading state, and populated das
   );
   assert.ok(loadingHtml.includes(TRANSLATIONS.en.rankBoard.loadingNote));
 
-  const myPopulatedHtml = renderToStaticMarkup(
+  const myPopulatedRankingsHtml = renderToStaticMarkup(
     React.createElement(ProductRankBoardView, {
       ...commonProps,
       snapshot,
       isSyncing: false,
       language: 'my',
+      initialSubpage: 'rankings',
       t: TRANSLATIONS.my,
     })
   );
-  assert.ok(myPopulatedHtml.includes('เซรั่มวิตามินซี หน้าใส ลดจุดด่างดำ 30ml'));
-  assert.ok(myPopulatedHtml.includes(TRANSLATIONS.my.rankBoard.channelSectionTitle));
-  assert.ok(myPopulatedHtml.includes(TRANSLATIONS.my.rankBoard.matrixSectionTitle));
+  assert.ok(myPopulatedRankingsHtml.includes('เซรั่มวิตามินซี หน้าใส ลดจุดด่างดำ 30ml'));
+  assert.ok(myPopulatedRankingsHtml.includes(TRANSLATIONS.my.rankBoard.subpages.rankings));
+  assert.ok(myPopulatedRankingsHtml.includes(TRANSLATIONS.my.rankBoard.subpages.analytics));
+  assert.ok(!myPopulatedRankingsHtml.includes(TRANSLATIONS.my.rankBoard.matrixSectionTitle));
+
+  const myPopulatedAnalyticsHtml = renderToStaticMarkup(
+    React.createElement(ProductRankBoardView, {
+      ...commonProps,
+      snapshot,
+      isSyncing: false,
+      language: 'my',
+      initialSubpage: 'analytics',
+      t: TRANSLATIONS.my,
+    })
+  );
+  assert.ok(myPopulatedAnalyticsHtml.includes(TRANSLATIONS.my.rankBoard.channelSectionTitle));
+  assert.ok(myPopulatedAnalyticsHtml.includes(TRANSLATIONS.my.rankBoard.matrixSectionTitle));
+  assert.ok(!myPopulatedAnalyticsHtml.includes('Open Video Studio'));
 
   const enPopulatedHtml = renderToStaticMarkup(
     React.createElement(ProductRankBoardView, {
@@ -371,4 +388,37 @@ test('ProductRankBoardView renders empty state, loading state, and populated das
   );
   assert.ok(enPopulatedHtml.includes('Thailand TikTok Shop Rank Board'));
   assert.ok(enPopulatedHtml.includes('Open Video Studio'));
+
+  // Verify 10-row client-side pagination on Rankings subpage
+  const manyProducts = Array.from({ length: 15 }, (_, idx) =>
+    makeSampleProduct({
+      id: `p_page_${idx + 1}`,
+      thaiTitle: `Product Row ${idx + 1}`,
+      kalodataMetrics: {
+        ...makeSampleProduct().kalodataMetrics,
+        revenueThb7d: 500000 - idx * 10000,
+      },
+    })
+  );
+  const pagedSnapshot = buildRankBoardSnapshot({
+    products: manyProducts,
+    liveCategories: [],
+    dateRange: 'last7Day',
+    syncedAt: '2026-11-26T12:00:00.000Z',
+    creditsUsed: 0.4,
+  });
+  const pagedHtml = renderToStaticMarkup(
+    React.createElement(ProductRankBoardView, {
+      ...commonProps,
+      snapshot: pagedSnapshot,
+      isSyncing: false,
+      language: 'en',
+      t: TRANSLATIONS.en,
+    })
+  );
+  assert.ok(pagedHtml.includes('Product Row 1'));
+  assert.ok(pagedHtml.includes('Product Row 10'));
+  assert.ok(!pagedHtml.includes('Product Row 11'));
+  assert.ok(pagedHtml.includes('aria-label="Pagination"'));
 });
+
